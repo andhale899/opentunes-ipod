@@ -123,3 +123,12 @@ Report or log attached:
 - Outcome: **ran, same findings, patch confirmed**
 - What happened: the report matched the fifth run (library identical, signatures valid, the same losses in containers, played flags, genre order and location kinds) except that `item.is_home_video` is no longer missing, so the patched engine adds the column in the browser as it did in the tests. Eleven empty Apple-only columns are still missing.
 - Notes: the dev server log for that session held sixteen errors, all from code edits reloading the page while an old result was still on screen, none from a click. A boundary now stops a panel that fails to draw from taking the page down. The report did not show the library version, so the check now does.
+
+### 2026-11-07: first write-back, nano 7th generation, macOS (seventh run)
+
+- App commit: `3b256cb` on `main`, run from the command line with the same backup, plan and write-back code the page uses (the owner asked for it to be done for them)
+- iPod: the same nano 7th generation as above, mounted as FAT
+- Case: Phase 1 write-back test: back up, plan, write the rebuilt database with no new songs
+- Outcome: **write verified, nano check pending**
+- What happened: a backup of 36 files (1.6 MB) was read back and matched. The plan changed seven files, all in `iPod_Control/iTunes`: the five `.itdb` files, `Locations.itdb.cbk` and `iTunesCDB`, and left the empty `iTunesDB` off. The write put them on the iPod, read each back, then read the whole iPod back: 942 tracks, 3 playlists, no field changed, and both signatures valid. Nothing was rolled back. The library files the iPod wrote itself between runs (`Play Counts` gone, a third playlist) were backed up first.
+- Notes: the backup folders are `opentunes-backup-2026-11-07-1825` and `-1826` in the owner's `bkp` folder, the second made immediately before the write. What the nano does with the rebuilt library, and whether its menus look as before, is the result still to be recorded.
