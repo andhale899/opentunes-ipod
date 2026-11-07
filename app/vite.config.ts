@@ -14,4 +14,8 @@ export default defineConfig({
   server: { headers: isolation },
   preview: { headers: isolation },
   build: { target: 'es2022' },
+  // ffmpeg.wasm starts its own module worker from a path next to its code, so Vite must not
+  // pre-bundle it in dev, and workers are built as ES modules.
+  optimizeDeps: { exclude: ['@ffmpeg/ffmpeg'] },
+  worker: { format: 'es' },
 });

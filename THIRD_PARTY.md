@@ -28,8 +28,11 @@ Linking LGPL libraries statically means that anyone given the compiled engine mu
 | SysInfoExtended templates | `engine/data/` | Unknown | Dumped from a real nano and kept as a fallback. The device's serial numbers were removed. They come from the same upstream repository. |
 | hashAB test vectors | `engine/test/hashab-vectors.json` | The Unlicense | From `dstaley/hashab` at the pinned commit. |
 
-## Planned
+## Loaded by the converter
 
-| Component | Notes |
-| --- | --- |
-| ffmpeg.wasm | For the converter. The core may be GPL if it includes x264. Check when added. |
+Copied from `node_modules` into `app/public/ffmpeg/` by `app/scripts/sync-ffmpeg.mjs` (generated, not committed) and served from the app's own origin.
+
+| Component | Licence | Notes |
+| --- | --- | --- |
+| `@ffmpeg/ffmpeg` 0.12.15 | MIT (package.json) | The JavaScript that starts the worker. Bundled into the app. |
+| `@ffmpeg/core` 0.12.10 | GPL 2 or later (package.json) | The WebAssembly build of FFmpeg 5.1.4, single thread. Its own configure line, read from the wasm file, includes `--enable-gpl --enable-libx264 --enable-libx265 --enable-libvpx --enable-libmp3lame --enable-libvorbis --enable-libopus`, so the whole core is GPL. The package ships no licence text or source offer, and the licences of the libraries inside it were not read. Fine for private use. Before the app is ever shared, the GPL terms (source for the core and the app code that links it) have to be dealt with, or the core replaced with an LGPL-only build. |
