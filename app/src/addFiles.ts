@@ -21,16 +21,18 @@ export interface Candidate {
   userKind?: ContentKind;
   /** Bytes it will take on the iPod, or null when it cannot be told. */
   estimatedBytes: number | null;
+  /** The folder it came from inside a chosen folder, such as "Album / Disc 2", or empty. */
+  folder: string;
 }
 
 let counter = 0;
 
 /** Reads a picked file's tags and streams and decides, for one model, what to do with it. */
-export async function inspectFile(file: File, device: DeviceModel, userKind?: ContentKind): Promise<Candidate> {
+export async function inspectFile(file: File, device: DeviceModel, userKind?: ContentKind, folder = ''): Promise<Candidate> {
   const info = await probeMedia(fileSourceFromBlob(file.name, file));
   const decision = decideForDevice(info, device, { userKind });
   counter += 1;
-  return { id: `file-${counter}`, file, info, decision, userKind, estimatedBytes: estimateOutputBytes(info, decision) };
+  return { id: `file-${counter}`, file, info, decision, userKind, estimatedBytes: estimateOutputBytes(info, decision), folder };
 }
 
 /** Decides again, for another model or after the person named the kind. Does not read the file again. */

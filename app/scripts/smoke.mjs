@@ -164,9 +164,24 @@ const SCENARIOS = [
         await page.waitFor('7 tracks');
         // A picture next to the music, as in a chosen folder, is left out without a fuss.
         await page.click('Add music');
-        await page.chooseFiles([TONE_COPY, COVER]);
-        await page.waitFor('1 of 1 can be added');
+        // Stand in for Chrome's folder picker with a folder that has an album, a subfolder and a cover picture.
+        await page.evaluate(`(() => {
+          const wav = () => { const b = new Uint8Array(44 + 400); const v = new DataView(b.buffer); const t = (o, x) => [...x].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+            t(0, 'RIFF'); v.setUint32(4, 36 + 400, true); t(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true); v.setUint32(24, 44100, true); v.setUint32(28, 176400, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); t(36, 'data'); v.setUint32(40, 400, true); return b; };
+          const file = (name) => ({ kind: 'file', name, getFile: async () => new File([wav()], name) });
+          const folder = (name, children) => ({ kind: 'directory', name, async *entries() { for (const [childName, child] of Object.entries(children)) yield [childName, child]; } });
+          window.showDirectoryPicker = async () => folder('testmedia', {
+            'cover.jpg': file('cover.jpg'),
+            Album: folder('Album', { '02 Second.wav': file('02 Second.wav'), '01 First.wav': file('01 First.wav'), 'Disc 2': folder('Disc 2', { '03 Third.wav': file('03 Third.wav') }) }),
+            '.hidden': folder('.hidden', { 'x.wav': file('x.wav') }),
+          });
+        })()`);
+        await page.click('Choose a folder');
+        await page.waitFor('3 of 3 can be added');
         await page.waitFor('1 other file was left out');
+        await page.waitFor('Album / Disc 2');
+        const order = await page.evaluate(`[...document.querySelectorAll('td.cell-title')].map((cell) => cell.firstChild.textContent.trim()).join('|')`);
+        if (order !== '01 First.wav|02 Second.wav|03 Third.wav') throw new Error('The folder files came in the wrong order: ' + order);
         await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
         // Remove the copied file and its media file, then fix a title.
         await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
