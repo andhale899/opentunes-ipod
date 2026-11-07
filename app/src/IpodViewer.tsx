@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { formatBytes, formatDuration, isValidFireWireId, kindLabel } from '@opentunes/core';
 import {
-  EngineError,
   IpodFolderError,
   buildDemoIpod,
   buildSignedDemoIpod,
@@ -19,13 +18,18 @@ import {
   type SignatureStatus,
   type TrackInfo,
 } from '@opentunes/engine';
-import { EngineUnavailableError, newEngine } from './engineLoader';
+import { BackupPanel } from './BackupPanel';
+import { describeError } from './describeError';
+import { newEngine } from './engineLoader';
+import { RewritePanel } from './RewritePanel';
 
 const MAX_ROWS = 200;
 const MOUNT = '/ipod';
 
 interface Snapshot {
   source: 'folder' | 'demo';
+  /** The iPod's top folder, kept so the backup and the rewrite check can read it again. */
+  root: DirectoryEntry;
   folderName: string;
   device: DeviceInfo | null;
   tracks: TrackInfo[];
@@ -51,28 +55,15 @@ type View =
 
 type Picker = (options?: { mode?: 'read' | 'readwrite' }) => Promise<unknown>;
 
-function describeError(error: unknown): string {
-  if (error instanceof EngineUnavailableError || error instanceof IpodFolderError) {
-    return error.message;
-  }
-  if (error instanceof EngineError) {
-    return error.message;
-  }
-  if (error instanceof DOMException) {
-    return `${error.name}: ${error.message}`;
-  }
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** Reads everything the page shows from an open engine, so the engine can be closed afterwards. */
-function snapshotOf(engine: Engine, source: Snapshot['source'], folderName: string, load: LoadReport | null, signatures: SignatureCheck[] | null): Snapshot {
+function snapshotOf(engine: Engine, source: Snapshot['source'], root: DirectoryEntry, load: LoadReport | null, signatures: SignatureCheck[] | null): Snapshot {
   let device: DeviceInfo | null = null;
   try {
     device = engine.device();
   } catch {
     device = null;
   }
-  return { source, folderName, device, tracks: engine.tracks(), playlists: engine.playlists(), load, signatures };
+  return { source, root, folderName: root.name, device, tracks: engine.tracks(), playlists: engine.playlists(), load, signatures };
 }
 
 /**
@@ -331,7 +322,7 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
       }
       engine.open(load.mount);
       const signatures = await checkSignatures(engine, load.mount);
-      setView({ phase: 'ready', snapshot: snapshotOf(engine, source, directory.name, load, signatures) });
+      setView({ phase: 'ready', snapshot: snapshotOf(engine, source, directory, load, signatures) });
       engine.close();
     } catch (error) {
       const message = describeError(error);
@@ -374,7 +365,7 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
     <section>
       <h2>Read your iPod</h2>
       <p class="muted">
-        Opens an iPod's database with the engine and shows what it finds: the model, how the database is signed, and your library. It is read only. Nothing is written to the iPod. Track titles stay on this page and are left out of the report.
+        Opens an iPod's database with the engine and shows what it finds: the model, how the database is signed, whether its signatures check out, and your library. It is read only. Nothing is written to the iPod. Track titles stay on this page and are left out of the report. Below the result are a backup of the database files and a rewrite check, both read only on the iPod.
       </p>
       <div class="actions">
         <button type="button" onClick={() => void chooseFolder()} disabled={working || !canPickFolder}>
@@ -418,6 +409,8 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
         <>
           <Facts snapshot={view.snapshot} />
           {view.snapshot.load ? <FileList load={view.snapshot.load} /> : null}
+          {view.snapshot.source === 'folder' ? <BackupPanel source={view.snapshot.root} /> : null}
+          <RewritePanel source={view.snapshot.root} autoStart={new URLSearchParams(window.location.search).get('rewrite') === '1'} />
           <h3>Library</h3>
           <Library tracks={view.snapshot.tracks} />
           <h3>Playlists</h3>

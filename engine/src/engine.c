@@ -17,6 +17,9 @@
  * - Existing data is left alone. In particular smart playlists are written back as they
  *   were found: if libgpod cannot write them, the write fails with an error.
  *
+ * - ot_sqlite_query_json reads the SQLite files of a nano 6G/7G library, read only, so a
+ *   rewrite can be compared with what the iPod holds. It is independent of the open database.
+ *
  * Not here yet: album artwork (libgpod needs gdk-pixbuf for it, which is not built).
  */
 
@@ -26,6 +29,7 @@
 
 #include <emscripten.h>
 #include <glib.h>
+#include <sqlite3.h>
 
 #include "itdb.h"
 #include "itdb_device.h"
@@ -1074,4 +1078,146 @@ int ot_playlist_remove_track(int playlist_handle, int track_handle)
         itdb_playlist_remove_track(playlist, track);
     }
     return 0;
+}
+
+/* ------------------------------------------------------------- SQLite reader */
+
+/* Apple's own library files can name collations and functions that only Apple's code
+ * defines. Reading them here only counts and lists, so any ordering will do: a collation
+ * SQLite asks for by name is answered with plain byte order, and the two sort helpers are
+ * stand-ins that return their argument. They are marked deterministic because SQLite refuses
+ * to read a file whose index uses a function that is not. */
+static int compare_bytes(void *unused, int length_a, const void *a, int length_b, const void *b)
+{
+    (void) unused;
+    int common = length_a < length_b ? length_a : length_b;
+    int order = memcmp(a, b, (size_t) common);
+    return order ? order : length_a - length_b;
+}
+
+static void on_collation_needed(void *unused, sqlite3 *handle, int encoding, const char *name)
+{
+    (void) unused;
+    (void) encoding;
+    sqlite3_create_collation(handle, name, SQLITE_UTF8, NULL, compare_bytes);
+}
+
+static void return_argument(sqlite3_context *context, int count, sqlite3_value **values)
+{
+    (void) count;
+    sqlite3_result_value(context, values[0]);
+}
+
+/* Integers a JavaScript number cannot hold exactly (the iPod's 64-bit persistent ids) are
+ * written as strings. */
+static void json_sqlite_value(GString *s, sqlite3_stmt *statement, int column)
+{
+    switch (sqlite3_column_type(statement, column)) {
+    case SQLITE_INTEGER: {
+        sqlite3_int64 value = sqlite3_column_int64(statement, column);
+        if (value > 9007199254740991LL || value < -9007199254740991LL) {
+            g_string_append_printf(s, "\"%lld\"", (long long) value);
+        } else {
+            g_string_append_printf(s, "%lld", (long long) value);
+        }
+        break;
+    }
+    case SQLITE_FLOAT: {
+        double value = sqlite3_column_double(statement, column);
+        if (isfinite(value)) {
+            g_string_append_printf(s, "%.17g", value);
+        } else {
+            g_string_append(s, "null");
+        }
+        break;
+    }
+    case SQLITE_TEXT:
+        json_string(s, (const gchar *) sqlite3_column_text(statement, column));
+        break;
+    case SQLITE_BLOB: {
+        gchar *label = g_strdup_printf("<blob, %d bytes>", sqlite3_column_bytes(statement, column));
+        json_string(s, label);
+        g_free(label);
+        break;
+    }
+    default:
+        g_string_append(s, "null");
+    }
+}
+
+/* Runs one query on an SQLite file, read only, and returns
+ *   {"columns":[...],"rows":[[...],...],"truncated":false}
+ * Reading stops after max_rows rows and says so. The file is opened afresh for each call. */
+EMSCRIPTEN_KEEPALIVE
+const char *ot_sqlite_query_json(const char *path, const char *query, int max_rows)
+{
+    clear_error();
+    if (!path || !*path || !query || !*query) {
+        fail("A database path and a query are required.");
+        return NULL;
+    }
+    if (max_rows <= 0) {
+        max_rows = 1000;
+    }
+
+    sqlite3 *handle = NULL;
+    if (sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) {
+        fail("Could not open %s: %s", path, handle ? sqlite3_errmsg(handle) : "out of memory");
+        sqlite3_close(handle);
+        return NULL;
+    }
+    sqlite3_collation_needed(handle, NULL, on_collation_needed);
+    sqlite3_create_function(handle, "iPhoneSortKey", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, NULL, return_argument, NULL, NULL);
+    sqlite3_create_function(handle, "iPhoneSortSection", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, NULL, return_argument, NULL, NULL);
+
+    sqlite3_stmt *statement = NULL;
+    if (sqlite3_prepare_v2(handle, query, -1, &statement, NULL) != SQLITE_OK) {
+        fail("Could not read %s: %s", path, sqlite3_errmsg(handle));
+        sqlite3_close(handle);
+        return NULL;
+    }
+
+    g_string_truncate(out, 0);
+    g_string_append(out, "{\"columns\":[");
+    int columns = sqlite3_column_count(statement);
+    for (int c = 0; c < columns; c++) {
+        if (c) {
+            g_string_append_c(out, ',');
+        }
+        json_string(out, sqlite3_column_name(statement, c));
+    }
+    g_string_append(out, "],\"rows\":[");
+
+    int rows = 0;
+    gboolean truncated = FALSE;
+    int status;
+    while ((status = sqlite3_step(statement)) == SQLITE_ROW) {
+        if (rows >= max_rows) {
+            truncated = TRUE;
+            break;
+        }
+        if (rows) {
+            g_string_append_c(out, ',');
+        }
+        g_string_append_c(out, '[');
+        for (int c = 0; c < columns; c++) {
+            if (c) {
+                g_string_append_c(out, ',');
+            }
+            json_sqlite_value(out, statement, c);
+        }
+        g_string_append_c(out, ']');
+        rows++;
+    }
+
+    if (status != SQLITE_ROW && status != SQLITE_DONE) {
+        fail("Could not read %s: %s", path, sqlite3_errmsg(handle));
+        sqlite3_finalize(statement);
+        sqlite3_close(handle);
+        return NULL;
+    }
+    g_string_append_printf(out, "],\"truncated\":%s}", truncated ? "true" : "false");
+    sqlite3_finalize(statement);
+    sqlite3_close(handle);
+    return out->str;
 }

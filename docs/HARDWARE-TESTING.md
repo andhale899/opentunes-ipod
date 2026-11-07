@@ -4,7 +4,7 @@ A model only becomes `hardware-tested` in [DEVICE-SUPPORT.md](DEVICE-SUPPORT.md)
 
 ## Before any test that writes
 
-Copy the iPod's `iPod_Control/iTunes` and `iPod_Control/Device` folders to your computer. The app also backs up the database itself before writing, but a copy you made yourself does not depend on the app.
+Back up the iPod's database files with the reader's backup button (Phase 1, step 8), and keep that folder. The app will also back up before it writes, but a backup you made and checked yourself does not depend on the sync.
 
 ## Phase 0: environment check
 
@@ -21,6 +21,8 @@ The first run against real data, and it writes nothing. In the app, under "Read 
 5. The track and playlist counts match what the iPod shows.
 6. Compare the report with the nano 7G facts in [DEVICE-SUPPORT.md](DEVICE-SUPPORT.md): disk format, supported features. Note any difference. Those facts came from someone else's unit.
 7. "Signature on iTunesCDB" and "Signature on Locations.itdb.cbk" both say "Matches what the engine computes". This compares the signatures iTunes wrote on the iPod with the engine's own hashAB, so a match shows the engine signs the way this iPod expects, before anything is written. "Does not match" does not mean the iPod is damaged. It means the engine's understanding of the signature is off, so copy the report and do not sync. "Try a nano 7G-style demo" on the same page shows what a match looks like.
+8. Back up. Under the reader's result, click "Choose where to keep the backup" and pick a folder on the computer (if Chrome refuses Desktop, Documents or Downloads themselves, make a folder inside one). It should say every file was read back and matched. Open the folder and read `README.txt`. This only reads the iPod.
+9. Rewrite check. Click "Check what a rewrite would change" and copy the rewrite report. "No differences found" means a rewrite would keep everything the check can compare. Otherwise the differences are listed, and you should not sync: paste the report. From reading the code, the likely finding is that artwork links in the SQLite files are lost. The check writes only inside the engine's memory, never to the iPod.
 
 The report leaves out track titles but includes the iPod's serial number and FireWire ID.
 

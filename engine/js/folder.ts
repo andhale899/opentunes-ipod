@@ -65,7 +65,7 @@ export interface LoadReport {
 const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
 
 /** Files that appear on a FAT volume mounted by macOS or Windows and mean nothing to an iPod. */
-const isClutter = (name: string): boolean => name.startsWith('._') || name === '.DS_Store' || name === 'Thumbs.db';
+export const isClutter = (name: string): boolean => name.startsWith('._') || name === '.DS_Store' || name === 'Thumbs.db';
 
 /**
  * Big files inside the folders the loader copies that libgpod never opens. On the owner's
@@ -75,6 +75,9 @@ const isClutter = (name: string): boolean => name.startsWith('._') || name === '
  * file with the same name somewhere else is still read.
  */
 const NOT_NEEDED = new Set(['iTunes/iTunesControl', 'Device/Radio/RadioBuffer']);
+
+/** True for a path from iPod_Control, such as "iTunes/iTunesControl", that libgpod never opens. */
+export const isNotNeeded = (pathFromControl: string): boolean => NOT_NEEDED.has(pathFromControl);
 
 function makeDirectories(fs: Engine['fs'], path: string): void {
   let current = '';

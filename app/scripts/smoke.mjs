@@ -18,13 +18,13 @@ const SCENARIOS = [
   {
     name: 'a demo iPod with one of each kind',
     url: `http://localhost:${port}/?demo=1`,
-    expected: ['Demo iPod', '5 tracks, 3 playlists', 'Morning Light', 'Episode 12: Engines', 'A Short Story', 'Demo Film', 'Road trip', 'Audiobook', 'Podcast', 'Files read from the iPod'],
-    forbidden: ['Signature on'],
+    expected: ['Demo iPod', '5 tracks, 3 playlists', 'Morning Light', 'Episode 12: Engines', 'A Short Story', 'Demo Film', 'Road trip', 'Audiobook', 'Podcast', 'Files read from the iPod', 'Check what a rewrite would change'],
+    forbidden: ['Signature on', 'Back up the database files'],
     alert: false,
   },
   {
     name: 'a nano 7G-style iPod with signed databases',
-    url: `http://localhost:${port}/?demo=signed`,
+    url: `http://localhost:${port}/?demo=signed&rewrite=1`,
     expected: [
       'Demo nano 7G',
       '5 tracks, 3 playlists',
@@ -34,8 +34,11 @@ const SCENARIOS = [
       'Matches what the engine computes',
       '2 files libgpod never opens',
       'not read: libgpod never opens it',
+      'No differences found',
+      'Signature on iTunesCDB after the rewrite',
+      'Copy rewrite report',
     ],
-    forbidden: ['Does not match', 'Could not be checked'],
+    forbidden: ['Does not match', 'Could not be checked', 'differences found. A sync'],
     alert: false,
   },
   {
