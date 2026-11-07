@@ -1,0 +1,25 @@
+# Meson cross file for building C libraries to WebAssembly with emscripten.
+# Adapted from the emscripten-forge glib recipe (BSD-3-Clause):
+# https://github.com/emscripten-forge/recipes/tree/main/recipes/recipes_emscripten/glib
+
+[properties]
+needs_exe_wrapper = true
+skip_sanity_check = true
+
+[host_machine]
+system = 'emscripten'
+cpu_family = 'wasm32'
+cpu = 'wasm'
+endian = 'little'
+
+[binaries]
+exe_wrapper = 'node'
+pkg-config = ['pkg-config', '--static']
+c = 'emcc'
+cpp = 'em++'
+ar = 'emar'
+ranlib = 'emranlib'
+
+[built-in options]
+c_thread_count = 0
+cpp_thread_count = 0

@@ -1,0 +1,22 @@
+Subject: itdb_zlib.h: include glib.h before using G_BEGIN_DECLS
+
+The header opens a G_BEGIN_DECLS block before including glib.h, which only
+worked in 2012 because another header had already pulled glib in. With a
+current glib the macro is unknown and the file does not compile.
+
+---
+--- a/src/itdb_zlib.h
++++ b/src/itdb_zlib.h
+@@ -28,10 +28,11 @@
+ #ifndef __ITDB_ZLIB_H__
+ #define __ITDB_ZLIB_H__
+ 
+-G_BEGIN_DECLS
+ #include <glib.h>
+ #include <itdb_private.h>
+ 
++G_BEGIN_DECLS
++
+ G_GNUC_INTERNAL gboolean itdb_zlib_check_decompress_fimp (FImport *fimp);
+ G_GNUC_INTERNAL gboolean itdb_zlib_check_compress_fexp (FExport *fexp);
+ 

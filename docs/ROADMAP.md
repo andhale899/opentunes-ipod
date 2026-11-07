@@ -16,11 +16,13 @@ Status key: done, in progress, not started. Nothing below is marked done unless 
 
 Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C wrapper that knows about more than audio. Plan in [ENGINE-BUILD.md](ENGINE-BUILD.md).
 
-- [ ] Start Docker and build the toolchain image.
-- [ ] Build glib, libplist, libxml2, sqlite, zlib and libgpod to WebAssembly from pinned sources.
-- [ ] Extend the wrapper: media type per track, podcast and audiobook flags, remembered playback position, proper iPod initialisation through libgpod, artwork.
+- [x] Docker toolchain image (emscripten 4.0.23).
+- [x] Build glib, libplist, libxml2, SQLite, zlib, libffi and libgpod to WebAssembly from pinned, checksum-verified sources (`npm run engine:build`).
+- [x] hashAB compiled into the engine and matched against 100 known-answer vectors.
+- [x] Round-trip tests in Node: initialise an iPod, add a track, write, re-read. Plus a signed database write for a nano 7G-style device.
+- [ ] Extend the wrapper: media type per track, podcast and audiobook flags, remembered playback position, artwork. Round-trip tests for each kind.
 - [ ] Typed TypeScript bindings.
-- [ ] Round-trip tests in Node on generated fixture iPods: initialise, add tracks of each kind, write, re-read, compare.
+- [ ] Run the engine build and tests in CI.
 
 ## Phase 2: Music on the nano 7G
 
@@ -50,5 +52,6 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 
 - Does the nano 7G show photos or podcasts at all? The specification page is silent.
 - Which disk format does a restored nano 7G use, and does Android mount it?
-- Where did `calcHashAB.wasm` come from, and may it be reused? See [../THIRD_PARTY.md](../THIRD_PARTY.md).
+- Does libgpod, which does not know the nano 7G model number, give a nano 7G the right artwork formats? Untested until hardware.
+- The wrapper has no declared licence. Rewrite it, or ask the author? See [../THIRD_PARTY.md](../THIRD_PARTY.md).
 - Does Chrome for Android expose the folder picker for an iPod volume? Phase 0 checks this.

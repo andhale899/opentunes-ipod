@@ -34,9 +34,9 @@ Writing the database last means an interrupted sync leaves the iPod with its old
 
 **iPod storage (File System Access).** You pick the iPod's root folder. The app streams files into it rather than holding them in memory.
 
-**Database engine (libgpod as WebAssembly).** libgpod parses and writes the iTunesDB, assigns file paths, sets media types and writes artwork. It lives in `engine/`. The v1 build is kept as prebuilt files; Phase 1 replaces it with a reproducible Docker build, see [ENGINE-BUILD.md](ENGINE-BUILD.md).
+**Database engine (libgpod as WebAssembly).** libgpod parses and writes the iTunesDB, assigns file paths, sets media types and writes artwork. It lives in `engine/` and is built in Docker from pinned sources, see [ENGINE-BUILD.md](ENGINE-BUILD.md).
 
-**Checksums.** Newer models refuse a database that is not signed. libgpod handles most signing schemes itself. The nano 7G appears to need hashAB, which libgpod does not provide, so v1 used a separate prebuilt module (`engine/hashab/`). Which model needs which scheme is recorded in the registry as each is confirmed.
+**Checksums.** Newer models refuse a database that is not signed. libgpod picks the scheme from the device's own `SysInfoExtended` file and signs the database itself. For the nano 6G and 7G that scheme is hashAB, whose code libgpod does not contain, so the engine compiles the public-domain `dstaley/hashab` implementation in and libgpod calls it directly. Which model needs which scheme is recorded in the registry as each is confirmed.
 
 **Converter (ffmpeg.wasm).** Runs in a worker, only for files that cannot be copied as they are. Single-threaded conversion works everywhere but is slow on a phone, so the planner copies compatible files untouched wherever it can. Multi-threaded conversion needs cross-origin isolation, which the dev server sets and a hosted copy would need headers or a service worker for.
 
@@ -59,6 +59,6 @@ Writing the database last means an interrupted sync leaves the iPod with its old
 
 - `core/`: capability detection, song identity, device registry, with tests.
 - `app/`: the environment check page and two hands-on probes (USB, folder read and write).
-- `engine/`: the C wrapper and prebuilt files carried over from v1, unchanged. The wrapper tags every track as audio, which is why video, podcasts and audiobooks wait for Phase 1.
+- `engine/`: a reproducible Docker build of libgpod and the C wrapper, with nine Node tests. The wrapper still tags every track as audio, which is why video, podcasts and audiobooks wait for the next step of Phase 1.
 
 Not built yet: the engine rebuild, converter, planner, sync, library manager. See [ROADMAP.md](ROADMAP.md).
