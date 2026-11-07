@@ -8,6 +8,9 @@ engine/build/
 engine/.cache/
 app/public/engine/
 
+# ffmpeg.wasm core copied from node_modules by app/scripts/sync-ffmpeg.mjs
+app/public/ffmpeg/
+
 # Local files
 .env
 .env.*

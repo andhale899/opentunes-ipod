@@ -11,13 +11,18 @@ function Broken(): never {
   throw new Error('this panel was made to fail');
 }
 
-if (new URLSearchParams(window.location.search).get('selftest') === 'boundary') {
+const selftest = new URLSearchParams(window.location.search).get('selftest');
+
+if (selftest === 'boundary') {
   render(
     <PanelBoundary name="Self test">
       <Broken />
     </PanelBoundary>,
     root,
   );
+} else if (selftest === 'convert') {
+  // Runs the real converter on generated files. Opened with ?selftest=convert, never linked.
+  void import('./convert/selftest').then((module) => module.renderConvertSelfTest(root));
 } else {
   render(<App />, root);
 }

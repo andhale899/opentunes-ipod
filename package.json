@@ -15,7 +15,7 @@
     "build": "npm run build -w app",
     "preview": "npm run preview -w app",
     "typecheck": "npm run typecheck -w core && npm run typecheck -w app && tsc -p engine/tsconfig.json",
-    "test": "npm run test -w core",
+    "test": "npm run test -w core && npm run test -w app",
     "docs:devices": "npm run docs:devices -w core",
     "docs:check": "npm run docs:devices && git diff --exit-code docs/DEVICE-SUPPORT.md",
     "engine:build": "sh engine/scripts/build.sh",
