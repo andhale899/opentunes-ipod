@@ -87,3 +87,13 @@ Report or log attached:
 - What happened: the reader opened the iPod's `iTunesCDB` and read 942 music tracks and 2 playlists (the master list and a smart "Videos" list with no tracks). Both signature checks matched. It read 30 files, 1.4 MB, and left out the two 20 MiB files. In the speed test a small file cost a median 327 ms (create, write, close, delete), one 8 MB file wrote at 8.1 MB/s, and three 4 MB files at once at 13.2 MB/s.
 - Decision: a sync writes three files at a time.
 - Notes: the reader listed video as unsupported. That is libgpod judging video from the model number alone, and it does not know MD480, so the page no longer lists video for models libgpod does not know. Not yet shown: that libgpod's rewrite keeps everything on this iPod (artwork links, ratings, the other SQLite files). Next is a backup of the database files before any write, and a read-only rewrite check done in memory.
+
+### 2026-11-07: environment check and speed test again, nano 7th generation, macOS Chrome 157 (fourth run)
+
+- App commit: `0bd703d` on `main`
+- iPod: the same nano 7th generation as above
+- Host: desktop Chrome 157 on macOS
+- Case: Phase 0 environment check with the write-speed test, run again
+- Outcome: **pass**
+- What happened: the write test took 551 ms, of which closing the writer was 531. The speed test gave a median 312 ms for a small file, 8.9 MB/s for one 8 MB file and 12.3 MB/s for three 4 MB files at once.
+- Notes: this agrees with the third run (327 ms, 8.1 and 13.2 MB/s), so three files at a time stands. The backup and the rewrite check were not run in this report.

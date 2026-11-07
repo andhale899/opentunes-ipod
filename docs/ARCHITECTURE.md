@@ -26,7 +26,7 @@ add track to database with the right media type (libgpod WASM)
 back up iTunesDB, write the new one last, re-read it to verify
 ```
 
-Three at a time is measured, not a guess. On the owner's nano 7G over USB from Chrome on macOS, closing a file costs about a third of a second whatever its size, one file at a time ran at 8.1 MB/s and three at once at 13.2 MB/s, see [HARDWARE-TESTING.md](HARDWARE-TESTING.md).
+Three at a time is measured, not a guess. On the owner's nano 7G over USB from Chrome on macOS, closing a file costs about a third of a second whatever its size, one file at a time ran at 8.1 and 8.9 MB/s and three at once at 13.2 and 12.3 MB/s in two runs, see [HARDWARE-TESTING.md](HARDWARE-TESTING.md).
 
 Writing the database last means an interrupted sync leaves the iPod with its old, working database plus some unreferenced files, which a cleanup tool can remove. The previous database is backed up before the first write.
 
