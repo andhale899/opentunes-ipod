@@ -1,0 +1,16 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+
+# Engine build output (generated, see docs/ENGINE-BUILD.md)
+engine/build/
+engine/.cache/
+
+# Local files
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+Thumbs.db

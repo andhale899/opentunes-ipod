@@ -1,0 +1,25 @@
+{
+  "name": "opentunes",
+  "version": "0.2.0-dev",
+  "private": true,
+  "description": "Chrome-only web app that puts music, video and podcasts on a classic iPod, with no backend.",
+  "type": "module",
+  "workspaces": [
+    "core",
+    "app"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w app",
+    "dev:lan": "npm run dev:lan -w app",
+    "build": "npm run build -w app",
+    "preview": "npm run preview -w app",
+    "typecheck": "npm run typecheck -w core && npm run typecheck -w app",
+    "test": "npm run test -w core",
+    "docs:devices": "npm run docs:devices -w core",
+    "docs:check": "npm run docs:devices && git diff --exit-code docs/DEVICE-SUPPORT.md",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
