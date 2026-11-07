@@ -22,6 +22,7 @@ import {
 import { BackupPanel } from './BackupPanel';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
+import { PanelBoundary } from './PanelBoundary';
 import { RestorePanel } from './RestorePanel';
 import { RewritePanel } from './RewritePanel';
 import { WriteBackPanel } from './WriteBackPanel';
@@ -415,10 +416,24 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
         <>
           <Facts snapshot={view.snapshot} />
           {view.snapshot.load ? <FileList load={view.snapshot.load} /> : null}
-          {view.snapshot.source === 'folder' ? <BackupPanel source={view.snapshot.root} onDone={setBackup} /> : null}
-          <RewritePanel source={view.snapshot.root} autoStart={new URLSearchParams(window.location.search).get('rewrite') === '1'} />
-          {view.snapshot.source === 'folder' ? <WriteBackPanel root={view.snapshot.root} backup={backup} /> : null}
-          {view.snapshot.source === 'folder' ? <RestorePanel root={view.snapshot.root} /> : null}
+          {view.snapshot.source === 'folder' ? (
+            <PanelBoundary name="Backup">
+              <BackupPanel source={view.snapshot.root} onDone={setBackup} />
+            </PanelBoundary>
+          ) : null}
+          <PanelBoundary name="Rewrite check">
+            <RewritePanel source={view.snapshot.root} autoStart={new URLSearchParams(window.location.search).get('rewrite') === '1'} />
+          </PanelBoundary>
+          {view.snapshot.source === 'folder' ? (
+            <PanelBoundary name="Write back">
+              <WriteBackPanel root={view.snapshot.root} backup={backup} />
+            </PanelBoundary>
+          ) : null}
+          {view.snapshot.source === 'folder' ? (
+            <PanelBoundary name="Restore">
+              <RestorePanel root={view.snapshot.root} />
+            </PanelBoundary>
+          ) : null}
           <h3>Library</h3>
           <Library tracks={view.snapshot.tracks} />
           <h3>Playlists</h3>

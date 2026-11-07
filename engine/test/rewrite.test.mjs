@@ -125,6 +125,28 @@ describe('rewriting an iPod database in memory', () => {
     assert.deepEqual(report.problems, ['Library.itdb: item.copyright held a value on 5 rows before the rewrite and is gone after.']);
   });
 
+  it('reports the library version of every file, before and after', async () => {
+    const engine = await signedDemo();
+    const report = await checkRewrite(engine, MOUNT, DEMO_FIREWIRE_ID);
+    assert.deepEqual(report.userVersions.map((v) => v.file), ['Dynamic.itdb', 'Extras.itdb', 'Genius.itdb', 'Library.itdb', 'Locations.itdb']);
+    assert.ok(report.userVersions.every((v) => v.before === 0 && v.after === 0));
+  });
+
+  it('calls it a problem when the rewrite would take a file to an older library version', async () => {
+    const engine = await signedDemo();
+    editLibraryFile(engine, 'Library.itdb', 'PRAGMA user_version = 30;');
+    const report = await checkRewrite(engine, MOUNT, DEMO_FIREWIRE_ID);
+    assert.deepEqual(report.userVersions.find((v) => v.file === 'Library.itdb'), { file: 'Library.itdb', before: 30, after: 0 });
+    assert.ok(report.problems.includes('Library.itdb: the library version goes down from 30 to 0 after the rewrite.'));
+  });
+
+  it('does not mind a rewrite that raises the library version', async () => {
+    const engine = await signedDemo();
+    editLibraryFile(engine, 'Library.itdb', 'PRAGMA user_version = 0;');
+    const report = await checkRewrite(engine, MOUNT, DEMO_FIREWIRE_ID);
+    assert.deepEqual(report.problems, []);
+  });
+
   it('says so when libgpod cannot write the library', async () => {
     const engine = await signedDemo();
     removeTree(engine, ITUNES);

@@ -106,6 +106,9 @@ function Result({ folderName, report, copied, onCopy }: { folderName: string; re
   }
   rows.push(['Files that differ', `${fileChanges.length}`]);
   rows.push(['SQLite tables that differ', `${tablesChanged}${report.sqlite.length ? ` in ${report.sqlite.map((file) => file.file).join(', ')}` : ''}`]);
+  if (report.userVersions.length) {
+    rows.push(['Library version (user_version)', report.userVersions.map((v) => `${v.file} ${v.before ?? 'unknown'} to ${v.after ?? 'unknown'}`).join(', ')]);
+  }
   for (const check of report.signatures) rows.push([`Signature on ${check.file} after the rewrite`, SIGNATURE_STATUS[check.status]]);
 
   return (

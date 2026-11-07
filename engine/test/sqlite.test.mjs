@@ -74,6 +74,7 @@ describe('profiling a database', () => {
   it('counts rows and the columns that hold a value', async () => {
     const engine = await engineWithFixture();
     const profile = profileDatabase(engine, '/fixture.itdb');
+    assert.equal(profile.userVersion, 0);
     assert.deepEqual(profile.unreadable, {});
     assert.deepEqual(profile.tables.item, { rows: 4, filled: { pid: 4, title: 3, rating: 2, artwork_cache_id: 2 } });
     assert.deepEqual(profile.tables.empty_table, { rows: 0, filled: { a: 0, b: 0 } });
@@ -119,7 +120,7 @@ describe('profiling a database', () => {
 
 describe('comparing profiles', () => {
   const table = (rows, filled) => ({ rows, filled });
-  const profile = (tables) => ({ tables, unreadable: {} });
+  const profile = (tables) => ({ tables, unreadable: {}, userVersion: 0 });
 
   it('lists only what differs, and says what it lost', () => {
     const before = profile({

@@ -42,6 +42,13 @@ export interface SqliteFileChange {
   tables: TableChange[];
 }
 
+/** The library version (PRAGMA user_version) a file says it is at, before and after the rewrite. */
+export interface VersionChange {
+  file: string;
+  before: number | null;
+  after: number | null;
+}
+
 export interface RewriteReport {
   /** Why libgpod could not write the database, or null. */
   writeError: string | null;
@@ -51,6 +58,7 @@ export interface RewriteReport {
   library: LibraryComparison | null;
   files: FileChange[];
   sqlite: SqliteFileChange[];
+  userVersions: VersionChange[];
   signatures: SignatureCheck[];
   /** One sentence for each way the rewrite loses something the iPod holds. Empty means none were found. */
   problems: string[];
@@ -207,7 +215,7 @@ function diffFiles(before: Map<string, FileState>, after: Map<string, FileState>
 
 // ------------------------------------------------------------------- SQLite
 
-const EMPTY_PROFILE: DatabaseProfile = { tables: {}, unreadable: {} };
+const EMPTY_PROFILE: DatabaseProfile = { tables: {}, unreadable: {}, userVersion: null };
 
 function profileLibraryFiles(engine: Engine, mount: string): Map<string, DatabaseProfile> {
   const folder = `${mount}/iPod_Control/iTunes/iTunes Library.itlp`;
@@ -217,7 +225,7 @@ function profileLibraryFiles(engine: Engine, mount: string): Map<string, Databas
     try {
       profiles.set(name, profileDatabase(engine, `${folder}/${name}`));
     } catch (error) {
-      profiles.set(name, { tables: {}, unreadable: { '(whole file)': messageOf(error) } });
+      profiles.set(name, { tables: {}, unreadable: { '(whole file)': messageOf(error) }, userVersion: null });
     }
   }
   return profiles;
@@ -262,6 +270,7 @@ export async function checkRewrite(engine: Engine, mount: string, fireWireId: st
   }
 
   const sqlite: SqliteFileChange[] = [];
+  const userVersions: VersionChange[] = [];
   const notes: string[] = [];
   const problems: string[] = [];
   const schemaDifferences: string[] = [];
@@ -272,6 +281,10 @@ export async function checkRewrite(engine: Engine, mount: string, fireWireId: st
       for (const [table, reason] of Object.entries(profile.unreadable)) {
         notes.push(`${file}: the table ${table} could not be read ${side} the rewrite (${reason}), so it was not compared.`);
       }
+    }
+    userVersions.push({ file, before: before.userVersion, after: after.userVersion });
+    if (before.userVersion !== null && after.userVersion !== null && after.userVersion < before.userVersion) {
+      problems.push(`${file}: the library version goes down from ${before.userVersion} to ${after.userVersion} after the rewrite.`);
     }
     const tables = compareProfiles(before, after);
     if (tables.length) sqlite.push({ file, tables });
@@ -308,6 +321,7 @@ export async function checkRewrite(engine: Engine, mount: string, fireWireId: st
     library,
     files: diffFiles(filesBefore, filesAfter),
     sqlite,
+    userVersions,
     signatures,
     problems: [...early, ...problems],
     schemaDifferences,
