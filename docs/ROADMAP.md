@@ -31,6 +31,7 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 - [x] Check, read only, that the signatures iTunes left on an iPod (`iTunesCDB` and `Locations.itdb.cbk`) are what the engine's own hashAB computes. Tested against engine-made files and files signed with other random bytes, and shown in the reader. Run on the owner's nano 7G: both signatures match, so the engine signs the way this iPod expects.
 - [x] Back up an iPod's database files to a folder on the computer, with every copy read back and a manifest of checksums (built and tested with in-memory folders, not yet run on a real iPod).
 - [x] Rewrite check: write the database in memory as a sync would and compare it with what is on the iPod, including the SQLite files a nano 7G keeps. Run on the owner's nano 7G, see the open questions. Needs a read-only SQL function in the engine, so the engine was rebuilt.
+- [x] Write-back and restore: write the rebuilt database back to an iPod after a verified backup, roll back on any failure, and restore a backup after checking its checksums. Built and tested against in-memory iPods, not yet run on a real one. It is the first real test of whether a nano 7G accepts libgpod's rebuilt library.
 - [ ] Connect: WebUSB identity alongside the folder pick, model lookup against the registry, a proper device card.
 - [ ] Add files, probe them, plan copy or convert against the registry.
 - [ ] Convert in a worker.

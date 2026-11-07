@@ -15,3 +15,7 @@ app/public/engine/
 *.log
 .DS_Store
 Thumbs.db
+
+# Backups the app makes of an iPod's database files. They hold the device's ID and the library, so they must never be committed.
+opentunes-backup-*/
+ipod-backups/

@@ -28,6 +28,8 @@
 - A rewrite check: writes the database into the engine's in-memory copy of an iPod and compares before and after, covering the library as libgpod reads it back, every file, the SQLite files table by table and column by column, and the signatures. It reports what a rewrite would lose, writes nothing to the iPod and leaves track titles out of its report.
 - A backup of an iPod's database files (library, device and artwork, no music) to a folder on the computer, with every copy read back, a manifest of SHA-256 checksums and a README on how to put the files back. It refuses an iPod as a destination.
 - An in-memory folder that can be written to, for tests.
+- Write-back and restore (`engine/js/writeback.ts`): plan which files would change, write them to an iPod only after a complete backup from the session, read each back and check the library and signatures afterwards, and put every changed file back if anything fails. Restore copies a backup back after checking every file against its checksum. Both leave music and artwork alone. Panels for both are in the reader. Tested with in-memory iPods, including a refused write, a damaged write, a failed read-back, an iPod that changed after the plan, a tampered backup and a path that tries to escape.
+- Backup folders (`opentunes-backup-*`, `ipod-backups`) are ignored by git, because they hold the device's ID and the library.
 - Buttons for the backup and the rewrite check under the reader's result, and a smoke test that runs the rewrite check on the signed demo in headless Chrome.
 
 ### Changed
