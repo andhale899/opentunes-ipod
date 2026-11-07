@@ -25,7 +25,6 @@ Linking LGPL libraries statically means that anyone given the compiled engine mu
 
 | Component | Where | Licence | Notes |
 | --- | --- | --- | --- |
-| TunesReloaded wrapper | `engine/src/ipod_manager.c` | None declared | GitHub shows no licence on rish1p/tunesreloaded (checked 2026-11-07), so it is all rights reserved by default. Acceptable for private use only. The plan is to rewrite the wrapper in Phase 1 so the project does not depend on it. |
 | SysInfoExtended templates | `engine/data/` | Unknown | Dumped from a real nano and kept as a fallback. The device's serial numbers were removed. They come from the same upstream repository. |
 | hashAB test vectors | `engine/test/hashab-vectors.json` | The Unlicense | From `dstaley/hashab` at the pinned commit. |
 

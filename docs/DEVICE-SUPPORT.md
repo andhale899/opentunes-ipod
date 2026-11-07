@@ -41,21 +41,33 @@ Status: From specification, not run on hardware.
 
 Connector: lightning. Database: iTunesDB. Checksum: hashAB.
 
-Checksum basis: Inferred from the v1 code (a hashAB module and a 7th-gen SysInfoExtended file). To be confirmed against libgpod in the engine build.
+Checksum basis: The SysInfoExtended of a real nano 7G declares database version 5, which libgpod maps to hashAB (checked by an engine test). Not yet confirmed by a write to hardware.
 
 | Media | Support | Detail |
 | --- | --- | --- |
-| Music | supported | AAC 8-320 kbps; Protected AAC (iTunes Store purchases); HE-AAC; MP3 8-320 kbps (VBR); Apple Lossless; AIFF; WAV; Audible (formats 2, 3, 4, Enhanced Audio, AAX and AAX+) |
-| Video | supported | H.264 Baseline/Main/High, level 3.0, 720x576 at 30 fps, AAC-LC up to 256 kbps, 48 kHz, stereo, .m4v .mp4 .mov; MPEG-4 Simple, 720x576 at 30 fps, up to 2500 kbps, AAC-LC up to 256 kbps, 48 kHz, stereo, .m4v .mp4 .mov. The page gives no H.264 video bitrate limit. |
-| Podcasts | unknown |  |
+| Music | supported | AAC 8-320 kbps (VBR), up to 48 kHz (AAC-LC); Protected AAC (iTunes Store purchases); HE-AAC (Listed on Apple's page. The device's own list names AAC-LC only.); MP3 8-320 kbps (VBR), up to 48 kHz; Apple Lossless, up to 48 kHz, 16-bit (Deeper than 16 bits is truncated.); AIFF, up to 48 kHz, 16-bit; WAV, up to 48 kHz, 16-bit; Audible (formats 2, 3, 4, Enhanced Audio, AAX and AAX+) |
+| Video | supported | H.264 Baseline/Main/High, level 3.0, 720x576 at 30 fps, up to 10000 kbps, AAC-LC up to 256 kbps, 48 kHz, stereo, .m4v .mp4 .mov; H.264 Baseline, level 3.0, 640x480 at 30 fps, up to 10000 kbps, AAC-LC up to 256 kbps, 48 kHz, stereo, .m4v .mp4 .mov; MPEG-4 Simple, 720x576 at 30 fps, up to 2500 kbps, AAC-LC up to 256 kbps, 48 kHz, stereo, .m4v .mp4 .mov. Apple's page gives no H.264 bitrate. The device declares 10000 kbps. It lists a second, Baseline-only H.264 entry capped at 640x480, so 640x480 Baseline stays inside both entries and is the safe default. The device declares 5000 kbps for MPEG-4 where Apple's page says 2.5 Mbps, so the lower figure is used. |
+| Podcasts | supported | Not on Apple's page. The device declares podcast support. |
 | Audiobooks | supported | The page lists Audible formats. M4B files are not mentioned. |
-| Photos | not-listed | The page lists no photo formats. Whether this model shows photos at all is unconfirmed. |
+| Photos | supported | Not on Apple's page, which lists no photo formats. The device declares photo support with a 480x864 full-screen format and an 80x80 thumbnail. Not confirmed on hardware. |
 | Notes | unknown |  |
+
+Declared by the device itself (`engine/data/7_nano_SysInfoExtended.plist`):
+
+- Dumped from a real nano 7G by the author of the upstream TunesReloaded project, not from your unit. Compare it with the SysInfoExtended on your own iPod in Phase 2.
+- Disk format: FAT32
+- Up to 65534 tracks, files up to 4 GB
+- Features: podcasts, photos, voiceMemos, playlistFolders, genius
+- Album art formats: 1010 (240x240), 1011 (240x240), 1013 (50x50), 1015 (58x58), 1016 (57x57)
+- Photo formats: 1007 (480x864), 1005 (80x80)
+- Chapter image formats: 1010 (240x240), 1019 (101x57), 1011 (240x240)
 
 Sources:
 - [Apple Support: iPod nano (7th generation) - Technical Specifications](https://support.apple.com/kb/SP656), read 2026-11-07
 
 Notes:
 - Screen is 240 by 432 pixels.
-- The page does not say which disk format (HFS+ or FAT32) a restored iPod uses.
+- The disk format is FAT32 according to the device template, so Android can mount it. Confirm on your unit.
+- Album art and photos use the newer ImageSpecifications2 and AlbumArt2 keys, which the 2012 libgpod does not read. Writing artwork needs that added.
+- Audio tops out at 48 kHz, so 96 kHz or 88.2 kHz files must be resampled.
 - The upstream project that the v1 engine came from calls 6th and 7th generation nano support beta.

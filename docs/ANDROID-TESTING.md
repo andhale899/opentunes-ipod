@@ -48,4 +48,4 @@ This makes the phone's `localhost` point at your computer, so the page counts as
 | Folder check works but shows no `iPod_Control` | The iPod may be empty or restored; Phase 1 adds initialisation. |
 | Write test fails | Read-only mount, or a Chrome limit on removable storage. |
 
-Android mounts FAT32 and exFAT volumes. It generally cannot read Mac-formatted (HFS+) volumes. Which format your nano 7G uses is an open question, see [ROADMAP.md](ROADMAP.md).
+Android mounts FAT32 and exFAT volumes. It generally cannot read Mac-formatted (HFS+) volumes. The nano 7G template declares FAT32, which Android mounts, but that came from someone else's unit, so confirm it on yours.

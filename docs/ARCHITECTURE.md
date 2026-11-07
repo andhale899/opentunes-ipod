@@ -34,7 +34,7 @@ Writing the database last means an interrupted sync leaves the iPod with its old
 
 **iPod storage (File System Access).** You pick the iPod's root folder. The app streams files into it rather than holding them in memory.
 
-**Database engine (libgpod as WebAssembly).** libgpod parses and writes the iTunesDB, assigns file paths, sets media types and writes artwork. It lives in `engine/` and is built in Docker from pinned sources, see [ENGINE-BUILD.md](ENGINE-BUILD.md).
+**Database engine (libgpod as WebAssembly).** libgpod parses and writes the iPod's databases, assigns file paths and sets media types. Album artwork is not built yet. It lives in `engine/` with a C interface of our own and typed bindings, and is built in Docker from pinned sources, see [ENGINE-BUILD.md](ENGINE-BUILD.md).
 
 **Checksums.** Newer models refuse a database that is not signed. libgpod picks the scheme from the device's own `SysInfoExtended` file and signs the database itself. For the nano 6G and 7G that scheme is hashAB, whose code libgpod does not contain, so the engine compiles the public-domain `dstaley/hashab` implementation in and libgpod calls it directly. Which model needs which scheme is recorded in the registry as each is confirmed.
 
@@ -49,7 +49,7 @@ Writing the database last means an interrupted sync leaves the iPod with its old
 | Decision | Why |
 | --- | --- |
 | No backend | One app for desktop and Android, nothing to host or install. |
-| Chrome only | WebUSB and folder access exist only in Chromium browsers. Safari, Firefox and iOS cannot reach an iPod this way. |
+| Chromium only | WebUSB and folder access exist only in Chromium browsers. Any of them on any OS where the iPod mounts as a drive can work: macOS, Linux and other Unix, ChromeOS, Android (where Chrome offers the folder picker) and Windows (WebUSB may need a driver). Safari, Firefox and iOS cannot reach an iPod this way. |
 | libgpod, not a hand-written database | The v1 app wrote a binary iTunesDB by hand with placeholder values. libgpod already knows every model's format. |
 | Registry-driven limits | v1 had a hand-typed profile table with no sources, and some rows disagreed with Apple's published limits. |
 | Preact and TypeScript | Small, typed, and the app is a handful of screens. One typed worker API replaces v1's three-way iframe bridge. |
@@ -59,6 +59,6 @@ Writing the database last means an interrupted sync leaves the iPod with its old
 
 - `core/`: capability detection, song identity, device registry, with tests.
 - `app/`: the environment check page and two hands-on probes (USB, folder read and write).
-- `engine/`: a reproducible Docker build of libgpod and the C wrapper, with nine Node tests. The wrapper still tags every track as audio, which is why video, podcasts and audiobooks wait for the next step of Phase 1.
+- `engine/`: a reproducible Docker build of libgpod, a C interface of our own that handles all seven media kinds, playlists and chapters, typed bindings, and tests in Node.
 
-Not built yet: the engine rebuild, converter, planner, sync, library manager. See [ROADMAP.md](ROADMAP.md).
+Not built yet: album artwork, converter, planner, sync, library manager. See [ROADMAP.md](ROADMAP.md).

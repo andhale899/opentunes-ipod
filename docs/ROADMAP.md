@@ -20,8 +20,9 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 - [x] Build glib, libplist, libxml2, SQLite, zlib, libffi and libgpod to WebAssembly from pinned, checksum-verified sources (`npm run engine:build`).
 - [x] hashAB compiled into the engine and matched against 100 known-answer vectors.
 - [x] Round-trip tests in Node: initialise an iPod, add a track, write, re-read. Plus a signed database write for a nano 7G-style device.
-- [ ] Extend the wrapper: media type per track, podcast and audiobook flags, remembered playback position, artwork. Round-trip tests for each kind.
-- [ ] Typed TypeScript bindings.
+- [x] A C interface of our own, replacing v1's wrapper: all seven media kinds with their flags, podcast playlist, chapters, playlists, stable handles. A test for each kind, including the SQLite library a nano 7G reads.
+- [x] Typed TypeScript bindings, checked against the C field table by a test.
+- [ ] Album artwork and photos: build gdk-pixbuf for WebAssembly and teach libgpod the newer `AlbumArt2` and `ImageSpecifications2` keys the nano 7G uses.
 - [ ] Run the engine build and tests in CI.
 
 ## Phase 2: Music on the nano 7G
@@ -42,7 +43,7 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 
 ## Phase 4: Everything else
 
-- [ ] Photos, if the target models support them. The nano 7G specification lists no photo formats, so this may not apply to it.
+- [ ] Photos. The nano 7G declares photo support (480x864 full screen and 80x80 thumbnails), so this applies to it. Needs the engine artwork work from Phase 1.
 - [ ] eBooks as Notes on models that have them, see [research/ebooks.md](research/ebooks.md).
 - [ ] Shuffle support (a different database format).
 - [ ] Capability data for the other generations, each row sourced.
@@ -50,8 +51,8 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 
 ## Open questions
 
-- Does the nano 7G show photos or podcasts at all? The specification page is silent.
-- Which disk format does a restored nano 7G use, and does Android mount it?
-- Does libgpod, which does not know the nano 7G model number, give a nano 7G the right artwork formats? Untested until hardware.
-- The wrapper has no declared licence. Rewrite it, or ask the author? See [../THIRD_PARTY.md](../THIRD_PARTY.md).
+- Do photos and podcasts work on a real nano 7G? Its own file declares both. Apple's page is silent.
+- Is a nano 7G FAT32? The template says so. Confirm on your unit, then Android can mount it.
+- Smart playlists are now written back untouched. Does libgpod write a real nano 7G's smart playlists without error? Untested until hardware.
+- Does libgpod, which does not know the nano 7G model number, cope everywhere else? Checksum and capabilities work. Artwork does not yet.
 - Does Chrome for Android expose the folder picker for an iPod volume? Phase 0 checks this.

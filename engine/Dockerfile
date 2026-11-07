@@ -199,17 +199,17 @@ RUN fetch "https://github.com/dstaley/hashab/archive/${HASHAB_COMMIT}.tar.gz" "$
 FROM libgpod AS engine
 WORKDIR /build/engine
 COPY --from=hashab /opt/wasm/lib/libhashab.a /opt/wasm/lib/libhashab.a
-COPY src/ipod_manager.c ./ipod_manager.c
+COPY src/engine.c ./engine.c
 RUN mkdir -p /out \
- && emcc -O2 -Wall -DEMSCRIPTEN ipod_manager.c \
+ && emcc -O2 -Wall -Wextra -DEMSCRIPTEN engine.c \
       -I"$PREFIX/include/gpod-1.0/gpod" \
       $(pkg-config --cflags --libs --static libgpod-1.0 gmodule-2.0 libxml-2.0 libplist sqlite3 zlib) -lhashab \
-      -sWASM=1 -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createIPodModule \
+      -sWASM=1 -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createEngineModule \
       -sENVIRONMENT=web,worker,node \
       -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=67108864 -sMAXIMUM_MEMORY=536870912 \
       -sFORCE_FILESYSTEM=1 -lnodefs.js \
       -sEXPORTED_RUNTIME_METHODS=FS,HEAPU8,UTF8ToString,stringToUTF8,lengthBytesUTF8,ccall,cwrap \
       -sEXPORTED_FUNCTIONS=_malloc,_free,_calcHashAB \
       -sNO_EXIT_RUNTIME=1 -sEMULATE_FUNCTION_POINTER_CASTS=1 --no-entry \
-      -o /out/ipod_manager.js \
+      -o /out/engine.js \
  && ls -l /out
