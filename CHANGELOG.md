@@ -7,7 +7,7 @@
 - Device registry with a verification status per model, and a generated `docs/DEVICE-SUPPORT.md`.
 - Browser capability detection and song identity matching in `core/`, with tests.
 - Documentation: architecture, roadmap, Android and hardware test guides, engine notes, research notes, third-party notices.
-- Reproducible Docker build of the iPod database engine (libgpod to WebAssembly) from pinned, checksum-verified sources, with three libgpod patches.
+- Reproducible Docker build of the iPod database engine (libgpod to WebAssembly) from pinned, checksum-verified sources, with libgpod patches (the count is in `docs/ENGINE-BUILD.md`).
 - hashAB signing compiled into the engine from `dstaley/hashab`, checked against its 100 known-answer vectors.
 - Engine tests in Node: lifecycle, every media kind (checked in the SQLite library a nano 7G reads), and signed database writes for a nano 7G-style device.
 - A C interface of our own for the engine, with handles, a single field table, and kinds for music, movies, music videos, TV shows, podcasts, video podcasts and audiobooks (with chapters). Typed TypeScript bindings for it.
@@ -31,6 +31,8 @@
 - Buttons for the backup and the rewrite check under the reader's result, and a smoke test that runs the rewrite check on the signed demo in headless Chrome.
 
 ### Changed
+- libgpod now runs the lowest SQL command set a nano 6G or 7G offers, not the highest. The rewritten library gets the `is_home_video` column and library version 26, as the library iTunes wrote has. A fourth libgpod patch, found by the rewrite check on the owner's nano 7G.
+- The rewrite check keeps data it would lose apart from empty tables and columns that are merely missing, so the verdict is not padded with differences where nothing was held.
 - The reader no longer lists video as supported or unsupported for a model libgpod does not know. libgpod judges video from the model number alone and always said no for the owner's nano 7G.
 - The loader leaves out `iTunesControl` and `Device/Radio/RadioBuffer`, two 20 MiB files on a nano 7G that libgpod never opens, and lists them in its report.
 - Opening a database that libgpod cannot read, such as a never-synced iPod, now explains why. libgpod gave only "unknown error".

@@ -86,6 +86,15 @@ Seen on a real unit, 2026-11-07 (Read-only reader and write-speed test on the sa
 - The signature on iTunesCDB and the one on Locations.itdb.cbk both match what the engine computes with hashAB. That confirms the signature layout, which header fields are zeroed before hashing, and the FireWire ID bytes used as the key. It does not show that the iPod accepts a database libgpod writes.
 - Writes from Chrome: closing a file took between 0.3 and 3.7 seconds across runs, and 0.3 to 0.4 seconds in the two speed tests for both tiny and 8 MB files. One 8 MB file wrote at 8.1 and 8.9 MB/s, and three 4 MB files at once at 13.2 and 12.3 MB/s.
 
+Seen on a real unit, 2026-11-07 (Rewrite check on the same unit: its library was written in memory by libgpod and compared with the files on the iPod):
+
+- The library iTunesCDB lists comes back identical after a rewrite: 942 music tracks, 2 playlists, no field changed, both signatures valid. Writing it took 0.28 seconds.
+- Library.itdb holds 8 containers, 6 of them with a distinguished kind (the iPod's built-in lists) and 7 with smart-playlist settings, while iTunesCDB lists only 2 playlists. The built-in lists live only in the SQLite files, so a libgpod rewrite drops them.
+- No track has an artwork link in the SQLite files: artwork_cache_id is empty on every row. The Artwork folder exists.
+- The iTunes-written Library.itdb has columns that the device's own SQL steps do not mention: is_tone, is_book, is_itunes_u, is_digital_booklet, chosen_by_auto_fill, collection_description and copyright on item, channels on avformat_info, xid and flavor on store_info and is_hd on video_info. All are empty. It also has is_home_video, which the device's lowest command set (25) adds.
+- The device offers two SQL command sets, 25 and 26. Set 26 is set 25 without its first two steps, CreateIsHomeVideo and a library version of 26.
+- In item_stats iTunes marks every track as played (has_been_played is 1 on all 942) and leaves the played and skipped dates empty. libgpod does the reverse: played only if the count is above zero, and a 1970 date for a track never played.
+
 Sources:
 - [Apple Support: iPod nano (7th generation) - Technical Specifications](https://support.apple.com/kb/SP656), read 2026-11-07
 
