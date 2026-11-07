@@ -38,6 +38,7 @@
 - The library screen: add files (probe, plan, convert, sync with backup), remove tracks, edit tags, delete leftover files. A practice iPod held in memory to try it with no iPod, and a smoke scenario that runs the whole flow in headless Chrome.
 - The sync refuses an iPod whose music folders have gaps (libgpod picks a folder number below the count of folders and expects every one to exist), with a plain reason, instead of libgpod's raw message.
 - A redesigned interface: a landing screen to connect an iPod, a device header with storage and status chips, and tabs for Library, Add music, Backup and Diagnostics. The developer checks (device details, rewrite check, write-back test, browser and USB checks) moved under Diagnostics.
+- Add music: choose a whole folder, subfolders included (pictures, playlists and system files are left out), an option to add files the iPod already has, and a plain reason next to "Put on the iPod" when it is off (no backup, nothing to copy, too big).
 
 ### Changed
 - libgpod now runs the lowest SQL command set a nano 6G or 7G offers, not the highest. The rewritten library gets the `is_home_video` column and library version 26, as the library iTunes wrote has. A fourth libgpod patch, found by the rewrite check on the owner's nano 7G.

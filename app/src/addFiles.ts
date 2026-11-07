@@ -76,3 +76,7 @@ export async function prepareItem(candidate: Candidate, options: PrepareOptions 
   const merged: MediaInfo = { ...after, tags: { ...info.tags, ...after.tags }, artwork: after.artwork ?? info.artwork };
   return { id: candidate.id, kind: decision.kind, data: syncDataFromBytes(converted.bytes), extension, info: merged, name: file.name, playlists };
 }
+
+/** Files that travel with music in a folder and are not media. */
+const NOT_MEDIA = /\.(jpe?g|png|gif|bmp|webp|heic|tiff?|txt|nfo|log|cue|m3u8?|pls|ini|db|ds_store|sfv|md5|url|lnk|xml|json|html?|css|js|zip|rar|7z|dmg|exe|app)$/i;
+export const isNotMedia = (name: string): boolean => name.startsWith('.') || name.startsWith('~') || NOT_MEDIA.test(name);

@@ -12,7 +12,7 @@ import {
   type SyncProgress,
   type SyncReport,
 } from '@opentunes/engine';
-import { inspectFile, prepareItem, redecide, type Candidate } from './addFiles';
+import { inspectFile, isNotMedia, prepareItem, redecide, type Candidate } from './addFiles';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 import { BackupGate } from './BackupGate';
@@ -31,6 +31,9 @@ const KINDS: ContentKind[] = ['music', 'audiobook', 'podcast', 'movie', 'tv-show
 
 /** Models the planner has limits for. A model with none cannot be planned for. */
 const PLANNABLE = devices.filter((device) => device.media !== null);
+
+/** Above this much converted audio or video, a tab may run out of memory. */
+const LARGE_BATCH_BYTES = 1.5 * 1024 ** 3;
 
 /** Formatted space is a little under the marketing figure, so leave a margin. */
 const USABLE_SHARE = 0.98;
@@ -66,19 +69,31 @@ export function AddPanel({
   const [stage, setStage] = useState<Stage>({ phase: 'idle' });
   const abort = useRef<AbortController | null>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const folderPicker = useRef<HTMLInputElement>(null);
+  const [ignored, setIgnored] = useState(0);
+  const [allowDuplicates, setAllowDuplicates] = useState(false);
 
   const ready = backup !== null && backup.complete;
   const busy = stage.phase === 'reading' || stage.phase === 'converting' || stage.phase === 'syncing';
   const addable = candidates.filter((candidate) => candidate.decision.action !== 'unsupported');
+  const convertBytes = sum(addable.filter((candidate) => candidate.decision.action === 'convert').map((candidate) => candidate.estimatedBytes));
   const capacityBytes = device && device.capacity_gb > 0 ? Math.round(device.capacity_gb * 1e9 * USABLE_SHARE) : undefined;
 
   async function choose(files: FileList | null) {
     if (!files?.length) return;
+    // A folder brings its cover pictures, playlists and system files along. Leave those out quietly.
+    const all = [...files];
+    const media = all.filter((file) => !isNotMedia(file.name));
+    setIgnored((previous) => previous + (all.length - media.length));
+    if (!media.length) {
+      setProblems(['That selection holds no music, audiobook, podcast or video files.']);
+      return;
+    }
     setStage({ phase: 'reading', message: 'Reading the files...' });
     const added: Candidate[] = [];
     const failed: string[] = [];
-    for (const [index, file] of [...files].entries()) {
-      setStage({ phase: 'reading', message: `Reading ${index + 1} of ${files.length}: ${file.name}` });
+    for (const [index, file] of media.entries()) {
+      setStage({ phase: 'reading', message: `Reading ${index + 1} of ${media.length}: ${file.name}` });
       try {
         added.push(await inspectFile(file, model));
       } catch (error) {
@@ -127,6 +142,7 @@ export function AddPanel({
       setStage({ phase: 'reading', message: 'Checking the iPod and planning...' });
       const plan = await planSync(root as unknown as IpodRoot, newEngine, items, {
         capacityBytes,
+        duplicates: allowDuplicates ? 'allow' : 'skip',
         onProgress: (message) => setStage({ phase: 'reading', message }),
       });
       setStage({ phase: 'planned', plan, items });
@@ -187,8 +203,25 @@ export function AddPanel({
         <button type="button" disabled={busy} onClick={() => picker.current?.click()}>
           Choose files
         </button>
+        <button type="button" class="secondary" disabled={busy} onClick={() => folderPicker.current?.click()}>
+          Choose a folder
+        </button>
+        <input
+          ref={folderPicker}
+          data-pick="folder"
+          type="file"
+          hidden
+          {...{ webkitdirectory: '', directory: '' }}
+          onChange={(event) => {
+            const input = event.target as HTMLInputElement;
+            void choose(input.files).then(() => {
+              input.value = '';
+            });
+          }}
+        />
         <input
           ref={picker}
+          data-pick="files"
           type="file"
           multiple
           hidden
@@ -200,7 +233,7 @@ export function AddPanel({
           }}
         />
         {candidates.length ? (
-          <button type="button" class="secondary" disabled={busy} onClick={() => { setCandidates([]); setProblems([]); setStage({ phase: 'idle' }); }}>
+          <button type="button" class="secondary" disabled={busy} onClick={() => { setCandidates([]); setProblems([]); setIgnored(0); setStage({ phase: 'idle' }); }}>
             Clear the list
           </button>
         ) : null}
@@ -238,7 +271,10 @@ export function AddPanel({
                 const unsupported = candidate.decision.action === 'unsupported';
                 return (
                   <tr key={candidate.id}>
-                    <td class="cell-title" title={candidate.file.name}>{candidate.info.tags.title ?? candidate.file.name}</td>
+                    <td class="cell-title" title={candidate.file.webkitRelativePath || candidate.file.name}>
+                      {candidate.info.tags.title ?? candidate.file.name}
+                      {candidate.file.webkitRelativePath ? <div class="path">{candidate.file.webkitRelativePath.split('/').slice(0, -1).join(' / ')}</div> : null}
+                    </td>
                     <td>
                       <select
                         value={candidate.userKind ?? ''}
@@ -276,6 +312,18 @@ export function AddPanel({
           <p class="note">
             {addable.length} of {candidates.length} can be added, about {formatBytes(sum(addable.map((candidate) => candidate.estimatedBytes)))}.
           </p>
+          {ignored ? <p class="note">{ignored} other file{ignored === 1 ? ' was' : 's were'} left out because they are not music, audiobooks, podcasts or video (cover pictures, playlists, system files).</p> : null}
+          {convertBytes > LARGE_BATCH_BYTES ? (
+            <div class="callout warn">
+              <p>
+                <strong>This is a large batch.</strong> Converted files are held in this tab's memory until they are copied, about {formatBytes(convertBytes)} here. If the tab runs out of memory, add the files in smaller groups.
+              </p>
+            </div>
+          ) : null}
+          <label class="check">
+            <input type="checkbox" checked={allowDuplicates} disabled={busy} onChange={(event) => setAllowDuplicates((event.target as HTMLInputElement).checked)} />
+            Add files even if the same song, episode or title is already on the iPod
+          </label>
           <label class="field">
             Put them in a playlist (optional)
             <input type="text" value={playlist} disabled={busy} onInput={(event) => setPlaylist((event.target as HTMLInputElement).value)} placeholder="Playlist name" />
@@ -312,7 +360,7 @@ export function AddPanel({
         </div>
       ) : null}
 
-      {stage.phase === 'planned' ? <Planned plan={stage.plan} ready={ready} onSync={() => void sync(stage.plan)} /> : null}
+      {stage.phase === 'planned' ? <Planned plan={stage.plan} ready={ready} onSync={() => void sync(stage.plan)} onNeedBackup={onNeedBackup} /> : null}
 
       {stage.phase === 'syncing' ? (
         <>
@@ -334,7 +382,7 @@ export function AddPanel({
   );
 }
 
-function Planned({ plan, ready, onSync }: { plan: SyncPlan; ready: boolean; onSync: () => void }) {
+function Planned({ plan, ready, onSync, onNeedBackup }: { plan: SyncPlan; ready: boolean; onSync: () => void; onNeedBackup?: () => void }) {
   const fits = plan.space.fits;
   return (
     <>
@@ -364,9 +412,27 @@ function Planned({ plan, ready, onSync }: { plan: SyncPlan; ready: boolean; onSy
           ))}
         </ul>
       </details>
-      <button type="button" disabled={!ready || !plan.files.length || fits === false} onClick={onSync}>
-        Put on the iPod
-      </button>
+      <div class="actions">
+        <button type="button" disabled={!ready || !plan.files.length || fits === false} onClick={onSync}>
+          Put on the iPod
+        </button>
+        {!ready ? (
+          <span class="note">
+            Off until you make a backup.{' '}
+            {onNeedBackup ? (
+              <button type="button" class="ghost small" onClick={onNeedBackup}>
+                Go to Backup
+              </button>
+            ) : null}
+          </span>
+        ) : !plan.files.length ? (
+          <span class="note">
+            Off because nothing would be copied.{plan.duplicates.some((duplicate) => duplicate.skipped) ? ' Tick "Add files even if the same song is already on the iPod" above and check again to add them anyway.' : ''}
+          </span>
+        ) : fits === false ? (
+          <span class="note">Off because the files do not fit on the iPod.</span>
+        ) : null}
+      </div>
     </>
   );
 }
