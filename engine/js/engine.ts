@@ -72,6 +72,15 @@ export interface PlaylistInfo {
   tracks: number[];
 }
 
+/** What a query on one of the iPod's SQLite files returned. */
+export interface SqlResult {
+  columns: string[];
+  /** Integers too big for a JavaScript number, such as persistent ids, come back as strings. */
+  rows: (string | number | null)[][];
+  /** True when the query had more rows than were asked for. */
+  truncated: boolean;
+}
+
 export interface DeviceInfo {
   model_name: string | null;
   generation_name: string | null;
@@ -291,5 +300,15 @@ export class Engine {
 
   removeFromPlaylist(playlist: number, track: number): void {
     this.#number('ot_playlist_remove_track', ['number', 'number'], [playlist, track]);
+  }
+
+  // ------------------------------------------------------------------- SQLite
+
+  /**
+   * Runs one query on an SQLite file in the engine's file system, read only. It does not
+   * need a database to be open. For looking inside the files of a nano 6G or 7G library.
+   */
+  sqlQuery(path: string, query: string, maxRows = 5000): SqlResult {
+    return JSON.parse(this.#text('ot_sqlite_query_json', ['string', 'string', 'number'], [path, query, maxRows])) as SqlResult;
   }
 }

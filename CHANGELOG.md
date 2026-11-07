@@ -23,6 +23,13 @@
 - A nano 7G-style demo iPod (iTunesCDB, the iTunes Library.itlp folder, hashAB signatures) and a third smoke scenario that checks its signatures in headless Chrome.
 - The second hardware report's facts in the nano 7G's registry entry, and its result in the hardware testing guide.
 
+- A read-only SQL function in the engine (`ot_sqlite_query_json`, and `Engine.sqlQuery`) for looking inside the SQLite files of a nano 6G or 7G library. It answers for the collations and functions only Apple's code defines, which a test fixture made for the purpose proves.
+- A profile of an SQLite file (rows per table, and how many rows hold a value in each column) and a comparison of two profiles.
+- A rewrite check: writes the database into the engine's in-memory copy of an iPod and compares before and after, covering the library as libgpod reads it back, every file, the SQLite files table by table and column by column, and the signatures. It reports what a rewrite would lose, writes nothing to the iPod and leaves track titles out of its report.
+- A backup of an iPod's database files (library, device and artwork, no music) to a folder on the computer, with every copy read back, a manifest of SHA-256 checksums and a README on how to put the files back. It refuses an iPod as a destination.
+- An in-memory folder that can be written to, for tests.
+- Buttons for the backup and the rewrite check under the reader's result, and a smoke test that runs the rewrite check on the signed demo in headless Chrome.
+
 ### Changed
 - The reader no longer lists video as supported or unsupported for a model libgpod does not know. libgpod judges video from the model number alone and always said no for the owner's nano 7G.
 - The loader leaves out `iTunesControl` and `Device/Radio/RadioBuffer`, two 20 MiB files on a nano 7G that libgpod never opens, and lists them in its report.

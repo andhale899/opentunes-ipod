@@ -3,3 +3,7 @@ export * from './folder.ts';
 export * from './memory.ts';
 export * from './demo.ts';
 export * from './signature.ts';
+export * from './sqlite.ts';
+export * from './rewrite.ts';
+export * from './backup.ts';
+export * from './scratch.ts';
