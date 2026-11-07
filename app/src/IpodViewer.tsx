@@ -9,6 +9,7 @@ import {
   loadIpodFolder,
   memoryDirectory,
   verifySignatures,
+  type BackupReport,
   type DeviceInfo,
   type DirectoryEntry,
   type Engine,
@@ -21,7 +22,9 @@ import {
 import { BackupPanel } from './BackupPanel';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
+import { RestorePanel } from './RestorePanel';
 import { RewritePanel } from './RewritePanel';
+import { WriteBackPanel } from './WriteBackPanel';
 
 const MAX_ROWS = 200;
 const MOUNT = '/ipod';
@@ -286,6 +289,8 @@ function Library({ tracks }: { tracks: TrackInfo[] }) {
 export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
   const [view, setView] = useState<View>({ phase: 'idle' });
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
+  /** The backup made on this page, which the write-back needs before it will start. */
+  const [backup, setBackup] = useState<BackupReport | null>(null);
 
   async function chooseFolder() {
     const picker = (window as unknown as { showDirectoryPicker?: Picker }).showDirectoryPicker;
@@ -309,6 +314,7 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
   /** The one path every iPod takes, real or demo: copy its database files in, open, read. */
   async function readIpod(directory: DirectoryEntry, source: Snapshot['source']) {
     setView({ phase: 'working', message: 'Loading the engine...' });
+    setBackup(null);
     let engine: Engine | null = null;
     let load: LoadReport | null = null;
     try {
@@ -409,8 +415,10 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
         <>
           <Facts snapshot={view.snapshot} />
           {view.snapshot.load ? <FileList load={view.snapshot.load} /> : null}
-          {view.snapshot.source === 'folder' ? <BackupPanel source={view.snapshot.root} /> : null}
+          {view.snapshot.source === 'folder' ? <BackupPanel source={view.snapshot.root} onDone={setBackup} /> : null}
           <RewritePanel source={view.snapshot.root} autoStart={new URLSearchParams(window.location.search).get('rewrite') === '1'} />
+          {view.snapshot.source === 'folder' ? <WriteBackPanel root={view.snapshot.root} backup={backup} /> : null}
+          {view.snapshot.source === 'folder' ? <RestorePanel root={view.snapshot.root} /> : null}
           <h3>Library</h3>
           <Library tracks={view.snapshot.tracks} />
           <h3>Playlists</h3>

@@ -15,7 +15,7 @@ type Picker = (options?: { mode?: 'read' | 'readwrite' }) => Promise<unknown>;
  * Copies the iPod's database files to a folder on the computer, and checks the copy. This is
  * the safety net before anything is written to the iPod. It only reads the iPod.
  */
-export function BackupPanel({ source }: { source: DirectoryEntry }) {
+export function BackupPanel({ source, onDone }: { source: DirectoryEntry; onDone?: (report: BackupReport) => void }) {
   const [state, setState] = useState<State>({ phase: 'idle' });
 
   async function run() {
@@ -37,6 +37,7 @@ export function BackupPanel({ source }: { source: DirectoryEntry }) {
       const folder = destination as WritableDirectory;
       const report = await backupIpod(source, folder, { onProgress: (message) => setState({ phase: 'working', message }) });
       setState({ phase: 'done', report, into: folder.name });
+      onDone?.(report);
     } catch (error) {
       setState({ phase: 'error', message: describeError(error) });
     }

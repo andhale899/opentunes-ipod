@@ -7,3 +7,4 @@ export * from './sqlite.ts';
 export * from './rewrite.ts';
 export * from './backup.ts';
 export * from './scratch.ts';
+export * from './writeback.ts';
