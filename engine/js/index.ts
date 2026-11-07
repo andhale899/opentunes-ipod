@@ -9,3 +9,4 @@ export * from './backup.ts';
 export * from './scratch.ts';
 export * from './writeback.ts';
 export * from './sysinfo.ts';
+export * from './sync.ts';

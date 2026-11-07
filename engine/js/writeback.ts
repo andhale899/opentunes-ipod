@@ -16,18 +16,30 @@
 
 import type { Engine } from './engine.ts';
 import { IpodFolderError, loadIpodFolder, type DirectoryEntry, type FileEntry } from './folder.ts';
-import type { BackupReport, WritableFile } from './backup.ts';
+import type { BackupReport } from './backup.ts';
 import { checkRewrite, compareLibraries, type RewriteReport } from './rewrite.ts';
 import { findFireWireId, verifySignatures, type SignatureCheck } from './signature.ts';
+import {
+  DEFAULT_MOUNT,
+  diffTrees,
+  fireWireIdOf,
+  messageOf,
+  readBackIpod,
+  readFrom,
+  readTree,
+  requireBackup,
+  rollBack,
+  same,
+  writeDatabaseChanges,
+  writeTo,
+  type IpodRoot,
+  type PlannedChange,
+  type Touched,
+} from './ipod-files.ts';
+
+export type { IpodRoot, PlannedChange } from './ipod-files.ts';
 
 export class WriteBackError extends Error {}
-
-/** An iPod's top folder, opened so it can be read and changed. */
-export interface IpodRoot extends DirectoryEntry {
-  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<IpodRoot>;
-  getFileHandle(name: string, options?: { create?: boolean }): Promise<WritableFile>;
-  removeEntry(name: string): Promise<void>;
-}
 
 /** A backup folder made by `backupIpod`, opened for reading. */
 export interface BackupSource extends DirectoryEntry {
@@ -35,77 +47,7 @@ export interface BackupSource extends DirectoryEntry {
   getFileHandle(name: string): Promise<FileEntry>;
 }
 
-const DEFAULT_MOUNT = '/ipod';
-
-const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-const same = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((value, index) => value === b[index]);
-
-// ------------------------------------------------------------ iPod file access
-
-async function folderAt(root: IpodRoot, parts: string[], create: boolean): Promise<IpodRoot | null> {
-  let current = root;
-  for (const part of parts) {
-    try {
-      current = await current.getDirectoryHandle(part, { create });
-    } catch {
-      return null;
-    }
-  }
-  return current;
-}
-
-/** The bytes of a file on the iPod, or null if it is not there. */
-async function readFrom(root: IpodRoot, path: string): Promise<Uint8Array | null> {
-  const parts = path.split('/');
-  const folder = await folderAt(root, parts.slice(0, -1), false);
-  if (!folder) return null;
-  try {
-    const handle = await folder.getFileHandle(parts[parts.length - 1] as string);
-    return new Uint8Array(await (await handle.getFile()).arrayBuffer());
-  } catch {
-    return null;
-  }
-}
-
-async function writeTo(root: IpodRoot, path: string, bytes: Uint8Array): Promise<void> {
-  const parts = path.split('/');
-  const folder = await folderAt(root, parts.slice(0, -1), true);
-  if (!folder) throw new WriteBackError(`The folder for ${path} could not be made on the iPod.`);
-  const writer = await (await folder.getFileHandle(parts[parts.length - 1] as string, { create: true })).createWritable();
-  await writer.write(bytes);
-  await writer.close();
-}
-
-async function removeFrom(root: IpodRoot, path: string): Promise<void> {
-  const parts = path.split('/');
-  const folder = await folderAt(root, parts.slice(0, -1), false);
-  if (folder) await folder.removeEntry(parts[parts.length - 1] as string);
-}
-
-/** Every file below the mount point inside the engine, by path from the mount point. */
-function readTree(engine: Engine, mount: string): Map<string, Uint8Array> {
-  const files = new Map<string, Uint8Array>();
-  const walk = (directory: string): void => {
-    for (const name of engine.fs.readdir(directory)) {
-      if (name === '.' || name === '..') continue;
-      const path = `${directory}/${name}`;
-      if (engine.fs.isDir(engine.fs.stat(path).mode)) walk(path);
-      else files.set(path.slice(mount.length + 1), engine.fs.readFile(path));
-    }
-  };
-  walk(mount);
-  return files;
-}
-
 // --------------------------------------------------------------------- planning
-
-export interface PlannedChange {
-  /** From the iPod's top folder. */
-  path: string;
-  kind: 'added' | 'changed' | 'removed';
-  sizeBefore: number | null;
-  sizeAfter: number | null;
-}
 
 export interface WriteBackPlan {
   changes: PlannedChange[];
@@ -137,14 +79,7 @@ export async function planWriteBack(root: IpodRoot, newEngine: () => Promise<Eng
   const load = await loadIpodFolder(root, engine, { mount, onProgress: options.onProgress });
   if (!load.hasDatabaseFolder) throw new IpodFolderError(`"${root.name}" has no iTunes folder in iPod_Control, so there is no database to write back.`);
   engine.open(load.mount);
-
-  let fireWireId: string | null = null;
-  try {
-    fireWireId = engine.device().firewire_id;
-  } catch {
-    fireWireId = null;
-  }
-  fireWireId ??= findFireWireId(engine, mount);
+  const fireWireId = fireWireIdOf(engine, mount);
 
   const originals = readTree(engine, mount);
   const tracksBefore = engine.tracks();
@@ -156,25 +91,7 @@ export async function planWriteBack(root: IpodRoot, newEngine: () => Promise<Eng
   if (report.readBackError) throw new WriteBackError(`libgpod could not read back the database it wrote, so it will not be put on the iPod: ${report.readBackError}`);
 
   const rewritten = readTree(engine, mount);
-  const changes: PlannedChange[] = [];
-  const skipped: { path: string; reason: string }[] = [];
-  for (const [path, bytes] of rewritten) {
-    const was = originals.get(path);
-    if (!was) {
-      if (path === 'iPod_Control/iTunes/iTunesDB' && bytes.length === 0) {
-        skipped.push({ path, reason: 'libgpod leaves an empty iTunesDB beside iTunesCDB. This iPod has none, so none is written.' });
-      } else {
-        changes.push({ path, kind: 'added', sizeBefore: null, sizeAfter: bytes.length });
-      }
-    } else if (!same(was, bytes)) {
-      changes.push({ path, kind: 'changed', sizeBefore: was.length, sizeAfter: bytes.length });
-    }
-  }
-  for (const [path, bytes] of originals) {
-    if (!rewritten.has(path)) changes.push({ path, kind: 'removed', sizeBefore: bytes.length, sizeAfter: null });
-  }
-  changes.sort((a, b) => a.path.localeCompare(b.path));
-
+  const { changes, skipped } = diffTrees(originals, rewritten);
   return { changes, skipped, report, fireWireId, mount, originals, rewritten, tracksBefore, playlistsBefore };
 }
 
@@ -201,45 +118,12 @@ export interface ApplyOptions {
   onProgress?: (message: string) => void;
 }
 
-/** Signature-critical files go last, and removals after everything has been written. */
-function order(change: PlannedChange): number {
-  if (change.kind === 'removed') return 4;
-  if (change.path.endsWith('/iTunesCDB')) return 3;
-  if (change.path.endsWith('/Locations.itdb.cbk')) return 2;
-  return 1;
-}
-
-interface Touched {
-  path: string;
-  /** The bytes the iPod held before, or null if the file was not there. */
-  before: Uint8Array | null;
-}
-
-async function rollBack(root: IpodRoot, touched: Touched[]): Promise<string[]> {
-  const failures: string[] = [];
-  const asItWas = (item: Touched, now: Uint8Array | null): boolean => (item.before ? now !== null && same(item.before, now) : now === null);
-  for (const item of [...touched].reverse()) {
-    try {
-      if (asItWas(item, await readFrom(root, item.path))) continue; // never changed, or already back
-      if (item.before) await writeTo(root, item.path, item.before);
-      else await removeFrom(root, item.path);
-      if (!asItWas(item, await readFrom(root, item.path))) failures.push(`${item.path} was not put back as it was.`);
-    } catch (error) {
-      failures.push(`${item.path} could not be put back: ${messageOf(error)}`);
-    }
-  }
-  return failures;
-}
-
 /**
  * Writes the planned files to the iPod. Needs a complete backup. If anything fails, puts back
  * every file it changed. Never throws for a problem with the iPod: it reports it.
  */
 export async function applyWriteBack(plan: WriteBackPlan, root: IpodRoot, newEngine: () => Promise<Engine>, options: ApplyOptions): Promise<WriteBackReport> {
-  const { backup } = options;
-  if (!backup || !backup.complete || backup.failures.length) {
-    throw new WriteBackError('Back up the iPod first. Nothing is written until a complete backup, read back and matched, has been made in this session.');
-  }
+  requireBackup(options.backup, (message) => new WriteBackError(message));
 
   const report: WriteBackReport = { written: [], removed: [], skipped: plan.skipped, verified: false, signatures: [], rolledBack: false, rollbackFailures: [], failures: [] };
   const touched: Touched[] = [];
@@ -252,48 +136,25 @@ export async function applyWriteBack(plan: WriteBackPlan, root: IpodRoot, newEng
     return report;
   };
 
-  for (const change of [...plan.changes].sort((a, b) => order(a) - order(b) || a.path.localeCompare(b.path))) {
-    options.onProgress?.(`${change.kind === 'removed' ? 'Removing' : 'Writing'} ${change.path}`);
-    try {
-      const before = await readFrom(root, change.path);
-      const current = plan.originals.get(change.path) ?? null;
-      if (before && current && !same(before, current)) {
-        return await fail(`${change.path} on the iPod is not what it was when the plan was made, so nothing more was written. Plan again.`);
-      }
-      touched.push({ path: change.path, before });
-      if (change.kind === 'removed') {
-        await removeFrom(root, change.path);
-        if ((await readFrom(root, change.path)) !== null) return await fail(`${change.path} is still on the iPod after it was removed.`);
-        report.removed.push(change.path);
-      } else {
-        const bytes = plan.rewritten.get(change.path) as Uint8Array;
-        await writeTo(root, change.path, bytes);
-        const back = await readFrom(root, change.path);
-        if (!back || !same(back, bytes)) return await fail(`${change.path} did not match what was written when it was read back from the iPod.`);
-        report.written.push({ path: change.path, size: bytes.length });
-      }
-    } catch (error) {
-      return await fail(`${change.path} could not be ${change.kind === 'removed' ? 'removed' : 'written'}: ${messageOf(error)}`);
-    }
-  }
+  const write = await writeDatabaseChanges(root, plan.changes, plan.originals, plan.rewritten, touched, { onStep: options.onProgress });
+  report.written = write.written;
+  report.removed = write.removed;
+  if (write.failure) return await fail(write.failure);
 
   // Read the iPod back the way the reader does, and check what it now holds.
   options.onProgress?.('Reading the iPod back to check it...');
   try {
-    const engine = await newEngine();
-    const load = await loadIpodFolder(root, engine, { mount: plan.mount });
-    if (!load.hasDatabaseFolder) return await fail('The iPod has no database folder after the write.');
-    engine.open(load.mount);
-    const library = compareLibraries(plan.tracksBefore, plan.playlistsBefore, engine.tracks(), engine.playlists());
-    report.signatures = await verifySignatures(engine, plan.mount, plan.fireWireId);
-    const bad = report.signatures.filter((check) => check.status === 'differs' || check.status === 'unsupported');
+    const back = await readBackIpod(root, newEngine, plan.mount, plan.fireWireId);
+    if (!back) return await fail('The iPod has no database folder after the write.');
+    const library = compareLibraries(plan.tracksBefore, plan.playlistsBefore, back.tracks, back.playlists);
+    report.signatures = back.signatures;
     if (library.tracksBefore !== library.tracksAfter || library.unmatched) {
       return await fail(`The iPod's library reads back with ${library.tracksAfter} tracks, and it had ${library.tracksBefore}.`);
     }
     if (Object.keys(library.changedFields).length || library.playlistChanges.length) {
       return await fail(`The iPod's library reads back differently: ${[...Object.keys(library.changedFields).map((field) => `track field "${field}"`), ...library.playlistChanges].join('; ')}`);
     }
-    if (bad.length) return await fail(`A signature on the iPod is not confirmed after the write: ${bad.map((check) => `${check.file}: ${check.detail}`).join('; ')}`);
+    if (back.badSignatures.length) return await fail(`A signature on the iPod is not confirmed after the write: ${back.badSignatures.join('; ')}`);
   } catch (error) {
     return await fail(`The iPod could not be read back after the write: ${messageOf(error)}`);
   }
