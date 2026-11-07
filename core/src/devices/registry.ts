@@ -173,6 +173,15 @@ const nano7g: DeviceModel = {
         'In item_stats iTunes marks every track as played (has_been_played is 1 on all 942) and leaves the played and skipped dates empty. libgpod does the reverse: played only if the count is above zero, and a 1970 date for a track never played.',
       ],
     },
+    {
+      date: '2026-11-07',
+      source: 'First write-back to the unit: the database rebuilt by libgpod, with no new songs, written after a verified backup',
+      facts: [
+        'Seven files were written in iPod_Control/iTunes: the five .itdb files, Locations.itdb.cbk and iTunesCDB. Each was read back identical, and the iPod then read back with the same 942 tracks and valid signatures.',
+        'The owner looked at the nano afterwards and reported that everything looked good. That is a normal-looking library after a libgpod rewrite, not a sync of new songs.',
+        'Between two of the owner\'s runs the nano rewrote its own library: Play Counts was gone, Dynamic.itdb and iTunesCDB had changed, and a third playlist had appeared.',
+      ],
+    },
   ],
   verification: 'spec-sourced',
   sources: [APPLE_NANO_7G],

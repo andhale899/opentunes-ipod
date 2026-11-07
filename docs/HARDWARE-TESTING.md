@@ -129,6 +129,6 @@ Report or log attached:
 - App commit: `3b256cb` on `main`, run from the command line with the same backup, plan and write-back code the page uses (the owner asked for it to be done for them)
 - iPod: the same nano 7th generation as above, mounted as FAT
 - Case: Phase 1 write-back test: back up, plan, write the rebuilt database with no new songs
-- Outcome: **write verified, nano check pending**
+- Outcome: **pass**
 - What happened: a backup of 36 files (1.6 MB) was read back and matched. The plan changed seven files, all in `iPod_Control/iTunes`: the five `.itdb` files, `Locations.itdb.cbk` and `iTunesCDB`, and left the empty `iTunesDB` off. The write put them on the iPod, read each back, then read the whole iPod back: 942 tracks, 3 playlists, no field changed, and both signatures valid. Nothing was rolled back. The library files the iPod wrote itself between runs (`Play Counts` gone, a third playlist) were backed up first.
-- Notes: the backup folders are `opentunes-backup-2026-11-07-1825` and `-1826` in the owner's `bkp` folder, the second made immediately before the write. What the nano does with the rebuilt library, and whether its menus look as before, is the result still to be recorded.
+- Notes: the backup folders are `opentunes-backup-2026-11-07-1825` and `-1826` in the owner's `bkp` folder, the second made immediately before the write. The owner then looked at the nano and reported that everything looks good. They did not list which menus they opened, so this records a normal-looking library, not a checklist. This was a rewrite with no new songs, not a sync, so the nano 7G stays `spec-sourced`.
