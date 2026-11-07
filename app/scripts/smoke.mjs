@@ -42,6 +42,13 @@ const SCENARIOS = [
     alert: false,
   },
   {
+    name: 'a panel that fails to draw, caught by its boundary',
+    url: `http://localhost:${port}/?selftest=boundary`,
+    expected: ['The "Self test" panel could not be drawn: this panel was made to fail', 'Reload the page before using it again'],
+    forbidden: [],
+    alert: true,
+  },
+  {
     name: 'an iPod that was never synced',
     url: `http://localhost:${port}/?demo=unsynced`,
     expected: ['never been synced', 'Copy diagnostic report', 'Files read from the iPod'],

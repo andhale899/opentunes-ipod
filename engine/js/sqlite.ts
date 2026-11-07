@@ -22,6 +22,8 @@ export interface DatabaseProfile {
   tables: Record<string, TableProfile>;
   /** Tables that could not be read, with the reason. */
   unreadable: Record<string, string>;
+  /** PRAGMA user_version: the library version the file says it is at. Null if it could not be read. */
+  userVersion: number | null;
 }
 
 const COLUMNS_PER_QUERY = 30;
@@ -57,7 +59,8 @@ function profileTable(engine: Engine, path: string, table: string): TableProfile
 
 /** Profiles every table of one SQLite file in the engine's file system. */
 export function profileDatabase(engine: Engine, path: string): DatabaseProfile {
-  const profile: DatabaseProfile = { tables: {}, unreadable: {} };
+  const profile: DatabaseProfile = { tables: {}, unreadable: {}, userVersion: null };
+  profile.userVersion = Number(engine.sqlQuery(path, 'PRAGMA user_version').rows[0]?.[0] ?? 0);
   const names = engine
     .sqlQuery(path, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
     .rows.map((row) => String(row[0]));

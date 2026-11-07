@@ -7,6 +7,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { profileDatabase } from '../js/index.ts';
 import { MOUNT, addFile, nano7gStyleIpod } from './helpers.mjs';
 
 const LIBRARY = `${MOUNT}/iPod_Control/iTunes/iTunes Library.itlp/Library.itdb`;
@@ -24,6 +25,7 @@ describe('the library files written for a nano 7G-style iPod', () => {
   it('are at the library version the device asks for', async () => {
     const engine = await writtenLibrary();
     assert.equal(engine.sqlQuery(LIBRARY, 'PRAGMA user_version').rows[0][0], 26);
+    assert.equal(profileDatabase(engine, LIBRARY).userVersion, 26);
   });
 
   it('carry the columns the steps for the oldest library add', async () => {

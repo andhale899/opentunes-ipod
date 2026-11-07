@@ -32,6 +32,9 @@
 - Backup folders (`opentunes-backup-*`, `ipod-backups`) are ignored by git, because they hold the device's ID and the library.
 - Buttons for the backup and the rewrite check under the reader's result, and a smoke test that runs the rewrite check on the signed demo in headless Chrome.
 
+- The rewrite check reports the library version (`PRAGMA user_version`) of every SQLite file before and after, and lists a rewrite that would take a file to an older version as a problem. A fourth libgpod patch sets version 26, and the version the owner's iPod really holds was not yet known.
+- A boundary around each panel in the reader, so a panel that fails to draw shows a message instead of taking the page down. It matters most for the panels that change an iPod, where a silent failure to draw would hide whether a write worked. A smoke scenario fails a panel on purpose and checks the message.
+
 ### Changed
 - libgpod now runs the lowest SQL command set a nano 6G or 7G offers, not the highest. The rewritten library gets the `is_home_video` column and library version 26, as the library iTunes wrote has. A fourth libgpod patch, found by the rewrite check on the owner's nano 7G.
 - The rewrite check keeps data it would lose apart from empty tables and columns that are merely missing, so the verdict is not padded with differences where nothing was held.
