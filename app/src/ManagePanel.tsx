@@ -16,6 +16,7 @@ import {
 } from '@opentunes/engine';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
+import { BackupGate } from './BackupGate';
 import { allowWriting } from './WriteBackPanel';
 
 const MAX_ROWS = 200;
@@ -49,11 +50,14 @@ export function ManagePanel({
   tracks,
   backup,
   onChanged,
+  onNeedBackup,
 }: {
   root: DirectoryEntry;
   tracks: TrackInfo[];
   backup: BackupReport | null;
   onChanged: () => void;
+  /** Takes the person to the backup step. */
+  onNeedBackup?: () => void;
 }) {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -181,13 +185,25 @@ export function ManagePanel({
   return (
     <section class="card">
       <h3>Your library</h3>
+      <p class="card-lead">Select tracks to remove them, or select one to edit its details.</p>
+      <BackupGate ready={ready} onGo={onNeedBackup} />
       {tracks.length === 0 ? (
-        <p class="muted">The library is empty.</p>
+        <div class="empty">
+          <strong>No music yet</strong>
+          Open the Add music tab to put songs, podcasts, audiobooks or video on this iPod.
+        </div>
       ) : (
         <>
-          <label class="field">
-            Search <input type="search" value={search} onInput={(event) => setSearch((event.target as HTMLInputElement).value)} placeholder="Title, artist or album" />
-          </label>
+          <div class="toolbar">
+            <label class="field">
+              Search
+              <input type="search" value={search} onInput={(event) => setSearch((event.target as HTMLInputElement).value)} placeholder="Title, artist or album" />
+            </label>
+            <div class="spacer" />
+            <button type="button" class="secondary" disabled={busy} onClick={() => void look()}>
+              Look for leftover files
+            </button>
+          </div>
           <div class="table-wrap">
             <table class="library">
               <thead>
@@ -197,22 +213,22 @@ export function ManagePanel({
                   <th>Artist</th>
                   <th>Album</th>
                   <th>Kind</th>
-                  <th>Length</th>
-                  <th>Size</th>
+                  <th class="num">Length</th>
+                  <th class="num">Size</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.slice(0, MAX_ROWS).map(({ track, key }) => (
-                  <tr key={track.handle} title={track.ipod_path ?? ''}>
+                  <tr key={track.handle} title={track.ipod_path ?? ''} class={selected.has(key) ? 'selected' : ''}>
                     <td>
                       <input type="checkbox" checked={selected.has(key)} onChange={() => toggle(key)} aria-label={`Select ${track.title ?? 'track'}`} disabled={busy} />
                     </td>
-                    <td>{track.title ?? '(no title)'}</td>
+                    <td class="cell-title">{track.title ?? '(no title)'}</td>
                     <td>{track.artist ?? ''}</td>
                     <td>{track.album ?? ''}</td>
                     <td>{kindLabel(track.kind)}</td>
-                    <td>{formatDuration(track.tracklen)}</td>
-                    <td>{formatBytes(track.size)}</td>
+                    <td class="num">{formatDuration(track.tracklen)}</td>
+                    <td class="num">{formatBytes(track.size)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -229,15 +245,14 @@ export function ManagePanel({
       {selected.size ? (
         <div class="actions">
           <span class="note">{plural(selected.size, 'track')} selected</span>
-          <button type="button" disabled={busy || !ready} onClick={() => void planRemove()}>
+          <button type="button" class="secondary" disabled={busy || !ready} onClick={() => void planRemove()}>
             Remove selected
           </button>
-          <button type="button" class="secondary" disabled={busy} onClick={() => { setSelected(new Set()); setDraft({}); }}>
+          <button type="button" class="ghost" disabled={busy} onClick={() => { setSelected(new Set()); setDraft({}); }}>
             Clear selection
           </button>
         </div>
       ) : null}
-      {selected.size && !ready ? <p class="muted">Make the backup first. Changes stay off until a complete backup exists from this session.</p> : null}
 
       {only ? (
         <div>
@@ -254,14 +269,8 @@ export function ManagePanel({
         </div>
       ) : null}
 
-      <div class="actions">
-        <button type="button" class="secondary" disabled={busy} onClick={() => void look()}>
-          Look for leftover files
-        </button>
-      </div>
-
       {stage.phase === 'working' ? (
-        <p class="note" role="status">
+        <p class="callout info" role="status">
           {stage.message}
         </p>
       ) : null}
@@ -286,7 +295,7 @@ export function ManagePanel({
               ))}
             </ul>
           ) : null}
-          <button type="button" disabled={!ready} onClick={() => void remove(stage.plan)}>
+          <button type="button" class="danger" disabled={!ready} onClick={() => void remove(stage.plan)}>
             Remove from the iPod
           </button>
         </>
@@ -304,7 +313,7 @@ export function ManagePanel({
                 </li>
               ))}
             </ul>
-            <button type="button" onClick={() => void clean(stage.report)}>
+            <button type="button" class="danger" onClick={() => void clean(stage.report)}>
               Delete these files
             </button>
           </>

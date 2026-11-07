@@ -72,7 +72,7 @@ export function RewritePanel({ source, autoStart = false }: { source: DirectoryE
   return (
     <section class="card">
       <h3>Rewrite check</h3>
-      <p class="muted">
+      <p class="card-lead">
         Writes the database the way a sync would, but only inside the engine's own memory, and compares the result with what is on the iPod: the library, every file, and the SQLite files a nano 6th or 7th generation keeps. Nothing is written to the iPod. Track titles are left out of the report.
       </p>
       <button type="button" onClick={() => void run()} disabled={working}>

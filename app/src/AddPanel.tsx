@@ -15,6 +15,7 @@ import {
 import { inspectFile, prepareItem, redecide, type Candidate } from './addFiles';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
+import { BackupGate } from './BackupGate';
 import { allowWriting } from './WriteBackPanel';
 
 type Stage =
@@ -48,12 +49,15 @@ export function AddPanel({
   device,
   backup,
   onChanged,
+  onNeedBackup,
 }: {
   root: DirectoryEntry;
   device: DeviceInfo | null;
   backup: BackupReport | null;
   /** Called after a sync that changed the iPod, so the page reads it again. */
   onChanged: () => void;
+  /** Takes the person to the backup step. */
+  onNeedBackup?: () => void;
 }) {
   const [model, setModel] = useState<DeviceModel>(() => PLANNABLE.find((entry) => entry.id === 'nano-7g') ?? (PLANNABLE[0] as DeviceModel));
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -162,23 +166,24 @@ export function AddPanel({
 
   return (
     <section class="card">
-      <h3>Add to the iPod</h3>
-      <p class="muted">
-        Pick music, audiobooks, podcasts or video. Each file is read and checked against what the iPod plays. Files it cannot play are converted in this page, nothing is uploaded. The iPod is not touched until you press the last button, and that needs the backup above.
+      <h3>Add music, podcasts, audiobooks and video</h3>
+      <p class="card-lead">
+        Pick files and see what happens to each one. Files the iPod cannot play are converted in this page, and nothing is uploaded. The iPod is not touched until the last button.
       </p>
+      <BackupGate ready={ready} onGo={onNeedBackup} />
 
-      <label class="field">
-        iPod model{' '}
-        <select value={model.id} onChange={(event) => chooseModel((event.target as HTMLSelectElement).value)} disabled={busy}>
-          {PLANNABLE.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <div class="actions">
+      <div class="toolbar">
+        <label class="field">
+          iPod model
+          <select value={model.id} onChange={(event) => chooseModel((event.target as HTMLSelectElement).value)} disabled={busy}>
+            {PLANNABLE.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div class="spacer" />
         <button type="button" disabled={busy} onClick={() => picker.current?.click()}>
           Choose files
         </button>
@@ -209,6 +214,13 @@ export function AddPanel({
         </div>
       ) : null}
 
+      {!candidates.length && stage.phase === 'idle' ? (
+        <div class="empty">
+          <strong>No files chosen yet</strong>
+          Choose music, audiobooks, podcasts or video. MP3, AAC, M4A, FLAC, WAV, Ogg, Opus and most video formats work.
+        </div>
+      ) : null}
+
       {candidates.length ? (
         <div class="table-wrap">
           <table class="library">
@@ -217,7 +229,7 @@ export function AddPanel({
                 <th>File</th>
                 <th>Kind</th>
                 <th>What happens</th>
-                <th>On the iPod</th>
+                <th class="num">On the iPod</th>
                 <th />
               </tr>
             </thead>
@@ -226,7 +238,7 @@ export function AddPanel({
                 const unsupported = candidate.decision.action === 'unsupported';
                 return (
                   <tr key={candidate.id}>
-                    <td title={candidate.file.name}>{candidate.info.tags.title ?? candidate.file.name}</td>
+                    <td class="cell-title" title={candidate.file.name}>{candidate.info.tags.title ?? candidate.file.name}</td>
                     <td>
                       <select
                         value={candidate.userKind ?? ''}
@@ -242,12 +254,12 @@ export function AddPanel({
                         ))}
                       </select>
                     </td>
-                    <td class={unsupported ? 'no-text' : ''} style="white-space: normal; min-width: 16rem">
+                    <td class={unsupported ? 'wrap no-text' : 'wrap'}>
                       {describeDecision(candidate.decision, candidate.info)}
                     </td>
-                    <td>{candidate.estimatedBytes === null ? '' : formatBytes(candidate.estimatedBytes)}</td>
+                    <td class="num">{candidate.estimatedBytes === null ? '' : formatBytes(candidate.estimatedBytes)}</td>
                     <td>
-                      <button type="button" class="secondary" disabled={busy} onClick={() => remove(candidate.id)} aria-label={`Leave out ${candidate.file.name}`}>
+                      <button type="button" class="ghost small" disabled={busy} onClick={() => remove(candidate.id)} aria-label={`Leave out ${candidate.file.name}`}>
                         Leave out
                       </button>
                     </td>
@@ -261,11 +273,11 @@ export function AddPanel({
 
       {candidates.length ? (
         <>
-          <p class="muted">
+          <p class="note">
             {addable.length} of {candidates.length} can be added, about {formatBytes(sum(addable.map((candidate) => candidate.estimatedBytes)))}.
           </p>
           <label class="field">
-            Put them in a playlist (optional){' '}
+            Put them in a playlist (optional)
             <input type="text" value={playlist} disabled={busy} onInput={(event) => setPlaylist((event.target as HTMLInputElement).value)} placeholder="Playlist name" />
           </label>
           <div class="actions">
@@ -282,14 +294,17 @@ export function AddPanel({
       ) : null}
 
       {stage.phase === 'reading' ? (
-        <p class="note" role="status">
+        <p class="callout info" role="status">
           {stage.message}
         </p>
       ) : null}
       {stage.phase === 'converting' ? (
-        <p class="note" role="status">
-          Converting {stage.message} ({Math.round(stage.fraction * 100)}%)
-        </p>
+        <div class="callout info" role="status">
+          <p>
+            Converting {stage.message} ({Math.round(stage.fraction * 100)}%)
+          </p>
+          <progress max={1} value={stage.fraction} />
+        </div>
       ) : null}
       {stage.phase === 'error' ? (
         <div class="result no" role="alert">
@@ -301,7 +316,7 @@ export function AddPanel({
 
       {stage.phase === 'syncing' ? (
         <>
-          <p class="note" role="status">
+          <p class="callout info" role="status">
             {stage.progress?.message ?? 'Starting...'}
           </p>
           {stage.progress && stage.progress.bytesTotal > 0 ? (
@@ -349,7 +364,6 @@ function Planned({ plan, ready, onSync }: { plan: SyncPlan; ready: boolean; onSy
           ))}
         </ul>
       </details>
-      {!ready ? <p class="muted">Make the backup above first. Writing stays off until a complete backup exists from this session.</p> : null}
       <button type="button" disabled={!ready || !plan.files.length || fits === false} onClick={onSync}>
         Put on the iPod
       </button>
