@@ -70,6 +70,14 @@ Seen on a real unit, 2026-11-07 (Environment check run by the owner on their own
 - iPod_Control and iPod_Control/Device/SysInfo are present. No file was found at iPod_Control/iTunes/iTunesDB, but the check could not tell a missing folder from a missing file.
 - Chrome wrote, read back and deleted a two-byte file in the volume top folder. That whole step took 3.7 seconds.
 
+Seen on a real unit, 2026-11-07 (Second environment check on the same unit, which also listed the files in iPod_Control):
+
+- iPod_Control/iTunes holds iTunesCDB (216,726 bytes) and no iTunesDB at all. The library is the iTunes Library.itlp folder: Library.itdb (925,696 bytes), Locations.itdb (82,944 bytes) with its Locations.itdb.cbk (1,697 bytes), Dynamic.itdb, Extras.itdb and Genius.itdb. The cbk size is exactly one 57-byte signature, one 20-byte hash and 81 block hashes, which matches the 81 blocks of 1,024 bytes in Locations.itdb.
+- Also in iPod_Control/iTunes: iTunesPrefs, iTunesPrefs.plist, Rentals.plist, PSElementsAlbums, PSAlbumAlbums, Play Counts (plays logged since the last sync) and .restore_playlist.
+- iPod_Control/iTunes/iTunesControl and iPod_Control/Device/Radio/RadioBuffer are each exactly 20,971,520 bytes (20 MiB). libgpod never opens either, so the app leaves them out when it loads the database files.
+- iPod_Control/Device holds SysInfo (52 bytes) and SysInfoExtended (57,556 bytes), plus Radio, Trainer and Bluetooth folders and a few settings files. iPod_Control also holds Music, Artwork, Speakable and iPodPrefs. Music has the folders F00 to F49.
+- Writing the two-byte test file took 1.49 seconds this time. Closing the writer was 1.47 seconds of that. Creating the file, writing, reading it back and deleting it each took under 10 milliseconds. Chrome appears to flush the volume on every close, so the cost is per file, not per byte.
+
 Sources:
 - [Apple Support: iPod nano (7th generation) - Technical Specifications](https://support.apple.com/kb/SP656), read 2026-11-07
 

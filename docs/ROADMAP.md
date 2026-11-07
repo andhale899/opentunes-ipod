@@ -28,6 +28,7 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 ## Phase 2: Music on the nano 7G
 
 - [x] Read an iPod's database in the browser, read only, and show the device facts, library and playlists (built, with a demo iPod and a headless-Chrome smoke test). Not yet tried on a real iPod.
+- [x] Check, read only, that the signatures iTunes left on an iPod (`iTunesCDB` and `Locations.itdb.cbk`) are what the engine's own hashAB computes. Tested against engine-made files and files signed with other random bytes, and shown in the reader. Not yet run on the real iPod, and it is the gate before the first write.
 - [ ] Connect: WebUSB identity alongside the folder pick, model lookup against the registry, a proper device card.
 - [ ] Add files, probe them, plan copy or convert against the registry.
 - [ ] Convert in a worker.
@@ -53,7 +54,8 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 
 - Do photos and podcasts work on a real nano 7G? Its own file declares both. Apple's page is silent.
 - Android mounting. The owner's nano 7G looks FAT (it holds System Volume Information and LOST.DIR), and LOST.DIR means Android has mounted it. Not yet tried with this app.
-- Per-file cost of writing to the iPod from Chrome. The first run took 3.7 seconds for a two-byte file. The speed test measures it, and the result decides whether a sync writes files one at a time or several at once.
+- Per-file cost of writing to the iPod from Chrome. The first run took 3.7 seconds for a two-byte file, the second 1.49, of which closing the file was 1.47. The speed test compares one file at a time with several at once, and the result decides how a sync writes.
+- libgpod leaves an empty `iTunesDB` beside `iTunesCDB`. The owner's real nano 7G has no `iTunesDB` at all. Does the iPod mind the empty file? Untested. If it does, the sync can remove the file when the iPod had none.
 - Smart playlists are now written back untouched. Does libgpod write a real nano 7G's smart playlists without error? Untested until hardware.
 - Does libgpod, which does not know the nano 7G model number, cope everywhere else? Checksum and capabilities work. Artwork does not yet.
 - Does Chrome for Android expose the folder picker for an iPod volume? Phase 0 checks this.
