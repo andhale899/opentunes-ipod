@@ -8,7 +8,9 @@ const APPLE_NANO_7G: Source = {
 
 /** Identity facts only. Capability limits are added row by row as each model is researched. */
 function stub(
-  fields: Pick<DeviceModel, 'id' | 'name' | 'family' | 'generation' | 'years' | 'connector' | 'databaseFormat'>,
+  fields: Pick<DeviceModel, 'id' | 'name' | 'family' | 'generation' | 'years' | 'connector' | 'databaseFormat'> & {
+    usbProductIds?: number[];
+  },
 ): DeviceModel {
   return {
     ...fields,
@@ -124,6 +126,20 @@ const nano7g: DeviceModel = {
       ],
     },
   },
+  usbProductIds: [0x1267],
+  observed: [
+    {
+      date: '2026-11-07',
+      source: "Environment check run by the owner on their own nano 7G, macOS, Chrome 157",
+      facts: [
+        'USB product id 0x1267, manufacturer "Apple Inc.", product name "iPod". The id matches the nano 7th generation in the public USB id list.',
+        "The USB serial number string is 16 hex digits starting with Apple's 000A27 prefix. That is the FireWire ID the database signing needs, and Chrome reads it without opening the device.",
+        'The volume is labelled IPOD NANO R. It holds a System Volume Information folder (made by Windows) and LOST.DIR (made by Android), which points to a FAT volume that has been mounted by both.',
+        'iPod_Control and iPod_Control/Device/SysInfo are present. No file was found at iPod_Control/iTunes/iTunesDB, but the check could not tell a missing folder from a missing file.',
+        'Chrome wrote, read back and deleted a two-byte file in the volume top folder. That whole step took 3.7 seconds.',
+      ],
+    },
+  ],
   verification: 'spec-sourced',
   sources: [APPLE_NANO_7G],
   notes: [
@@ -131,33 +147,34 @@ const nano7g: DeviceModel = {
     'The disk format is FAT32 according to the device template, so Android can mount it. Confirm on your unit.',
     'Album art and photos use the newer ImageSpecifications2 and AlbumArt2 keys, which the 2012 libgpod does not read. Writing artwork needs that added.',
     'Audio tops out at 48 kHz, so 96 kHz or 88.2 kHz files must be resampled.',
+    'This family keeps its library in iTunesCDB and an iTunes Library.itlp folder of SQLite files. libgpod reads iTunesCDB first.',
     'The upstream project that the v1 engine came from calls 6th and 7th generation nano support beta.',
   ],
 };
 
 export const devices: readonly DeviceModel[] = [
   stub({ id: 'ipod-1g', name: 'iPod (1st generation)', family: 'ipod', generation: '1G', years: '2001', connector: 'firewire', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'ipod-2g', name: 'iPod (2nd generation)', family: 'ipod', generation: '2G', years: '2002', connector: 'firewire', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'ipod-3g', name: 'iPod (3rd generation)', family: 'ipod', generation: '3G', years: '2003', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'ipod-4g', name: 'iPod (4th generation)', family: 'ipod', generation: '4G', years: '2004', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'ipod-photo', name: 'iPod Photo / Color', family: 'photo', generation: 'Photo', years: '2004-2005', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'ipod-mini-1g', name: 'iPod mini (1st generation)', family: 'mini', generation: '1G', years: '2004', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'ipod-mini-2g', name: 'iPod mini (2nd generation)', family: 'mini', generation: '2G', years: '2005', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'ipod-video-5g', name: 'iPod Video (5th generation)', family: 'video', generation: '5G', years: '2005', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'ipod-video-5-5g', name: 'iPod Video (5.5 generation)', family: 'video', generation: '5.5G', years: '2006', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'ipod-classic-6g', name: 'iPod classic (6th generation)', family: 'classic', generation: '6G', years: '2007-2008', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'ipod-classic-7g', name: 'iPod classic (7th generation)', family: 'classic', generation: '7G', years: '2009', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'nano-1g', name: 'iPod nano (1st generation)', family: 'nano', generation: '1G', years: '2005', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'nano-2g', name: 'iPod nano (2nd generation)', family: 'nano', generation: '2G', years: '2006', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'nano-3g', name: 'iPod nano (3rd generation)', family: 'nano', generation: '3G', years: '2007', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'nano-4g', name: 'iPod nano (4th generation)', family: 'nano', generation: '4G', years: '2008', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'nano-5g', name: 'iPod nano (5th generation)', family: 'nano', generation: '5G', years: '2009', connector: '30-pin', databaseFormat: 'iTunesDB' }),
-  stub({ id: 'nano-6g', name: 'iPod nano (6th generation)', family: 'nano', generation: '6G', years: '2010', connector: '30-pin', databaseFormat: 'iTunesDB' }),
+  stub({ id: 'ipod-2g', name: 'iPod (2nd generation)', family: 'ipod', generation: '2G', years: '2002', connector: 'firewire', databaseFormat: 'iTunesDB', usbProductIds: [0x1202] }),
+  stub({ id: 'ipod-3g', name: 'iPod (3rd generation)', family: 'ipod', generation: '3G', years: '2003', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1201] }),
+  stub({ id: 'ipod-4g', name: 'iPod (4th generation)', family: 'ipod', generation: '4G', years: '2004', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1203] }),
+  stub({ id: 'ipod-photo', name: 'iPod Photo / Color', family: 'photo', generation: 'Photo', years: '2004-2005', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1204] }),
+  stub({ id: 'ipod-mini-1g', name: 'iPod mini (1st generation)', family: 'mini', generation: '1G', years: '2004', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1205] }),
+  stub({ id: 'ipod-mini-2g', name: 'iPod mini (2nd generation)', family: 'mini', generation: '2G', years: '2005', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1205] }),
+  stub({ id: 'ipod-video-5g', name: 'iPod Video (5th generation)', family: 'video', generation: '5G', years: '2005', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1209] }),
+  stub({ id: 'ipod-video-5-5g', name: 'iPod Video (5.5 generation)', family: 'video', generation: '5.5G', years: '2006', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1209] }),
+  stub({ id: 'ipod-classic-6g', name: 'iPod classic (6th generation)', family: 'classic', generation: '6G', years: '2007-2008', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1261] }),
+  stub({ id: 'ipod-classic-7g', name: 'iPod classic (7th generation)', family: 'classic', generation: '7G', years: '2009', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1261] }),
+  stub({ id: 'nano-1g', name: 'iPod nano (1st generation)', family: 'nano', generation: '1G', years: '2005', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x120a] }),
+  stub({ id: 'nano-2g', name: 'iPod nano (2nd generation)', family: 'nano', generation: '2G', years: '2006', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1260] }),
+  stub({ id: 'nano-3g', name: 'iPod nano (3rd generation)', family: 'nano', generation: '3G', years: '2007', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1262] }),
+  stub({ id: 'nano-4g', name: 'iPod nano (4th generation)', family: 'nano', generation: '4G', years: '2008', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1263] }),
+  stub({ id: 'nano-5g', name: 'iPod nano (5th generation)', family: 'nano', generation: '5G', years: '2009', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1265] }),
+  stub({ id: 'nano-6g', name: 'iPod nano (6th generation)', family: 'nano', generation: '6G', years: '2010', connector: '30-pin', databaseFormat: 'iTunesDB', usbProductIds: [0x1266] }),
   nano7g,
-  stub({ id: 'shuffle-1g', name: 'iPod shuffle (1st generation)', family: 'shuffle', generation: '1G', years: '2005', connector: 'usb-integrated', databaseFormat: 'iTunesSD' }),
-  stub({ id: 'shuffle-2g', name: 'iPod shuffle (2nd generation)', family: 'shuffle', generation: '2G', years: '2006-2008', connector: 'headphone-jack-usb', databaseFormat: 'iTunesSD' }),
-  stub({ id: 'shuffle-3g', name: 'iPod shuffle (3rd generation)', family: 'shuffle', generation: '3G', years: '2009', connector: 'headphone-jack-usb', databaseFormat: 'iTunesSD' }),
-  stub({ id: 'shuffle-4g', name: 'iPod shuffle (4th generation)', family: 'shuffle', generation: '4G', years: '2010-2017', connector: 'headphone-jack-usb', databaseFormat: 'iTunesSD' }),
+  stub({ id: 'shuffle-1g', name: 'iPod shuffle (1st generation)', family: 'shuffle', generation: '1G', years: '2005', connector: 'usb-integrated', databaseFormat: 'iTunesSD', usbProductIds: [0x1300] }),
+  stub({ id: 'shuffle-2g', name: 'iPod shuffle (2nd generation)', family: 'shuffle', generation: '2G', years: '2006-2008', connector: 'headphone-jack-usb', databaseFormat: 'iTunesSD', usbProductIds: [0x1301] }),
+  stub({ id: 'shuffle-3g', name: 'iPod shuffle (3rd generation)', family: 'shuffle', generation: '3G', years: '2009', connector: 'headphone-jack-usb', databaseFormat: 'iTunesSD', usbProductIds: [0x1302] }),
+  stub({ id: 'shuffle-4g', name: 'iPod shuffle (4th generation)', family: 'shuffle', generation: '4G', years: '2010-2017', connector: 'headphone-jack-usb', databaseFormat: 'iTunesSD', usbProductIds: [0x1303] }),
 ];
 
 export function getDevice(id: string): DeviceModel | undefined {

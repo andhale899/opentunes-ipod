@@ -93,6 +93,7 @@ From a SysInfoExtended dumped from a real nano 7G (`engine/data/`), which the de
 - It declares photo support (a 480x864 full-screen format and an 80x80 thumbnail), podcasts, and these album art sizes: 240x240, 58x58, 57x57 and 50x50. All are RGB565.
 - Video: H.264 Baseline, Main and High at level 3.0 up to 720x576, and a separate Baseline entry capped at 640x480. Audio tops out at 48 kHz.
 - For this family libgpod writes an empty `iTunesDB`, a signed `iTunesCDB`, and an `iTunes Library.itlp` folder of SQLite files with a signed `Locations.itdb.cbk`.
+- libgpod reads `iTunesCDB` first and `iTunesDB` second, so an iPod with only an `iTunesCDB` opens fine (tested). An iPod whose only database is an empty `iTunesDB` is what a never-synced one looks like. libgpod fails on it without a reason, so the engine says so itself.
 - The FireWire ID can come from `SysInfoExtended` alone. If it is malformed, the write fails with "an error occurred during Locations.itdb.cbk generation", which says nothing useful. The app must check the ID is 16 hex digits before writing.
 - The template was dumped from someone else's unit, with its serial numbers removed. Compare it with the file on your own iPod.
 

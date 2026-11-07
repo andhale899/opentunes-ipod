@@ -62,3 +62,19 @@ export function buildDemoIpod(engine: Engine, mount = '/ipod'): void {
   }
   engine.write();
 }
+
+/**
+ * An iPod that has never been synced: the folders are there, and the database is an empty
+ * file. Reading it fails, and the point is to see how that failure is explained.
+ */
+export function buildUnsyncedIpod(engine: Engine, mount = '/ipod'): void {
+  const make = (path: string) => {
+    if (!engine.fs.analyzePath(path).exists) engine.fs.mkdir(path);
+  };
+  for (const path of [mount, `${mount}/iPod_Control`, `${mount}/iPod_Control/iTunes`, `${mount}/iPod_Control/Device`, `${mount}/iPod_Control/Music`]) {
+    make(path);
+  }
+  for (let i = 0; i < 50; i += 1) make(`${mount}/iPod_Control/Music/F${String(i).padStart(2, '0')}`);
+  engine.fs.writeFile(`${mount}/iPod_Control/iTunes/iTunesDB`, new Uint8Array(0));
+  engine.fs.writeFile(`${mount}/iPod_Control/Device/SysInfo`, 'ModelNumStr: MA450\n');
+}

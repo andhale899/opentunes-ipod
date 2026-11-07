@@ -13,10 +13,15 @@
 - A C interface of our own for the engine, with handles, a single field table, and kinds for music, movies, music videos, TV shows, podcasts, video podcasts and audiobooks (with chapters). Typed TypeScript bindings for it.
 - Device-declared facts for the nano 7G in the device registry: FAT32, 48 kHz audio limit, video limits, photo and album art formats.
 - A read-only iPod reader in the app: loads the engine in the browser, copies an iPod's database files into it (leaving music and macOS clutter behind), and shows device facts, library and playlists. A demo iPod stands in without hardware.
-- `npm run smoke`: serves the built app and loads the demo iPod in headless Chrome, failing if the engine does not run there.
+- `npm run smoke`: serves the built app and loads two demo iPods in headless Chrome, a healthy one and one that was never synced, failing if the engine does not run there or the failure is not explained.
+- The environment check now lists what is in `iPod_Control` with file sizes, times each step of the write test, and has a write-speed test.
+- USB product ids in the device registry, and a place for facts observed on a real unit. The first is the nano 7G's id, seen on the owner's hardware.
+- The reader keeps the list of files it read when something fails, and can copy a diagnostic report.
+- An in-memory directory that looks like the browser's, so demo iPods go through the same loader as a real one.
 - Size, duration and kind formatting helpers in `core`, with tests.
 
 ### Changed
+- Opening a database that libgpod cannot read, such as a never-synced iPod, now explains why. libgpod gave only "unknown error".
 - The nano 7G is recorded as supporting photos and podcasts, because the device declares both. Apple's spec page lists neither.
 - Project restructured into `app/`, `core/`, `engine/` and `docs/`, with npm workspaces.
 - Song identity matching now handles non-Latin scripts and accents, keeps live and remix versions distinct from studio tracks, and keeps everything after the first " - " in a title.

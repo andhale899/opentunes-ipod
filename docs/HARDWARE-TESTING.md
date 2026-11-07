@@ -54,4 +54,12 @@ Report or log attached:
 
 ## Results
 
-None yet.
+### 2026-11-07: environment check, nano 7th generation, macOS Chrome 157
+
+- App commit: `45b4c87` on `main`
+- iPod: nano 7th generation (USB product id 0x1267), volume label IPOD NANO R, firmware not recorded
+- Host: desktop Chrome 157 on macOS
+- Case: Phase 0 environment check (USB, folder read only, write test)
+- Outcome: **pass**
+- What happened: Chrome saw the iPod over USB and read its FireWire ID without opening the device. It opened the volume and found `iPod_Control` and `iPod_Control/Device/SysInfo`. It wrote, read back and deleted a two-byte file.
+- Notes: the write step took 3.7 seconds for two bytes, so the cost per file on this iPod needs measuring (the speed test was added after this run). No `iTunesDB` was found at the expected path. libgpod reads `iTunesCDB` first, so that may be normal for this model, and the reader's file listing will show. The volume holds folders made by Windows and by Android, so it has been used with both. The reader and the speed test have not been run yet.

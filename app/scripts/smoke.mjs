@@ -13,18 +13,20 @@ import { fileURLToPath } from 'node:url';
 
 const appDirectory = fileURLToPath(new URL('..', import.meta.url));
 const port = 4179;
-const url = `http://localhost:${port}/?demo=1`;
 
-const EXPECTED = [
-  'Demo iPod',
-  '5 tracks, 3 playlists',
-  'Morning Light',
-  'Episode 12: Engines',
-  'A Short Story',
-  'Demo Film',
-  'Road trip',
-  'Audiobook',
-  'Podcast',
+const SCENARIOS = [
+  {
+    name: 'a demo iPod with one of each kind',
+    url: `http://localhost:${port}/?demo=1`,
+    expected: ['Demo iPod', '5 tracks, 3 playlists', 'Morning Light', 'Episode 12: Engines', 'A Short Story', 'Demo Film', 'Road trip', 'Audiobook', 'Podcast', 'Files read from the iPod'],
+    alert: false,
+  },
+  {
+    name: 'an iPod that was never synced',
+    url: `http://localhost:${port}/?demo=unsynced`,
+    expected: ['never been synced', 'Copy diagnostic report', 'Files read from the iPod'],
+    alert: true,
+  },
 ];
 
 function findChrome() {
@@ -74,18 +76,23 @@ try {
   await waitForServer();
   const flags = ['--headless=new', '--disable-gpu', '--virtual-time-budget=20000', '--dump-dom'];
   if (process.env.CI) flags.push('--no-sandbox');
-  const dom = execFileSync(chrome, [...flags, url], { encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'ignore'] });
 
-  const missing = EXPECTED.filter((text) => !dom.includes(text));
-  if (missing.length) {
-    failed = true;
-    console.error(`The demo page is missing: ${missing.join(', ')}`);
+  for (const scenario of SCENARIOS) {
+    const dom = execFileSync(chrome, [...flags, scenario.url], { encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'ignore'] });
+    const missing = scenario.expected.filter((text) => !dom.includes(text));
+    const hasAlert = dom.includes('role="alert"');
+    if (missing.length) {
+      failed = true;
+      console.error(`${scenario.name}: the page is missing: ${missing.join(', ')}`);
+    }
+    if (hasAlert !== scenario.alert) {
+      failed = true;
+      console.error(`${scenario.name}: expected ${scenario.alert ? 'an error message' : 'no error message'} on the page.`);
+    }
+    if (!missing.length && hasAlert === scenario.alert) {
+      console.log(`Smoke test passed for ${scenario.name}.`);
+    }
   }
-  if (dom.includes('role="alert"')) {
-    failed = true;
-    console.error('The page showed an error instead of the demo iPod.');
-  }
-  if (!failed) console.log(`Smoke test passed: the engine ran in the browser and rendered ${EXPECTED.length} expected items.`);
 } catch (error) {
   failed = true;
   console.error(error instanceof Error ? error.message : error);

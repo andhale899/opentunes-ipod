@@ -474,6 +474,13 @@ int ot_open(const char *mount)
     GError *error = NULL;
     db = itdb_parse(mount, &error);
     if (!db) {
+        if (!error) {
+            /* libgpod reads iTunesCDB first and iTunesDB second. When both are missing or
+             * empty it fails without saying why, which is what an iPod that has never been
+             * synced looks like. */
+            return fail("Could not read the iPod database: there is no iTunesCDB, and any iTunesDB is empty. "
+                        "An iPod that has never been synced looks like this.");
+        }
         return fail_from("Could not read the iPod database", error);
     }
 

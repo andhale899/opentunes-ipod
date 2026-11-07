@@ -4,34 +4,34 @@
 
 Every row says how far it can be trusted. "Tested on hardware" means a sync was run on a real iPod of that model and the result recorded. Nothing has reached that level yet.
 
-Capability limits are only filled in once they have been read from a published specification. Models without them show identity facts only.
+Capability limits are only filled in once they have been read from a published specification. Models without them show identity facts only. USB ids come from the public USB id list except where a row says it was seen on a real unit.
 
 ## All models
 
-| Model | Years | Connector | Database | Checksum | Status |
-| --- | --- | --- | --- | --- | --- |
-| iPod (1st generation) | 2001 | firewire | iTunesDB | unknown | Unverified |
-| iPod (2nd generation) | 2002 | firewire | iTunesDB | unknown | Unverified |
-| iPod (3rd generation) | 2003 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod (4th generation) | 2004 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod Photo / Color | 2004-2005 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod mini (1st generation) | 2004 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod mini (2nd generation) | 2005 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod Video (5th generation) | 2005 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod Video (5.5 generation) | 2006 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod classic (6th generation) | 2007-2008 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod classic (7th generation) | 2009 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod nano (1st generation) | 2005 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod nano (2nd generation) | 2006 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod nano (3rd generation) | 2007 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod nano (4th generation) | 2008 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod nano (5th generation) | 2009 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod nano (6th generation) | 2010 | 30-pin | iTunesDB | unknown | Unverified |
-| iPod nano (7th generation) | 2012-2015 | lightning | iTunesDB | hashAB | From specification, not run on hardware |
-| iPod shuffle (1st generation) | 2005 | usb-integrated | iTunesSD | unknown | Unverified |
-| iPod shuffle (2nd generation) | 2006-2008 | headphone-jack-usb | iTunesSD | unknown | Unverified |
-| iPod shuffle (3rd generation) | 2009 | headphone-jack-usb | iTunesSD | unknown | Unverified |
-| iPod shuffle (4th generation) | 2010-2017 | headphone-jack-usb | iTunesSD | unknown | Unverified |
+| Model | Years | Connector | Database | Checksum | USB id | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| iPod (1st generation) | 2001 | firewire | iTunesDB | unknown | - | Unverified |
+| iPod (2nd generation) | 2002 | firewire | iTunesDB | unknown | 0x1202 | Unverified |
+| iPod (3rd generation) | 2003 | 30-pin | iTunesDB | unknown | 0x1201 | Unverified |
+| iPod (4th generation) | 2004 | 30-pin | iTunesDB | unknown | 0x1203 | Unverified |
+| iPod Photo / Color | 2004-2005 | 30-pin | iTunesDB | unknown | 0x1204 | Unverified |
+| iPod mini (1st generation) | 2004 | 30-pin | iTunesDB | unknown | 0x1205 | Unverified |
+| iPod mini (2nd generation) | 2005 | 30-pin | iTunesDB | unknown | 0x1205 | Unverified |
+| iPod Video (5th generation) | 2005 | 30-pin | iTunesDB | unknown | 0x1209 | Unverified |
+| iPod Video (5.5 generation) | 2006 | 30-pin | iTunesDB | unknown | 0x1209 | Unverified |
+| iPod classic (6th generation) | 2007-2008 | 30-pin | iTunesDB | unknown | 0x1261 | Unverified |
+| iPod classic (7th generation) | 2009 | 30-pin | iTunesDB | unknown | 0x1261 | Unverified |
+| iPod nano (1st generation) | 2005 | 30-pin | iTunesDB | unknown | 0x120a | Unverified |
+| iPod nano (2nd generation) | 2006 | 30-pin | iTunesDB | unknown | 0x1260 | Unverified |
+| iPod nano (3rd generation) | 2007 | 30-pin | iTunesDB | unknown | 0x1262 | Unverified |
+| iPod nano (4th generation) | 2008 | 30-pin | iTunesDB | unknown | 0x1263 | Unverified |
+| iPod nano (5th generation) | 2009 | 30-pin | iTunesDB | unknown | 0x1265 | Unverified |
+| iPod nano (6th generation) | 2010 | 30-pin | iTunesDB | unknown | 0x1266 | Unverified |
+| iPod nano (7th generation) | 2012-2015 | lightning | iTunesDB | hashAB | 0x1267 | From specification, not run on hardware |
+| iPod shuffle (1st generation) | 2005 | usb-integrated | iTunesSD | unknown | 0x1300 | Unverified |
+| iPod shuffle (2nd generation) | 2006-2008 | headphone-jack-usb | iTunesSD | unknown | 0x1301 | Unverified |
+| iPod shuffle (3rd generation) | 2009 | headphone-jack-usb | iTunesSD | unknown | 0x1302 | Unverified |
+| iPod shuffle (4th generation) | 2010-2017 | headphone-jack-usb | iTunesSD | unknown | 0x1303 | Unverified |
 
 ## Researched models
 
@@ -62,6 +62,14 @@ Declared by the device itself (`engine/data/7_nano_SysInfoExtended.plist`):
 - Photo formats: 1007 (480x864), 1005 (80x80)
 - Chapter image formats: 1010 (240x240), 1019 (101x57), 1011 (240x240)
 
+Seen on a real unit, 2026-11-07 (Environment check run by the owner on their own nano 7G, macOS, Chrome 157):
+
+- USB product id 0x1267, manufacturer "Apple Inc.", product name "iPod". The id matches the nano 7th generation in the public USB id list.
+- The USB serial number string is 16 hex digits starting with Apple's 000A27 prefix. That is the FireWire ID the database signing needs, and Chrome reads it without opening the device.
+- The volume is labelled IPOD NANO R. It holds a System Volume Information folder (made by Windows) and LOST.DIR (made by Android), which points to a FAT volume that has been mounted by both.
+- iPod_Control and iPod_Control/Device/SysInfo are present. No file was found at iPod_Control/iTunes/iTunesDB, but the check could not tell a missing folder from a missing file.
+- Chrome wrote, read back and deleted a two-byte file in the volume top folder. That whole step took 3.7 seconds.
+
 Sources:
 - [Apple Support: iPod nano (7th generation) - Technical Specifications](https://support.apple.com/kb/SP656), read 2026-11-07
 
@@ -70,4 +78,5 @@ Notes:
 - The disk format is FAT32 according to the device template, so Android can mount it. Confirm on your unit.
 - Album art and photos use the newer ImageSpecifications2 and AlbumArt2 keys, which the 2012 libgpod does not read. Writing artwork needs that added.
 - Audio tops out at 48 kHz, so 96 kHz or 88.2 kHz files must be resampled.
+- This family keeps its library in iTunesCDB and an iTunes Library.itlp folder of SQLite files. libgpod reads iTunesCDB first.
 - The upstream project that the v1 engine came from calls 6th and 7th generation nano support beta.

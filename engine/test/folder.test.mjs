@@ -6,40 +6,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { IpodFolderError, buildDemoIpod, loadIpodFolder } from '../js/index.ts';
+import { IpodFolderError, buildDemoIpod, buildUnsyncedIpod, describeIpodLayout, loadIpodFolder, memoryDirectory } from '../js/index.ts';
 import { MOUNT, addFile, nano7gStyleIpod, newEngine, restart } from './helpers.mjs';
-
-function fileHandle(engine, path, name) {
-  return {
-    kind: 'file',
-    name,
-    async getFile() {
-      const bytes = engine.fs.readFile(path);
-      return { size: bytes.length, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
-    },
-  };
-}
-
-function directoryHandle(engine, path, name = path.split('/').pop()) {
-  return {
-    kind: 'directory',
-    name,
-    async *entries() {
-      for (const entry of engine.fs.readdir(path)) {
-        if (entry === '.' || entry === '..') continue;
-        const full = `${path}/${entry}`;
-        yield [entry, engine.fs.isDir(engine.fs.stat(full).mode) ? directoryHandle(engine, full, entry) : fileHandle(engine, full, entry)];
-      }
-    },
-    async getDirectoryHandle(child) {
-      const full = `${path}/${child}`;
-      if (!engine.fs.analyzePath(full).exists || !engine.fs.isDir(engine.fs.stat(full).mode)) {
-        throw Object.assign(new Error(`${child} not found`), { name: 'NotFoundError' });
-      }
-      return directoryHandle(engine, full, child);
-    },
-  };
-}
 
 const kindsOf = (engine) => Object.fromEntries(engine.tracks().map((track) => [track.title, track.kind]));
 
@@ -49,7 +17,7 @@ describe('loading an iPod folder', () => {
     buildDemoIpod(source);
 
     const target = await newEngine();
-    const report = await loadIpodFolder(directoryHandle(source, MOUNT, 'DEMO IPOD'), target);
+    const report = await loadIpodFolder(memoryDirectory(source, MOUNT, 'DEMO IPOD'), target);
     target.open(MOUNT);
 
     assert.equal(target.tracks().length, 5);
@@ -64,7 +32,7 @@ describe('loading an iPod folder', () => {
     source.fs.writeFile(`${MOUNT}/iPod_Control/Music/F00/song.mp3`, new Uint8Array(500_000));
 
     const target = await newEngine();
-    const report = await loadIpodFolder(directoryHandle(source, MOUNT), target);
+    const report = await loadIpodFolder(memoryDirectory(source, MOUNT), target);
 
     assert.equal(report.musicFolders.length, 50);
     assert.equal(report.musicFolders[0], 'F00');
@@ -80,7 +48,7 @@ describe('loading an iPod folder', () => {
     source.fs.writeFile(`${MOUNT}/iPod_Control/iTunes/.DS_Store`, new Uint8Array(10));
 
     const target = await newEngine();
-    const report = await loadIpodFolder(directoryHandle(source, MOUNT), target);
+    const report = await loadIpodFolder(memoryDirectory(source, MOUNT), target);
 
     assert.deepEqual(report.skipped.sort(), [`${MOUNT}/iPod_Control/iTunes/.DS_Store`, `${MOUNT}/iPod_Control/iTunes/._iTunesDB`]);
     assert.equal(target.fs.analyzePath(`${MOUNT}/iPod_Control/iTunes/._iTunesDB`).exists, false);
@@ -90,7 +58,7 @@ describe('loading an iPod folder', () => {
     const source = await newEngine(); // an empty folder
     const target = await newEngine();
     await assert.rejects(
-      loadIpodFolder(directoryHandle(source, MOUNT, 'Documents'), target),
+      loadIpodFolder(memoryDirectory(source, MOUNT, 'Documents'), target),
       (error) => error instanceof IpodFolderError && /"Documents" has no iPod_Control folder/.test(error.message),
     );
   });
@@ -102,7 +70,7 @@ describe('loading an iPod folder', () => {
     source.fs.mkdir(`${MOUNT}/iPod_Control/Music/F00`);
 
     const target = await newEngine();
-    const report = await loadIpodFolder(directoryHandle(source, MOUNT), target);
+    const report = await loadIpodFolder(memoryDirectory(source, MOUNT), target);
     assert.equal(report.hasDatabaseFolder, false);
     assert.throws(() => target.open(MOUNT), /Could not read the iPod database/);
   });
@@ -112,7 +80,7 @@ describe('loading an iPod folder', () => {
     buildDemoIpod(source);
     const target = await newEngine();
     await assert.rejects(
-      loadIpodFolder(directoryHandle(source, MOUNT), target, { maxBytes: 1000 }),
+      loadIpodFolder(memoryDirectory(source, MOUNT), target, { maxBytes: 1000 }),
       (error) => error instanceof IpodFolderError && /more than/.test(error.message),
     );
   });
@@ -124,7 +92,7 @@ describe('loading an iPod folder', () => {
     source.write();
 
     const target = await newEngine();
-    await loadIpodFolder(directoryHandle(source, MOUNT), target);
+    await loadIpodFolder(memoryDirectory(source, MOUNT), target);
     target.open(MOUNT);
 
     const device = target.device();
@@ -138,8 +106,100 @@ describe('loading an iPod folder', () => {
     buildDemoIpod(source);
     const target = await newEngine();
     const messages = [];
-    await loadIpodFolder(directoryHandle(source, MOUNT), target, { onProgress: (message) => messages.push(message) });
+    await loadIpodFolder(memoryDirectory(source, MOUNT), target, { onProgress: (message) => messages.push(message) });
     assert.ok(messages.some((message) => /iTunesDB/.test(message)));
+  });
+});
+
+describe('describing an iPod layout', () => {
+  it('lists what is where, with sizes, without reading file contents', async () => {
+    const source = await newEngine();
+    buildDemoIpod(source);
+    source.fs.writeFile(`${MOUNT}/Some Song.mp3`, new Uint8Array(1234)); // loose file at the top
+    source.fs.mkdir(`${MOUNT}/LOST.DIR`);
+
+    const layout = await describeIpodLayout(memoryDirectory(source, MOUNT));
+    assert.ok(layout.root.some((entry) => entry.path === 'iPod_Control' && entry.kind === 'directory'));
+    assert.ok(layout.root.some((entry) => entry.path === 'LOST.DIR'));
+    assert.ok(layout.root.some((entry) => entry.path === 'Some Song.mp3' && entry.kind === 'file'));
+    assert.ok(layout.control.some((entry) => entry.path === 'iTunes'));
+    assert.equal(layout.musicFolders, 50);
+
+    const database = layout.iTunes.find((entry) => entry.path === 'iTunesDB');
+    assert.equal(database.kind, 'file');
+    assert.ok(database.size > 0);
+    assert.ok(layout.device.some((entry) => entry.path === 'SysInfo'), 'device files are listed');
+  });
+
+  it('says so when parts of the layout are missing', async () => {
+    const source = await newEngine();
+    source.fs.mkdir(`${MOUNT}/iPod_Control`);
+    const layout = await describeIpodLayout(memoryDirectory(source, MOUNT));
+    assert.deepEqual(layout.control, []);
+    assert.equal(layout.iTunes, null);
+    assert.equal(layout.device, null);
+    assert.equal(layout.musicFolders, null);
+
+    const empty = await describeIpodLayout(memoryDirectory(await newEngine(), MOUNT));
+    assert.equal(empty.control, null);
+  });
+
+  it('reaches into the nano 7G library folder and stops at the limit', async () => {
+    const source = await nano7gStyleIpod();
+    addFile(source, 'music', { title: 'Song' }, 'x.mp3');
+    source.write();
+    const layout = await describeIpodLayout(memoryDirectory(source, MOUNT));
+    assert.ok(layout.iTunes.some((entry) => entry.path === 'iTunesCDB'));
+    assert.ok(layout.iTunes.some((entry) => entry.path === 'iTunes Library.itlp/Library.itdb'));
+    assert.equal((await describeIpodLayout(memoryDirectory(source, MOUNT), 3)).iTunes.length, 3);
+  });
+});
+
+describe('the load listing', () => {
+  it('records each database file with its size and its path from the top of the iPod', async () => {
+    const source = await newEngine();
+    buildDemoIpod(source);
+    const target = await newEngine();
+    const report = await loadIpodFolder(memoryDirectory(source, MOUNT), target);
+    const database = report.listing.find((file) => file.path === 'iPod_Control/iTunes/iTunesDB');
+    assert.ok(database && database.size > 0);
+    assert.equal(report.listing.length, report.files);
+  });
+});
+
+describe('the in-memory folder', () => {
+  it('behaves like a browser directory handle', async () => {
+    const engine = await newEngine();
+    engine.fs.mkdir(`${MOUNT}/inner`);
+    engine.fs.writeFile(`${MOUNT}/inner/a.txt`, new Uint8Array([1, 2, 3]));
+    const root = memoryDirectory(engine, MOUNT, 'ROOT');
+    assert.equal(root.name, 'ROOT');
+
+    const inner = await root.getDirectoryHandle('inner');
+    const entries = [];
+    for await (const [name, entry] of inner.entries()) entries.push([name, entry.kind]);
+    assert.deepEqual(entries, [['a.txt', 'file']]);
+
+    const missing = await inner.getDirectoryHandle('x').catch((error) => error);
+    assert.equal(missing.name, 'NotFoundError');
+
+    const [[, file]] = await Array.fromAsync(inner.entries());
+    const contents = await file.getFile();
+    assert.equal(contents.size, 3);
+    assert.deepEqual([...new Uint8Array(await contents.arrayBuffer())], [1, 2, 3]);
+  });
+});
+
+describe('the unsynced demo iPod', () => {
+  it('loads, then fails to open with an explanation and the evidence', async () => {
+    const source = await newEngine();
+    buildUnsyncedIpod(source);
+    const target = await newEngine();
+    const report = await loadIpodFolder(memoryDirectory(source, MOUNT, 'DEMO IPOD'), target);
+
+    assert.equal(report.hasDatabaseFolder, true);
+    assert.deepEqual(report.listing.find((file) => file.path === 'iPod_Control/iTunes/iTunesDB'), { path: 'iPod_Control/iTunes/iTunesDB', size: 0 });
+    assert.throws(() => target.open(MOUNT), /never been synced/);
   });
 });
 
