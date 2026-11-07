@@ -24,6 +24,7 @@
 - The second hardware report's facts in the nano 7G's registry entry, and its result in the hardware testing guide.
 
 ### Changed
+- The reader no longer lists video as supported or unsupported for a model libgpod does not know. libgpod judges video from the model number alone and always said no for the owner's nano 7G.
 - The loader leaves out `iTunesControl` and `Device/Radio/RadioBuffer`, two 20 MiB files on a nano 7G that libgpod never opens, and lists them in its report.
 - Opening a database that libgpod cannot read, such as a never-synced iPod, now explains why. libgpod gave only "unknown error".
 - The nano 7G is recorded as supporting photos and podcasts, because the device declares both. Apple's spec page lists neither.

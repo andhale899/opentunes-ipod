@@ -17,7 +17,7 @@ probe (codec, bitrate, tags, art)  -->  plan per file: copy / remux / convert / 
 convert in a worker (ffmpeg.wasm, only when the plan says so)
    |
    v
-stream file to iPod_Control/Music/Fxx  (File System Access)
+stream files to iPod_Control/Music/Fxx, three at a time  (File System Access)
    |
    v
 add track to database with the right media type (libgpod WASM)
@@ -26,11 +26,13 @@ add track to database with the right media type (libgpod WASM)
 back up iTunesDB, write the new one last, re-read it to verify
 ```
 
+Three at a time is measured, not a guess. On the owner's nano 7G over USB from Chrome on macOS, closing a file costs about a third of a second whatever its size, one file at a time ran at 8.1 MB/s and three at once at 13.2 MB/s, see [HARDWARE-TESTING.md](HARDWARE-TESTING.md).
+
 Writing the database last means an interrupted sync leaves the iPod with its old, working database plus some unreferenced files, which a cleanup tool can remove. The previous database is backed up before the first write.
 
 ## Pieces
 
-**Device identity (WebUSB).** Reads the iPod's serial number and FireWire ID. Newer models sign their database with a checksum that needs the FireWire ID, so a sync cannot be written without it.
+**Device identity (WebUSB).** Reads the iPod's serial number and FireWire ID. Newer models sign their database with a checksum that needs the FireWire ID, so a sync cannot be written without it. The ID is the USB serial number. The old TunesReloaded flow read it over WebUSB once and saved it as `FirewireGuid` in `iPod_Control/Device/SysInfo`, which is where the owner's iPod still has it. This app reads that file first and falls back to WebUSB.
 
 **iPod storage (File System Access).** You pick the iPod's root folder. The app streams files into it rather than holding them in memory.
 
