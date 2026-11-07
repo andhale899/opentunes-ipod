@@ -32,6 +32,15 @@ const KINDS: ContentKind[] = ['music', 'audiobook', 'podcast', 'movie', 'tv-show
 /** Models the planner has limits for. A model with none cannot be planned for. */
 const PLANNABLE = devices.filter((device) => device.media !== null);
 
+interface FileHandleLike {
+  getFile(): Promise<File>;
+}
+
+interface FolderHandle {
+  name: string;
+  entries(): AsyncIterable<[string, { kind: 'file' | 'directory' }]>;
+}
+
 /** Above this much converted audio or video, a tab may run out of memory. */
 const LARGE_BATCH_BYTES = 1.5 * 1024 ** 3;
 
@@ -79,23 +88,21 @@ export function AddPanel({
   const convertBytes = sum(addable.filter((candidate) => candidate.decision.action === 'convert').map((candidate) => candidate.estimatedBytes));
   const capacityBytes = device && device.capacity_gb > 0 ? Math.round(device.capacity_gb * 1e9 * USABLE_SHARE) : undefined;
 
-  async function choose(files: FileList | null) {
-    if (!files?.length) return;
-    // A folder brings its cover pictures, playlists and system files along. Leave those out quietly.
-    const all = [...files];
-    const media = all.filter((file) => !isNotMedia(file.name));
-    setIgnored((previous) => previous + (all.length - media.length));
+  /** Reads each file, in order, and adds it to the list. `folder` is where it sat inside a chosen folder. */
+  async function addToList(list: { file: File; folder: string }[], alreadyLeftOut = 0) {
+    const media = list.filter(({ file }) => !isNotMedia(file.name));
+    setIgnored((previous) => previous + alreadyLeftOut + (list.length - media.length));
     if (!media.length) {
       setProblems(['That selection holds no music, audiobook, podcast or video files.']);
+      setStage({ phase: 'idle' });
       return;
     }
-    setStage({ phase: 'reading', message: 'Reading the files...' });
     const added: Candidate[] = [];
     const failed: string[] = [];
-    for (const [index, file] of media.entries()) {
+    for (const [index, { file, folder }] of media.entries()) {
       setStage({ phase: 'reading', message: `Reading ${index + 1} of ${media.length}: ${file.name}` });
       try {
-        added.push(await inspectFile(file, model));
+        added.push(await inspectFile(file, model, undefined, folder));
       } catch (error) {
         failed.push(`${file.name}: ${describeError(error)}`);
       }
@@ -103,6 +110,50 @@ export function AddPanel({
     setCandidates((previous) => [...previous, ...added]);
     setProblems(failed);
     setStage({ phase: 'idle' });
+  }
+
+  async function choose(files: FileList | null) {
+    if (!files?.length) return;
+    setStage({ phase: 'reading', message: 'Reading the files...' });
+    await addToList([...files].map((file) => ({ file, folder: '' })));
+  }
+
+  /** Chrome's own folder picker, then every file inside the folder and its subfolders, in album order. */
+  async function chooseFolder() {
+    const showPicker = (window as unknown as { showDirectoryPicker?: (options?: { mode?: 'read' }) => Promise<unknown> }).showDirectoryPicker;
+    if (!showPicker) {
+      folderPicker.current?.click(); // other browsers: the plain folder dialog
+      return;
+    }
+    let top: FolderHandle;
+    try {
+      top = (await showPicker.call(window, { mode: 'read' })) as FolderHandle;
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) setProblems([describeError(error)]);
+      return;
+    }
+    setStage({ phase: 'reading', message: `Listing "${top.name}" and its subfolders...` });
+    try {
+      const found: { file: File; folder: string }[] = [];
+      let leftOut = 0;
+      const walk = async (directory: FolderHandle, path: string): Promise<void> => {
+        for await (const [name, entry] of directory.entries()) {
+          if (entry.kind === 'directory') {
+            if (!name.startsWith('.')) await walk(entry as unknown as FolderHandle, path ? `${path} / ${name}` : name);
+          } else if (isNotMedia(name)) {
+            leftOut += 1;
+          } else {
+            found.push({ file: await (entry as unknown as FileHandleLike).getFile(), folder: path });
+          }
+        }
+      };
+      await walk(top, '');
+      found.sort((a, b) => a.folder.localeCompare(b.folder, undefined, { numeric: true }) || a.file.name.localeCompare(b.file.name, undefined, { numeric: true }));
+      await addToList(found, leftOut);
+    } catch (error) {
+      setProblems([describeError(error)]);
+      setStage({ phase: 'idle' });
+    }
   }
 
   function chooseModel(id: string) {
@@ -203,7 +254,7 @@ export function AddPanel({
         <button type="button" disabled={busy} onClick={() => picker.current?.click()}>
           Choose files
         </button>
-        <button type="button" class="secondary" disabled={busy} onClick={() => folderPicker.current?.click()}>
+        <button type="button" class="secondary" disabled={busy} onClick={() => void chooseFolder()}>
           Choose a folder
         </button>
         <input
@@ -271,9 +322,9 @@ export function AddPanel({
                 const unsupported = candidate.decision.action === 'unsupported';
                 return (
                   <tr key={candidate.id}>
-                    <td class="cell-title" title={candidate.file.webkitRelativePath || candidate.file.name}>
+                    <td class="cell-title" title={candidate.file.name}>
                       {candidate.info.tags.title ?? candidate.file.name}
-                      {candidate.file.webkitRelativePath ? <div class="path">{candidate.file.webkitRelativePath.split('/').slice(0, -1).join(' / ')}</div> : null}
+                      {candidate.folder ? <div class="path">{candidate.folder}</div> : null}
                     </td>
                     <td>
                       <select
