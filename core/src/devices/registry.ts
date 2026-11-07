@@ -32,7 +32,7 @@ const nano7g: DeviceModel = {
   databaseFormat: 'iTunesDB',
   checksum: 'hashAB',
   checksumBasis:
-    'The SysInfoExtended of a real nano 7G declares database version 5, which libgpod maps to hashAB (checked by an engine test). Not yet confirmed by a write to hardware.',
+    'The SysInfoExtended of a real nano 7G declares database version 5, which libgpod maps to hashAB (checked by an engine test). Confirmed on the owner\'s unit: the signatures match the ones iTunes wrote, and the nano accepted a rewritten library and a sync of new files.',
   media: {
     music: {
       status: 'supported',
@@ -182,8 +182,16 @@ const nano7g: DeviceModel = {
         'Between two of the owner\'s runs the nano rewrote its own library: Play Counts was gone, Dynamic.itdb and iTunesCDB had changed, and a third playlist had appeared.',
       ],
     },
+    {
+      date: '2026-11-07',
+      source: 'First sync of new files to the unit, run from the app after a backup',
+      facts: [
+        'The owner reported the sync finished, and that songs, a podcast and videos all worked on the nano. The details of the files used were not recorded.',
+        'Album art is not written by this engine build yet, so it was not part of this run.',
+      ],
+    },
   ],
-  verification: 'spec-sourced',
+  verification: 'hardware-tested',
   sources: [APPLE_NANO_7G],
   notes: [
     'Screen is 240 by 432 pixels.',

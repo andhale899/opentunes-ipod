@@ -17,7 +17,7 @@ The project is mid-rebuild, and **nothing syncs yet**. What exists today:
 
 The plan is in [docs/ROADMAP.md](docs/ROADMAP.md). The first real feature, music sync to an iPod nano 7th generation, is Phase 2. The engine is ready for it apart from album artwork.
 
-The previous version (a Node server with a downloader) is kept on the `v1-legacy` tag, see [docs/LEGACY.md](docs/LEGACY.md). It no longer ships. YouTube and Spotify downloading is out of scope for now, see [docs/research/spotify-youtube.md](docs/research/spotify-youtube.md).
+Earlier versions of this project included a downloader. That code and its history are gone from this repository, and nothing here fetches music or video from streaming services: OpenTunes works only with files you already have.
 
 ## Run it
 
