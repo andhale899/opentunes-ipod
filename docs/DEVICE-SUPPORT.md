@@ -27,7 +27,7 @@ Capability limits are only filled in once they have been read from a published s
 | iPod nano (4th generation) | 2008 | 30-pin | iTunesDB | unknown | 0x1263 | Unverified |
 | iPod nano (5th generation) | 2009 | 30-pin | iTunesDB | unknown | 0x1265 | Unverified |
 | iPod nano (6th generation) | 2010 | 30-pin | iTunesDB | unknown | 0x1266 | Unverified |
-| iPod nano (7th generation) | 2012-2015 | lightning | iTunesDB | hashAB | 0x1267 | From specification, not run on hardware |
+| iPod nano (7th generation) | 2012-2015 | lightning | iTunesDB | hashAB | 0x1267 | Tested on hardware |
 | iPod shuffle (1st generation) | 2005 | usb-integrated | iTunesSD | unknown | 0x1300 | Unverified |
 | iPod shuffle (2nd generation) | 2006-2008 | headphone-jack-usb | iTunesSD | unknown | 0x1301 | Unverified |
 | iPod shuffle (3rd generation) | 2009 | headphone-jack-usb | iTunesSD | unknown | 0x1302 | Unverified |
@@ -37,11 +37,11 @@ Capability limits are only filled in once they have been read from a published s
 
 ### iPod nano (7th generation)
 
-Status: From specification, not run on hardware.
+Status: Tested on hardware.
 
 Connector: lightning. Database: iTunesDB. Checksum: hashAB.
 
-Checksum basis: The SysInfoExtended of a real nano 7G declares database version 5, which libgpod maps to hashAB (checked by an engine test). Not yet confirmed by a write to hardware.
+Checksum basis: The SysInfoExtended of a real nano 7G declares database version 5, which libgpod maps to hashAB (checked by an engine test). Confirmed on the owner's unit: the signatures match the ones iTunes wrote, and the nano accepted a rewritten library and a sync of new files.
 
 | Media | Support | Detail |
 | --- | --- | --- |
@@ -100,6 +100,11 @@ Seen on a real unit, 2026-11-07 (First write-back to the unit: the database rebu
 - Seven files were written in iPod_Control/iTunes: the five .itdb files, Locations.itdb.cbk and iTunesCDB. Each was read back identical, and the iPod then read back with the same 942 tracks and valid signatures.
 - The owner looked at the nano afterwards and reported that everything looked good. That is a normal-looking library after a libgpod rewrite, not a sync of new songs.
 - Between two of the owner's runs the nano rewrote its own library: Play Counts was gone, Dynamic.itdb and iTunesCDB had changed, and a third playlist had appeared.
+
+Seen on a real unit, 2026-11-07 (First sync of new files to the unit, run from the app after a backup):
+
+- The owner reported the sync finished, and that songs, a podcast and videos all worked on the nano. The details of the files used were not recorded.
+- Album art is not written by this engine build yet, so it was not part of this run.
 
 Sources:
 - [Apple Support: iPod nano (7th generation) - Technical Specifications](https://support.apple.com/kb/SP656), read 2026-11-07

@@ -20,8 +20,10 @@ describe('device registry', () => {
     }
   });
 
-  it('does not mark any model hardware-tested until a run is recorded', () => {
-    expect(devices.filter((device) => device.verification === 'hardware-tested')).toEqual([]);
+  it('marks a model hardware-tested only when a run on a real unit is recorded for it', () => {
+    const tested = devices.filter((device) => device.verification === 'hardware-tested');
+    expect(tested.map((device) => device.id)).toEqual(['nano-7g']);
+    for (const device of tested) expect(device.observed?.length ?? 0).toBeGreaterThan(0);
   });
 
   it('keeps capability data off models that are still unverified', () => {
@@ -89,7 +91,7 @@ describe('nano 7G row', () => {
   const nano = getDevice('nano-7g');
 
   it('matches the published Apple specification', () => {
-    expect(nano?.verification).toBe('spec-sourced');
+    expect(nano?.verification).toBe('hardware-tested');
     expect(nano?.connector).toBe('lightning');
 
     const [h264, h264Baseline] = (nano?.media?.video?.formats ?? []).filter((format) => format.codec === 'h264');
@@ -134,10 +136,10 @@ describe('nano 7G row', () => {
     expect(existsSync(path), path).toBe(true);
   });
 
-  it('bases its checksum on the device declaration, and has not been written to hardware', () => {
+  it('bases its checksum on the device declaration, and has been written to on hardware', () => {
     expect(nano?.checksum).toBe('hashAB');
     expect(nano?.checksumBasis).toMatch(/database version 5/);
-    expect(nano?.checksumBasis).toMatch(/Not yet confirmed/);
-    expect(nano?.verification).not.toBe('hardware-tested');
+    expect(nano?.checksumBasis).toMatch(/Confirmed on the owner/);
+    expect(nano?.verification).toBe('hardware-tested');
   });
 });

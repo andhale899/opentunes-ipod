@@ -4,7 +4,6 @@ Status key: done, in progress, not started. Nothing below is marked done unless 
 
 ## Phase 0: Foundation (done on branch `restructure/foundation`, not merged to `main`)
 
-- [x] Tag the v1 code as `v1-legacy`.
 - [x] New layout: `app/`, `core/`, `engine/`, `docs/`.
 - [x] Device registry with a verification status per model, and a generated support document.
 - [x] Capability detection and song identity, with tests that import the real code.
@@ -53,7 +52,6 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 - [ ] eBooks as Notes on models that have them, see [research/ebooks.md](research/ebooks.md).
 - [ ] Shuffle support (a different database format).
 - [ ] Capability data for the other generations, each row sourced.
-- [ ] Optional download sources, if a dependable route appears, see [research/spotify-youtube.md](research/spotify-youtube.md).
 
 ## Open questions
 

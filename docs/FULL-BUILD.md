@@ -9,7 +9,7 @@ Built: music (MP3, AAC, Apple Lossless, WAV, AIFF, with conversion of FLAC, Ogg,
 Not built, and why:
 - **eBooks.** Apple's page for the nano 7G does not list Notes or books, and the device's own description file does not declare them. The planner reports them as unsupported on this model. [research/ebooks.md](research/ebooks.md).
 - **Fetching podcast feeds.** A browser cannot read other sites' feeds without a server, and this project has none. Podcast episodes you already have as files are supported.
-- **Downloading from YouTube or Spotify.** Dropped, see [research/spotify-youtube.md](research/spotify-youtube.md).
+- **Downloading from YouTube or Spotify.** Not part of this app.
 - **Other iPod models.** The registry holds their data. Only the nano 7G is built for and tested.
 
 ## The flow

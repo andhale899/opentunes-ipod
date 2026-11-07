@@ -52,11 +52,11 @@
 - Song identity matching now handles non-Latin scripts and accents, keeps live and remix versions distinct from studio tracks, and keeps everything after the first " - " in a title.
 
 ### Removed
-- The Node server, downloader, Spotify and Last.fm integration, the vendored TunesReloaded fork, the old UI and tests. All are on the `v1-legacy` tag, see `docs/LEGACY.md`.
+- The Node server, the downloader, the Spotify and Last.fm integration, the vendored TunesReloaded fork, the old UI and tests. The old code and its history were removed from this repository.
 - The overlapping AI instruction files, replaced by `CLAUDE.md`.
 - The v1 prebuilt engine files, the hashAB loader and the fake-mutex thread stubs. The engine is now built from source and runs single-threaded.
 - The TunesReloaded C wrapper, replaced by our own. The original had no declared licence and flattened smart playlists before each write.
 
-## 1.0.0 (tag `v1-legacy`)
+## 1.0.0
 
-The Node server version, November 2026. See `docs/LEGACY.md`.
+The Node server version, November 2026. Removed from this repository.

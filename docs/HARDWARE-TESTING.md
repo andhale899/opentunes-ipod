@@ -132,3 +132,13 @@ Report or log attached:
 - Outcome: **pass**
 - What happened: a backup of 36 files (1.6 MB) was read back and matched. The plan changed seven files, all in `iPod_Control/iTunes`: the five `.itdb` files, `Locations.itdb.cbk` and `iTunesCDB`, and left the empty `iTunesDB` off. The write put them on the iPod, read each back, then read the whole iPod back: 942 tracks, 3 playlists, no field changed, and both signatures valid. Nothing was rolled back. The library files the iPod wrote itself between runs (`Play Counts` gone, a third playlist) were backed up first.
 - Notes: the backup folders are `opentunes-backup-2026-11-07-1825` and `-1826` in the owner's `bkp` folder, the second made immediately before the write. The owner then looked at the nano and reported that everything looks good. They did not list which menus they opened, so this records a normal-looking library, not a checklist. This was a rewrite with no new songs, not a sync, so the nano 7G stays `spec-sourced`.
+
+### 2026-11-07: first sync of new files, nano 7th generation, macOS Chrome (eighth run)
+
+- App commit: the `main` of that day, after the library screen and the interface redesign
+- iPod: the same nano 7th generation as above
+- Host: desktop Chrome on macOS
+- Case: add songs, a podcast and videos from the app (back up, convert what the iPod cannot play, copy, write the database)
+- Outcome: **pass, as reported by the owner**
+- What happened: the owner reported that the sync finished and that songs, the podcast and the videos all work on the nano. Which files were used and what the report said were not recorded, so this entry holds no more than that.
+- Notes: album art and photos are not written by this engine build, so they were not part of the run. The nano 7th generation is now marked `hardware-tested` for sync of music, podcasts and video. Audiobooks with chapters, Apple Lossless and playlists created by the app have not been reported on.
