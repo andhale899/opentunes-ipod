@@ -158,7 +158,7 @@ const nano7g: DeviceModel = {
         'iPod_Control/Device/SysInfo is 52 bytes: a ModelNumStr line and a FirewireGuid line, the two lines the old TunesReloaded setup writes. The FireWire ID the engine used came from there.',
         'libgpod opened iTunesCDB and read the library: music only, one master playlist and one smart playlist called Videos that held no tracks.',
         'The signature on iTunesCDB and the one on Locations.itdb.cbk both match what the engine computes with hashAB. That confirms the signature layout, which header fields are zeroed before hashing, and the FireWire ID bytes used as the key. It does not show that the iPod accepts a database libgpod writes.',
-        'Writes from Chrome: closing a file took between 0.3 and 3.7 seconds across runs, and 0.3 to 0.4 seconds in the speed test for both tiny and 8 MB files. One 8 MB file wrote at 8.1 MB/s and three 4 MB files at once at 13.2 MB/s.',
+        'Writes from Chrome: closing a file took between 0.3 and 3.7 seconds across runs, and 0.3 to 0.4 seconds in the two speed tests for both tiny and 8 MB files. One 8 MB file wrote at 8.1 and 8.9 MB/s, and three 4 MB files at once at 13.2 and 12.3 MB/s.',
       ],
     },
   ],
