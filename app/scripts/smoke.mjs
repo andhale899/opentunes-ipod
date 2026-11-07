@@ -62,19 +62,27 @@ writeTone(TONE_CONVERT, { rate: 96000, bits: 24, seconds: 1 });
 
 const SCENARIOS = [
   {
-    name: 'a demo iPod with one of each kind',
+    name: 'a demo iPod with one of each kind (library tab)',
     url: `http://localhost:${port}/?demo=1`,
-    expected: ['Demo iPod', '5 tracks, 3 playlists', 'Morning Light', 'Episode 12: Engines', 'A Short Story', 'Demo Film', 'Road trip', 'Audiobook', 'Podcast', 'Files read from the iPod', 'Check what a rewrite would change'],
+    expected: ['Demo iPod', '5 tracks, 3 playlists', 'Morning Light', 'Episode 12: Engines', 'A Short Story', 'Demo Film', 'Road trip', 'Audiobook', 'Podcast', 'Demo data'],
+    forbidden: ['Signature on', 'Back up the database files', 'Add music'],
+    alert: false,
+  },
+  {
+    name: 'a demo iPod, diagnostics tab',
+    url: `http://localhost:${port}/?demo=1&tab=diagnostics`,
+    expected: ['Device details', 'Files read from the iPod', 'Check what a rewrite would change', 'Copy iPod report'],
     forbidden: ['Signature on', 'Back up the database files'],
     alert: false,
   },
   {
     name: 'a nano 7G-style iPod with signed databases',
-    url: `http://localhost:${port}/?demo=signed&rewrite=1`,
+    url: `http://localhost:${port}/?demo=signed&rewrite=1&tab=diagnostics`,
     expected: [
       'Demo nano 7G',
       '5 tracks, 3 playlists',
       'Signed with hashAB',
+      'Signatures verified',
       'Signature on iTunesCDB',
       'Signature on Locations.itdb.cbk',
       'Matches what the engine computes',
@@ -136,9 +144,13 @@ const SCENARIOS = [
       doneSelector: 'body',
       timeoutMs: 5_000,
       async drive(page) {
+        await page.waitFor('Practice iPod, held in memory');
+        await page.click('Backup');
         await page.waitFor('Back up the database files');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
+        await page.click('Add music');
+        await page.waitFor('No files chosen yet');
         await page.chooseFiles([TONE_COPY, TONE_CONVERT]);
         await page.waitFor('2 of 2 can be added');
         await page.waitFor('Copy as it is');
@@ -149,6 +161,8 @@ const SCENARIOS = [
         await page.waitFor('Copied 2 files and checked the iPod by reading it back', 90_000);
         await page.waitFor('7 tracks');
         // Remove the copied file and its media file, then fix a title.
+        await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
+        await page.waitFor('Your library');
         await page.evaluate(`document.querySelector('input[aria-label="Select smoke tone copy"]').click()`);
         await page.waitFor('1 track selected');
         await page.click('Remove selected');

@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { formatBytes, formatDuration, isValidFireWireId, kindLabel } from '@opentunes/core';
 import {
@@ -180,7 +181,6 @@ function FileList({ load }: { load: LoadReport }) {
 
 function Facts({ snapshot }: { snapshot: Snapshot }) {
   const { device, tracks, playlists, load } = snapshot;
-  const master = playlists.find((playlist) => playlist.master);
   const kinds = countBy(tracks, (track) => track.kind);
   // libgpod judges video from the model number alone, so for a model it does not know it always says no.
   const recognised = device?.device_recognized === true;
@@ -235,9 +235,7 @@ function Facts({ snapshot }: { snapshot: Snapshot }) {
 
   return (
     <section class="card">
-      <h3>
-        {master?.name ?? 'iPod'} {snapshot.source === 'demo' ? <span class="pill optional">Demo</span> : snapshot.source === 'practice' ? <span class="pill optional">Practice</span> : null}
-      </h3>
+      <h3>Device details</h3>
       <dl class="facts">
         {rows.map(([label, value]) => (
           <div key={label}>
@@ -247,7 +245,7 @@ function Facts({ snapshot }: { snapshot: Snapshot }) {
         ))}
       </dl>
       {device && !device.device_recognized ? (
-        <p class="muted">
+        <p class="note">
           libgpod does not recognise this model number. That is expected for a nano 6th or 7th generation with the libgpod version in use. The signing scheme, artwork, photo and podcast support come from the iPod's own description file instead. Video is left out of the list because libgpod only judges it from the model number, so for a model it does not know it always says no.
         </p>
       ) : null}
@@ -257,7 +255,12 @@ function Facts({ snapshot }: { snapshot: Snapshot }) {
 
 function Library({ tracks }: { tracks: TrackInfo[] }) {
   if (tracks.length === 0) {
-    return <p class="muted">The library is empty.</p>;
+    return (
+      <div class="empty">
+        <strong>The library is empty</strong>
+        Nothing has been synced to this iPod yet.
+      </div>
+    );
   }
   return (
     <div class="table-wrap">
@@ -268,19 +271,19 @@ function Library({ tracks }: { tracks: TrackInfo[] }) {
             <th>Artist</th>
             <th>Album</th>
             <th>Kind</th>
-            <th>Length</th>
-            <th>Size</th>
+            <th class="num">Length</th>
+            <th class="num">Size</th>
           </tr>
         </thead>
         <tbody>
           {tracks.slice(0, MAX_ROWS).map((track) => (
             <tr key={track.handle} title={track.ipod_path ?? ''}>
-              <td>{track.title ?? '(no title)'}</td>
+              <td class="cell-title">{track.title ?? '(no title)'}</td>
               <td>{track.artist ?? ''}</td>
               <td>{track.album ?? ''}</td>
               <td>{kindLabel(track.kind)}</td>
-              <td>{formatDuration(track.tracklen)}</td>
-              <td>{formatBytes(track.size)}</td>
+              <td class="num">{formatDuration(track.tracklen)}</td>
+              <td class="num">{formatBytes(track.size)}</td>
             </tr>
           ))}
         </tbody>
@@ -290,7 +293,23 @@ function Library({ tracks }: { tracks: TrackInfo[] }) {
   );
 }
 
-export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
+type Tab = 'library' | 'add' | 'backup' | 'diagnostics';
+
+export function IpodViewer({
+  canPickFolder,
+  syncReady,
+  blockers,
+  environment,
+}: {
+  canPickFolder: boolean;
+  syncReady: boolean;
+  blockers: string[];
+  environment: ComponentChildren;
+}) {
+  const [tab, setTab] = useState<Tab>(() => {
+    const asked = new URLSearchParams(window.location.search).get('tab');
+    return asked === 'add' || asked === 'backup' || asked === 'diagnostics' ? asked : 'library';
+  });
   const [view, setView] = useState<View>({ phase: 'idle' });
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
   /** The backup made on this page, which the write-back needs before it will start. */
@@ -299,7 +318,7 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
   async function chooseFolder() {
     const picker = (window as unknown as { showDirectoryPicker?: Picker }).showDirectoryPicker;
     if (!picker) {
-      setView({ phase: 'error', message: 'This browser has no folder picker. See the browser features above.' });
+      setView({ phase: 'error', message: 'This browser has no folder picker. Use Chrome or Edge on a computer.' });
       return;
     }
     let handle: unknown;
@@ -379,106 +398,273 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
   }
 
   const working = view.phase === 'working';
+  const ready = view.phase === 'ready' ? view.snapshot : null;
+  const writable = ready !== null && ready.source !== 'demo';
+  const tabs: [Tab, string][] = writable
+    ? [['library', 'Library'], ['add', 'Add music'], ['backup', 'Backup'], ['diagnostics', 'Diagnostics']]
+    : [['library', 'Library'], ['diagnostics', 'Diagnostics']];
+  const current: Tab = tabs.some(([id]) => id === tab) ? tab : 'library';
+  const refreshed = () => (ready ? readIpod(ready.root, ready.source, true) : undefined);
+  const goToBackup = () => setTab('backup');
+
+  const loadingNote =
+    view.phase === 'working' ? (
+      <p class="callout info" role="status">
+        {view.message}
+      </p>
+    ) : null;
+
+  if (!ready) {
+    return (
+      <>
+        <section class="hero">
+          <div>
+            <h1>Put your music on a classic iPod, without iTunes.</h1>
+            <p class="lead">
+              OpenTunes reads your iPod, backs it up, then adds music, podcasts, audiobooks and video. It runs in this browser tab. Nothing is uploaded and nothing is installed.
+            </p>
+            <div class="actions">
+              <button type="button" onClick={() => void chooseFolder()} disabled={working || !canPickFolder}>
+                Choose iPod folder
+              </button>
+              <button type="button" class="secondary" onClick={() => void showDemo('practice')} disabled={working}>
+                Try a practice iPod
+              </button>
+            </div>
+            <p class="note">The practice iPod lives in memory, so you can try everything with no risk to a real one.</p>
+            {!canPickFolder ? <div class="callout no">This browser has no folder picker, so only the practice iPod is available. Use Chrome or Edge on a computer.</div> : null}
+            {canPickFolder && !syncReady ? (
+              <div class="callout warn">
+                <p>
+                  <strong>This browser is missing something an iPod needs.</strong>
+                </p>
+                {blockers.map((blocker) => (
+                  <p key={blocker}>{blocker}</p>
+                ))}
+              </div>
+            ) : null}
+            {loadingNote}
+            {view.phase === 'error' ? (
+              <>
+                <div class="callout no" role="alert">
+                  <p>{view.message}</p>
+                </div>
+                {view.diagnostics ? (
+                  <>
+                    <FileList load={view.diagnostics.load} />
+                    <button type="button" class="secondary" onClick={() => void copyReport(diagnosticsOf(view.diagnostics as Diagnostics))}>
+                      Copy diagnostic report
+                    </button>
+                    {copied === 'copied' ? <span class="note"> Copied.</span> : null}
+                    {copied === 'failed' ? <span class="note"> Copy failed.</span> : null}
+                  </>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+          <div class="card">
+            <h3>How it works</h3>
+            <ol class="steps">
+              <li>
+                <div>
+                  <strong>Connect the iPod</strong>
+                  <span>Plug it in so it shows up as a drive, then pick its folder.</span>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong>Back it up</strong>
+                  <span>The database files are copied to a folder you choose and checked. Nothing writes until this is done.</span>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong>Add music</strong>
+                  <span>Files the iPod cannot play are converted here. Every write is read back, and undone if anything is off.</span>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <strong>Eject and play</strong>
+                  <span>Eject it from your computer before unplugging.</span>
+                </div>
+              </li>
+            </ol>
+          </div>
+        </section>
+
+        <div class="more">
+          <details>
+            <summary>Read-only demos</summary>
+            <div class="actions">
+              <button type="button" class="secondary small" onClick={() => void showDemo('full')} disabled={working}>
+                Demo iPod
+              </button>
+              <button type="button" class="secondary small" onClick={() => void showDemo('signed')} disabled={working}>
+                Nano 7G-style demo
+              </button>
+              <button type="button" class="secondary small" onClick={() => void showDemo('unsynced')} disabled={working}>
+                iPod that was never synced
+              </button>
+            </div>
+          </details>
+          <details>
+            <summary>Browser and USB checks</summary>
+            {environment}
+          </details>
+        </div>
+      </>
+    );
+  }
+
+  const snapshot = ready;
+  const { device, tracks, playlists } = snapshot;
+  const master = playlists.find((playlist) => playlist.master);
+  const usedBytes = tracks.reduce((total, track) => total + track.size, 0);
+  const capacityBytes = device && device.capacity_gb > 0 ? device.capacity_gb * 1e9 : 0;
+  const signatureNews = hasSignatureNews(snapshot.signatures);
+  const signaturesOk = signatureNews && (snapshot.signatures ?? []).filter((check) => check.status !== 'missing').every((check) => check.status === 'matches');
+  const backedUp = backup !== null && backup.complete;
+  const model = device?.device_recognized ? [device.model_name, device.generation_name].filter(Boolean).join(', ') : device?.model_num_str ? `Model ${device.model_num_str}` : 'iPod';
 
   return (
-    <section>
-      <h2>Read your iPod</h2>
-      <p class="muted">
-        Opens an iPod's database with the engine and shows what it finds: the model, how the database is signed, whether its signatures check out, and your library. It is read only. Nothing is written to the iPod. Track titles stay on this page and are left out of the report. Below the result are a backup of the database files and a rewrite check, both read only on the iPod.
-      </p>
-      <div class="actions">
-        <button type="button" onClick={() => void chooseFolder()} disabled={working || !canPickFolder}>
-          Choose iPod folder
-        </button>
-        <button type="button" class="secondary" onClick={() => void showDemo('full')} disabled={working}>
-          Try a demo iPod
-        </button>
-        <button type="button" class="secondary" onClick={() => void showDemo('signed')} disabled={working}>
-          Try a nano 7G-style demo
-        </button>
-        <button type="button" class="secondary" onClick={() => void showDemo('practice')} disabled={working}>
-          Try a practice iPod you can change
-        </button>
-        <button type="button" class="secondary" onClick={() => void showDemo('unsynced')} disabled={working}>
-          Try an iPod that was never synced
-        </button>
-      </div>
-      {!canPickFolder ? <p class="muted">This browser has no folder picker, so only the demo is available.</p> : null}
-
-      {view.phase === 'working' ? (
-        <p class="note" role="status">
-          {view.message}
-        </p>
-      ) : null}
-      {view.phase === 'error' ? (
-        <>
-          <div class="result no" role="alert">
-            <p>{view.message}</p>
+    <>
+      <section class="card">
+        <div class="device">
+          <div class="device-icon" aria-hidden="true">
+            ♫
           </div>
-          {view.diagnostics ? (
-            <>
-              <FileList load={view.diagnostics.load} />
-              <button type="button" onClick={() => void copyReport(diagnosticsOf(view.diagnostics as Diagnostics))}>
-                Copy diagnostic report
-              </button>
-              {copied === 'copied' ? <span class="note"> Copied.</span> : null}
-              {copied === 'failed' ? <span class="note"> Copy failed.</span> : null}
-            </>
+          <div>
+            <h2>{master?.name ?? snapshot.folderName}</h2>
+            <div class="device-meta">
+              <span>{model}</span>
+              <span class="dot">·</span>
+              <span>
+                {plural(tracks.length, 'track')}, {plural(playlists.length, 'playlist')}
+              </span>
+              {device && device.capacity_gb > 0 ? (
+                <>
+                  <span class="dot">·</span>
+                  <span>{device.capacity_gb} GB</span>
+                </>
+              ) : null}
+            </div>
+            <div class="device-meta">
+              {snapshot.source === 'demo' ? <span class="pill info">Demo data</span> : null}
+              {snapshot.source === 'practice' ? <span class="pill info">Practice iPod, held in memory</span> : null}
+              {signatureNews ? <span class={`pill ${signaturesOk ? 'ok' : 'no'}`}>{signaturesOk ? 'Signatures verified' : 'Signature problem'}</span> : null}
+              {writable ? <span class={`pill ${backedUp ? 'ok' : 'warn'}`}>{backedUp ? 'Backup made' : 'No backup yet'}</span> : null}
+            </div>
+          </div>
+          <div class="actions">
+            <button type="button" class="secondary small" onClick={() => setView({ phase: 'idle' })}>
+              Choose another iPod
+            </button>
+          </div>
+          {capacityBytes > 0 ? (
+            <div class="storage">
+              <div class="storage-bar" role="img" aria-label={`${formatBytes(usedBytes)} of ${formatBytes(capacityBytes)} used`}>
+                <span style={`width: ${Math.min(100, (usedBytes / capacityBytes) * 100).toFixed(1)}%`} />
+              </div>
+              <div class="storage-label">
+                <span>{formatBytes(usedBytes)} used by the library</span>
+                <span>{formatBytes(Math.max(0, capacityBytes - usedBytes))} free of {formatBytes(capacityBytes)}</span>
+              </div>
+            </div>
           ) : null}
-        </>
-      ) : null}
-      {view.phase === 'ready' ? (
-        <>
-          <Facts snapshot={view.snapshot} />
-          {view.snapshot.load ? <FileList load={view.snapshot.load} /> : null}
-          {view.snapshot.source !== 'demo' ? (
-            <PanelBoundary name="Backup">
-              <BackupPanel source={view.snapshot.root} onDone={setBackup} inMemory={view.snapshot.source === 'practice'} />
-            </PanelBoundary>
-          ) : null}
-          <PanelBoundary name="Rewrite check">
-            <RewritePanel source={view.snapshot.root} autoStart={new URLSearchParams(window.location.search).get('rewrite') === '1'} />
+        </div>
+      </section>
+
+      <div class="tabs" role="tablist">
+        {tabs.map(([id, label]) => (
+          <button key={id} type="button" role="tab" class="tab" aria-selected={current === id} onClick={() => setTab(id)}>
+            {label}
+            {id === 'library' ? <span class="badge">{tracks.length}</span> : null}
+          </button>
+        ))}
+      </div>
+
+      {current === 'library' ? (
+        writable ? (
+          <PanelBoundary name="Library">
+            <ManagePanel root={snapshot.root} tracks={tracks} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
           </PanelBoundary>
-          {view.snapshot.source !== 'demo' ? (
-            <PanelBoundary name="Write back">
-              <WriteBackPanel root={view.snapshot.root} backup={backup} />
-            </PanelBoundary>
-          ) : null}
-          {view.snapshot.source === 'folder' ? (
-            <PanelBoundary name="Restore">
-              <RestorePanel root={view.snapshot.root} />
-            </PanelBoundary>
-          ) : null}
-          {view.snapshot.source !== 'demo' ? (
-            <>
-              <PanelBoundary name="Add to the iPod">
-                <AddPanel root={view.snapshot.root} device={view.snapshot.device} backup={backup} onChanged={() => void readIpod(view.snapshot.root, view.snapshot.source, true)} />
-              </PanelBoundary>
-              <PanelBoundary name="Library">
-                <ManagePanel root={view.snapshot.root} tracks={view.snapshot.tracks} backup={backup} onChanged={() => void readIpod(view.snapshot.root, view.snapshot.source, true)} />
-              </PanelBoundary>
-            </>
-          ) : (
-            <>
-              <h3>Library</h3>
-              <Library tracks={view.snapshot.tracks} />
-            </>
-          )}
+        ) : (
+          <section class="card">
+            <h3>Library</h3>
+            <Library tracks={tracks} />
+          </section>
+        )
+      ) : null}
+      {current === 'library' ? (
+        <section class="card">
           <h3>Playlists</h3>
           <ul class="playlists">
-            {view.snapshot.playlists.map((playlist) => (
+            {playlists.map((playlist) => (
               <li key={playlist.handle}>
-                {playlist.name ?? '(no name)'} <span class="muted">{plural(playlist.tracks.length, 'track')}{playlist.master ? ', holds everything' : ''}{playlist.podcasts ? ', podcasts' : ''}{playlist.smart ? ', smart' : ''}</span>
+                <span>{playlist.name ?? '(no name)'}</span>
+                <span class="muted">
+                  {plural(playlist.tracks.length, 'track')}
+                  {playlist.master ? ', holds everything' : ''}
+                  {playlist.podcasts ? ', podcasts' : ''}
+                  {playlist.smart ? ', smart' : ''}
+                </span>
               </li>
             ))}
           </ul>
-          <button type="button" onClick={() => void copyReport(reportOf(view.snapshot))}>
-            Copy iPod report
-          </button>
-          {copied === 'copied' ? <span class="note"> Copied.</span> : null}
-          {copied === 'failed' ? <span class="note"> Copy failed.</span> : null}
+        </section>
+      ) : null}
+
+      {current === 'add' && writable ? (
+        <PanelBoundary name="Add to the iPod">
+          <AddPanel root={snapshot.root} device={device} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
+        </PanelBoundary>
+      ) : null}
+
+      {current === 'backup' && writable ? (
+        <>
+          <PanelBoundary name="Backup">
+            <BackupPanel source={snapshot.root} onDone={setBackup} inMemory={snapshot.source === 'practice'} />
+          </PanelBoundary>
+          {snapshot.source === 'folder' ? (
+            <PanelBoundary name="Restore">
+              <RestorePanel root={snapshot.root} />
+            </PanelBoundary>
+          ) : null}
         </>
       ) : null}
-    </section>
+
+      {current === 'diagnostics' ? (
+        <>
+          <Facts snapshot={snapshot} />
+          {snapshot.load ? (
+            <section class="card">
+              <FileList load={snapshot.load} />
+            </section>
+          ) : null}
+          <PanelBoundary name="Rewrite check">
+            <RewritePanel source={snapshot.root} autoStart={new URLSearchParams(window.location.search).get('rewrite') === '1'} />
+          </PanelBoundary>
+          {writable ? (
+            <PanelBoundary name="Write back">
+              <WriteBackPanel root={snapshot.root} backup={backup} />
+            </PanelBoundary>
+          ) : null}
+          <section class="card">
+            <h3>Report</h3>
+            <p class="card-lead">A summary of this iPod without track titles, for sharing when something goes wrong.</p>
+            <button type="button" class="secondary" onClick={() => void copyReport(reportOf(snapshot))}>
+              Copy iPod report
+            </button>
+            {copied === 'copied' ? <span class="note"> Copied.</span> : null}
+            {copied === 'failed' ? <span class="note"> Copy failed.</span> : null}
+          </section>
+          <details class="card">
+            <summary>Browser and USB checks</summary>
+            {environment}
+          </details>
+        </>
+      ) : null}
+    </>
   );
 }

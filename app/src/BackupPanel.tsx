@@ -48,7 +48,7 @@ export function BackupPanel({ source, onDone, inMemory = false }: { source: Dire
   return (
     <section class="card">
       <h3>Back up the database files</h3>
-      <p class="muted">
+      <p class="card-lead">
         Copies the iPod's library, device and artwork files to a folder on your computer, then reads every copy back to check it. No music is copied. The iPod is only read. Chrome may refuse Desktop, Documents or Downloads themselves. If it does, make a folder inside one, for example "iPod backups".
       </p>
       <button type="button" onClick={() => void run()} disabled={working}>

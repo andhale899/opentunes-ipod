@@ -76,13 +76,13 @@ export function WriteBackPanel({ root, backup }: { root: DirectoryEntry; backup:
   return (
     <section class="card">
       <h3>Write the rebuilt database back (test)</h3>
-      <p class="muted">
-        Writes the database libgpod rebuilds, with no new songs, back to the iPod, to see whether the iPod accepts it. Only files in iPod_Control/iTunes are written, never music. It needs the backup above first. If anything fails while writing, the original files are put back. The only file removed is Play Counts, which libgpod folds into the library and keeps as Play Counts.bak.
+      <p class="card-lead">
+        Writes the database libgpod rebuilds, with no new songs, back to the iPod, to see whether the iPod accepts it. Only files in iPod_Control/iTunes are written, never music. It needs the backup from the Backup tab first. If anything fails while writing, the original files are put back. The only file removed is Play Counts, which libgpod folds into the library and keeps as Play Counts.bak.
       </p>
       <button type="button" onClick={() => void prepare()} disabled={working || !ready}>
         Prepare the write
       </button>
-      {!ready ? <p class="muted">Make the backup above first. Nothing can be written until a complete backup has been made on this page.</p> : null}
+      {!ready ? <p class="muted">Make the backup in the Backup tab first. Nothing can be written until a complete backup has been made on this page.</p> : null}
 
       {state.phase === 'working' ? (
         <p class="note" role="status">

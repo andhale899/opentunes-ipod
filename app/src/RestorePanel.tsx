@@ -62,7 +62,7 @@ export function RestorePanel({ root }: { root: DirectoryEntry }) {
   return (
     <section class="card">
       <h3>Restore from a backup</h3>
-      <p class="muted">
+      <p class="card-lead">
         Choose a backup folder made by this page (the one named opentunes-backup-...). Its files are checked against their checksums, then copied back over the same files on the iPod. Nothing is deleted, and your music is not touched.
       </p>
       <button type="button" onClick={() => void choose()} disabled={working}>
