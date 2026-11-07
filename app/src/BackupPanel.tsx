@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
-import { backupIpod, type BackupReport, type DirectoryEntry, type WritableDirectory } from '@opentunes/engine';
+import { ScratchFolder, backupIpod, type BackupReport, type DirectoryEntry, type WritableDirectory } from '@opentunes/engine';
 import { describeError } from './describeError';
 
 type State =
@@ -15,18 +15,18 @@ type Picker = (options?: { mode?: 'read' | 'readwrite' }) => Promise<unknown>;
  * Copies the iPod's database files to a folder on the computer, and checks the copy. This is
  * the safety net before anything is written to the iPod. It only reads the iPod.
  */
-export function BackupPanel({ source, onDone }: { source: DirectoryEntry; onDone?: (report: BackupReport) => void }) {
+export function BackupPanel({ source, onDone, inMemory = false }: { source: DirectoryEntry; onDone?: (report: BackupReport) => void; /** Keep the backup in memory, for the practice iPod. */ inMemory?: boolean }) {
   const [state, setState] = useState<State>({ phase: 'idle' });
 
   async function run() {
     const picker = (window as unknown as { showDirectoryPicker?: Picker }).showDirectoryPicker;
-    if (!picker) {
+    if (!picker && !inMemory) {
       setState({ phase: 'error', message: 'This browser has no folder picker.' });
       return;
     }
     let destination: unknown;
     try {
-      destination = await picker.call(window, { mode: 'readwrite' });
+      destination = inMemory ? new ScratchFolder('memory backup') : await (picker as Picker).call(window, { mode: 'readwrite' });
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) setState({ phase: 'error', message: describeError(error) });
       return;

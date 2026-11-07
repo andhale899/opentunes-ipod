@@ -694,6 +694,12 @@ export async function planSync(root: IpodRoot, newEngine: () => Promise<Engine>,
   if (!listing.folders.length) {
     throw new SyncError(`"${root.name}" has no Music/Fxx folders in iPod_Control. An iPod set up by iTunes or Finder has them, so it may need restoring first.`);
   }
+  // libgpod picks a folder number below the count of Fxx folders and expects every one of them
+  // to exist. A real iPod has F00 to F49, so this only fails on one that has been tampered with.
+  const missingFolders = listing.folders.map((_, index) => `F${String(index).padStart(2, '0')}`).filter((name) => !listing.folders.some((found) => found.toUpperCase() === name));
+  if (missingFolders.length) {
+    throw new SyncError(`The iPod's music folders have gaps (${missingFolders.join(', ')} ${missingFolders.length === 1 ? 'is' : 'are'} missing among ${listing.folders.length} folders). libgpod needs F00 up to F${String(listing.folders.length - 1).padStart(2, '0')} without gaps to choose a place for new files, so nothing was planned.`);
+  }
   const taken = new Set<string>();
   for (const file of listing.files) {
     taken.add(file.path.toLowerCase());

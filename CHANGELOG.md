@@ -35,6 +35,8 @@
 - The rewrite check reports the library version (`PRAGMA user_version`) of every SQLite file before and after, and lists a rewrite that would take a file to an older version as a problem. A fourth libgpod patch sets version 26, and the version the owner's iPod really holds was not yet known.
 - A boundary around each panel in the reader, so a panel that fails to draw shows a message instead of taking the page down. It matters most for the panels that change an iPod, where a silent failure to draw would hide whether a write worked. A smoke scenario fails a panel on purpose and checks the message.
 - The media probe, the copy-or-convert planner, the converter (ffmpeg.wasm in a worker, loaded from the app's own origin) and the sync pipeline (add, remove, edit, playlists, orphan cleanup, with backup and rollback). All tested without an iPod: probe on fixtures and a few Apple-encoded files, converter in headless Chrome, sync against in-memory iPods. The ffmpeg core is GPL, noted in `THIRD_PARTY.md`.
+- The library screen: add files (probe, plan, convert, sync with backup), remove tracks, edit tags, delete leftover files. A practice iPod held in memory to try it with no iPod, and a smoke scenario that runs the whole flow in headless Chrome.
+- The sync refuses an iPod whose music folders have gaps (libgpod picks a folder number below the count of folders and expects every one to exist), with a plain reason, instead of libgpod's raw message.
 
 ### Changed
 - libgpod now runs the lowest SQL command set a nano 6G or 7G offers, not the highest. The rewritten library gets the `is_home_video` column and library version 26, as the library iTunes wrote has. A fourth libgpod patch, found by the rewrite check on the owner's nano 7G.

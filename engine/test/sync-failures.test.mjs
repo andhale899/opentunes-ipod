@@ -30,6 +30,17 @@ function assertRolledBack(report, ipod, before) {
   assert.deepEqual(snapshot(ipod), before, 'the iPod is byte for byte as it was');
 }
 
+describe('an iPod whose music folders have gaps', () => {
+  it('is refused with a plain reason, because libgpod would pick a folder that is not there', async () => {
+    const ipod = await signedIpod();
+    const music = await folderOf(ipod, 'iPod_Control/Music');
+    await music.removeEntry('F00', { recursive: true });
+    const before = snapshot(ipod);
+    await assert.rejects(planSync(ipod, newEngine, [makeItem('music')]), (error) => error instanceof SyncError && /music folders have gaps \(F\d\d is missing/.test(error.message) && /nothing was planned/.test(error.message));
+    assert.deepEqual(snapshot(ipod), before);
+  });
+});
+
 describe('a sync that fails rolls everything back', () => {
   it('when the iPod refuses a media write (disk full)', async () => {
     const { ipod, before, backup, plan } = await prepared();

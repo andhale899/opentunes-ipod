@@ -97,7 +97,7 @@ export function App() {
     <main class="page">
       <header>
         <h1>OpenTunes</h1>
-        <p class="muted">This page checks that your browser can reach an iPod, and can read one, read only. Syncing is not built yet.</p>
+        <p class="muted">This page checks that your browser can reach an iPod, then reads it, backs it up, and adds, removes and edits what is on it. It has not been run on a real sync yet, so back up first and try the practice iPod before your own.</p>
       </header>
 
       <section class={`card verdict ${report.syncReady ? 'ok' : 'no'}`} aria-live="polite">
