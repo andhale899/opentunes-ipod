@@ -3,3 +3,5 @@ export * from './identity';
 export * from './devices/types';
 export * from './devices/registry';
 export * from './format';
+export * from './media/types';
+export * from './media/source';

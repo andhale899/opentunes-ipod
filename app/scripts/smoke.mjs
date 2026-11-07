@@ -12,7 +12,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const appDirectory = fileURLToPath(new URL('..', import.meta.url));
-const port = 4179;
+// SMOKE_PORT lets several checkouts run the smoke test at the same time.
+const port = Number(process.env.SMOKE_PORT ?? 4179);
 
 const SCENARIOS = [
   {
