@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { buildSignedDemoIpod, compareProfiles, lossesIn, profileDatabase } from '../js/index.ts';
+import { buildSignedDemoIpod, compareProfiles, describeChanges, profileDatabase } from '../js/index.ts';
 import { MOUNT, newEngine } from './helpers.mjs';
 
 const ITLP = `${MOUNT}/iPod_Control/iTunes/iTunes Library.itlp`;
@@ -143,12 +143,29 @@ describe('comparing profiles', () => {
     ]);
     assert.equal(changes.find((change) => change.table === 'gone').rowsAfter, null);
 
-    const losses = lossesIn('Library.itdb', changes);
-    assert.deepEqual(losses, [
+    const { lost, missing } = describeChanges('Library.itdb', changes);
+    assert.deepEqual(lost, [
       'Library.itdb: the table gone is gone after the rewrite (it had 3 rows).',
       'Library.itdb: item.artwork_cache_id held a value on 6 rows before the rewrite and holds a value on 0 after.',
       'Library.itdb: the table shrinks has 2 rows after the rewrite, 5 before.',
       'Library.itdb: shrinks.a held a value on 5 rows before the rewrite and holds a value on 2 after.',
+    ]);
+    assert.deepEqual(missing, []);
+  });
+
+  it('keeps structure that held no data apart from data that was lost', () => {
+    const before = profile({
+      item: table(10, { pid: 10, is_book: 0, copyright: 3 }),
+      unused: table(0, { a: 0 }),
+    });
+    const after = profile({
+      item: table(10, { pid: 10, brand_new: 10 }), // is_book and copyright are gone, brand_new appeared
+    });
+    const { lost, missing } = describeChanges('Library.itdb', compareProfiles(before, after));
+    assert.deepEqual(lost, ['Library.itdb: item.copyright held a value on 3 rows before the rewrite and is gone after.']);
+    assert.deepEqual(missing, [
+      'Library.itdb: the column item.is_book (empty) is gone after the rewrite.',
+      'Library.itdb: the table unused (empty) is gone after the rewrite.',
     ]);
   });
 

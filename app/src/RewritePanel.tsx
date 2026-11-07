@@ -166,6 +166,18 @@ function Result({ folderName, report, copied, onCopy }: { folderName: string; re
           </ul>
         </details>
       ) : null}
+      {report.schemaDifferences.length ? (
+        <details>
+          <summary>Structure the iPod's files have and the rewritten files lack, with no data in it ({report.schemaDifferences.length})</summary>
+          <ul class="files">
+            {report.schemaDifferences.map((line) => (
+              <li class="muted" key={line}>
+                {line}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
       {report.notes.length ? (
         <ul class="files">
           {report.notes.map((note) => (

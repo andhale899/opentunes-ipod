@@ -1,0 +1,41 @@
+--- a/src/itdb_sqlite.c	2026-11-07 18:01:37
++++ b/src/itdb_sqlite.c	2026-11-07 18:01:47
+@@ -1834,21 +1834,26 @@
+ 	if (sql_cmds && user_ver_cmds) {
+ 	    /* we found the SQLCommands and the UserVersionCommandSets keys */
+ 	    char *key = NULL;
+-	    unsigned long int maxver = 0;
++	    unsigned long int minver = 0; /* 0 until a set has been found */
+ 	    plist_t curnode = user_ver_cmds;
+ 	    plist_t subnode = NULL;
+ 
+ 	    user_ver_cmds = NULL;
+ 
+-	    /* now look for numbered subkey in the UserVersionCommandsSets */
++	    /* Now look for the numbered subkey in the UserVersionCommandsSets. Each set is for a
++	     * library at that user version, and a lower set also holds the steps that bring the
++	     * library up to the next version. A nano 7G lists sets 25 and 26: set 25 starts with
++	     * CreateIsHomeVideo and a user_version of 26, which set 26 leaves out. The library
++	     * built here starts below every set, so the lowest set, which has everything, is
++	     * the one to run. Steps that are already done fail harmlessly ("duplicate column"). */
+ 	    plist_dict_new_iter(curnode, &iter);
+ 	    if (iter) {
+ 		plist_dict_next_item(curnode, iter, &key, &subnode);
+ 		while (subnode) {
+ 		    unsigned long int intval = strtoul(key, NULL, 0);
+-		    if ((intval > 0) && (intval > maxver)) {
++		    if ((intval > 0) && (minver == 0 || intval < minver)) {
+ 			user_ver_cmds = subnode;
+-			maxver = intval;
++			minver = intval;
+ 		    }
+ 		    subnode = NULL;
+ 		    free(key);
+@@ -1859,6 +1864,7 @@
+ 		iter = NULL;
+ 	    }
+ 	    if (user_ver_cmds) {
++		printf("[%s] using the command set for user version %lu\n", __func__, minver);
+ 		/* found numbered key (usually '8', for Nano 5G it is '9') */
+ 		curnode = user_ver_cmds;
+ 		/* now get the commands array */

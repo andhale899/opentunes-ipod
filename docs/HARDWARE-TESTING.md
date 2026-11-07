@@ -97,3 +97,17 @@ Report or log attached:
 - Outcome: **pass**
 - What happened: the write test took 551 ms, of which closing the writer was 531. The speed test gave a median 312 ms for a small file, 8.9 MB/s for one 8 MB file and 12.3 MB/s for three 4 MB files at once.
 - Notes: this agrees with the third run (327 ms, 8.1 and 13.2 MB/s), so three files at a time stands. The backup and the rewrite check were not run in this report.
+
+### 2026-11-07: rewrite check, nano 7th generation, macOS Chrome 157 (fifth run)
+
+- App commit: `0bd703d` on `main`
+- iPod: the same nano 7th generation as above
+- Host: desktop Chrome 157 on macOS
+- Case: Phase 1 rewrite check (the backup button was not reported on)
+- Outcome: **ran, with findings**
+- What happened: libgpod wrote the library in memory in 0.28 s. The library iTunesCDB lists came back identical (942 music tracks, 2 playlists, no field changed) and both signatures verified. The SQLite files differed from what iTunes wrote:
+  - 6 of the 8 containers in `Library.itdb`, the iPod's built-in lists, were not written, and neither were the smart-playlist settings, because libgpod only knows the 2 playlists in `iTunesCDB`. `container_ui` in `Dynamic.itdb` shrank from 8 rows to 2.
+  - `item_stats.has_been_played` went from all 942 tracks to 1, and every track got a played and skipped date (1970) where iTunes had left them empty.
+  - `genre_map.genre_order` and `location_kind_map` were simplified.
+  - Twelve columns that hold nothing in iTunes' files were missing, including `item.is_home_video`.
+- Notes: my guess that artwork links would be lost was wrong for this iPod: none exist. The `is_home_video` column and the library version came from libgpod running the wrong one of the device's two SQL command sets, which a fourth libgpod patch fixes (library version 26 and the column now come out). The rest is libgpod rebuilding the SQLite files from its own model. Whether the nano accepts that is untested. Next is a write-back test with a verified backup and a restore.

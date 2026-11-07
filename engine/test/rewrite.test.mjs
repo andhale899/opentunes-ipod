@@ -112,7 +112,17 @@ describe('rewriting an iPod database in memory', () => {
     assert.match(text, /Library\.itdb: album\.artwork_item_pid held a value on 3 rows/);
     assert.match(text, /Dynamic\.itdb: item_stats\.play_count_user held a value on 5 rows/);
     assert.deepEqual(report.library.changedFields, {}, 'the library libgpod reads is unaffected');
+    assert.deepEqual(report.schemaDifferences, [], 'nothing was merely missing');
     assert.deepEqual(report.sqlite.map((change) => change.file), ['Dynamic.itdb', 'Library.itdb']);
+  });
+
+  it('lists a column the iPod has and the rewrite lacks apart from the losses, when it held no data', async () => {
+    const engine = await signedDemo();
+    editLibraryFile(engine, 'Library.itdb', 'ALTER TABLE item ADD COLUMN is_book INTEGER DEFAULT 0; ALTER TABLE item ADD COLUMN copyright INTEGER DEFAULT 0; UPDATE item SET copyright = 5;');
+
+    const report = await checkRewrite(engine, MOUNT, DEMO_FIREWIRE_ID);
+    assert.deepEqual(report.schemaDifferences, ['Library.itdb: the column item.is_book (empty) is gone after the rewrite.']);
+    assert.deepEqual(report.problems, ['Library.itdb: item.copyright held a value on 5 rows before the rewrite and is gone after.']);
   });
 
   it('says so when libgpod cannot write the library', async () => {

@@ -8,7 +8,7 @@ Versions and checksums for everything the engine builds are in [engine/Dockerfil
 
 | Component | Licence | Notes |
 | --- | --- | --- |
-| libgpod (`gtkpod/libgpod`, commit `7982c55`) | LGPL, version 2 or later (source file headers) | Statically linked. Three patches of ours are in `engine/patches/libgpod/`. GitHub labels the licence "Other" because `COPYING` is the older "Library GPL" text. |
+| libgpod (`gtkpod/libgpod`, commit `7982c55`) | LGPL, version 2 or later (source file headers) | Statically linked. Four patches of ours are in `engine/patches/libgpod/`. GitHub labels the licence "Other" because `COPYING` is the older "Library GPL" text. |
 | libplist 2.6.0 | LGPL 2.1 (`COPYING.LESSER`) | Statically linked. |
 | glib 2.80.5 | LGPL 2.1 or later, per the emscripten-forge recipe (not re-read from the source) | Statically linked, with the emscripten patch series from that recipe. |
 | libxml2 2.12.9 | MIT-style (`Copyright` file) | |

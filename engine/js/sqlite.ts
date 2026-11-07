@@ -106,23 +106,45 @@ export function compareProfiles(before: DatabaseProfile, after: DatabaseProfile)
   return changes;
 }
 
-/** The changes that mean something an iPod holds is gone after the rewrite, as plain sentences. */
-export function lossesIn(file: string, changes: TableChange[]): string[] {
-  const losses: string[] = [];
+export interface DescribedChanges {
+  /** Data the iPod holds that the rewrite loses or empties, as plain sentences. */
+  lost: string[];
+  /** Tables and columns the iPod's file has and the rewritten file lacks, where they held no data. */
+  missing: string[];
+}
+
+/**
+ * Sorts the changes into data that is lost and structure that is only missing. A column that
+ * held a value on some rows and holds fewer now is a loss. A column that held nothing and is
+ * gone is a difference in schema: worth knowing, but no data went with it.
+ */
+export function describeChanges(file: string, changes: TableChange[]): DescribedChanges {
+  const lost: string[] = [];
+  const missing: string[] = [];
   for (const change of changes) {
     if (change.rowsAfter === null) {
-      losses.push(`${file}: the table ${change.table} is gone after the rewrite (it had ${change.rowsBefore} rows).`);
+      (change.rowsBefore ? lost : missing).push(
+        change.rowsBefore
+          ? `${file}: the table ${change.table} is gone after the rewrite (it had ${change.rowsBefore} rows).`
+          : `${file}: the table ${change.table} (empty) is gone after the rewrite.`,
+      );
       continue;
     }
     if (change.rowsBefore !== null && change.rowsAfter < change.rowsBefore) {
-      losses.push(`${file}: the table ${change.table} has ${change.rowsAfter} rows after the rewrite, ${change.rowsBefore} before.`);
+      lost.push(`${file}: the table ${change.table} has ${change.rowsAfter} rows after the rewrite, ${change.rowsBefore} before.`);
     }
     for (const column of change.columns) {
-      if (column.before !== null && (column.after === null || column.after < column.before)) {
-        const now = column.after === null ? 'is gone' : `holds a value on ${column.after}`;
-        losses.push(`${file}: ${change.table}.${column.column} held a value on ${column.before} rows before the rewrite and ${now} after.`);
+      if (column.before === null) continue; // new in the rewrite, nothing was lost
+      if (column.after === null) {
+        (column.before > 0 ? lost : missing).push(
+          column.before > 0
+            ? `${file}: ${change.table}.${column.column} held a value on ${column.before} rows before the rewrite and is gone after.`
+            : `${file}: the column ${change.table}.${column.column} (empty) is gone after the rewrite.`,
+        );
+      } else if (column.after < column.before) {
+        lost.push(`${file}: ${change.table}.${column.column} held a value on ${column.before} rows before the rewrite and holds a value on ${column.after} after.`);
       }
     }
   }
-  return losses;
+  return { lost, missing };
 }

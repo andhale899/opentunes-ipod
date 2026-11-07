@@ -33,7 +33,7 @@ All versions and SHA-256 checksums are in [engine/Dockerfile](../engine/Dockerfi
 | zlib, SQLite, libxml2, libplist | pinned | Built from source. SQLite is compiled from the amalgamation, single-threaded. |
 | libffi | 3.5.2 | 3.4.6 does not link: it asks emscripten 4.x for JS helpers that were renamed. |
 | glib | 2.80.5 | With the emscripten patch series from the emscripten-forge recipe. glib's runtime checks stay on, unlike that recipe. |
-| libgpod | `gtkpod/libgpod` commit `7982c55` | The 0.8.2-era tree, last commit May 2012. Plus three patches of ours. |
+| libgpod | `gtkpod/libgpod` commit `7982c55` | The 0.8.2-era tree, last commit May 2012. Plus four patches of ours. |
 | hashAB | `dstaley/hashab` commit `f80d464` | Public-domain C code, compiled into the engine. |
 
 The author of the original TunesReloaded build kept a private libgpod fork, so none of this is a copy of their build. It was reconstructed from public sources.
@@ -45,6 +45,7 @@ libgpod patches, in `engine/patches/libgpod/`:
 1. **`itdb_zlib.h`**: includes glib before using `G_BEGIN_DECLS`. The 2012 code relied on another header having done it.
 2. **Public headers**: installs `itdb_device.h` and `itdb_sysinfo_extended_parser.h`. This tree marks them internal, but device information is needed.
 3. **hashAB**: libgpod looks for an external `libhashab` shared library and refuses to write a nano 6G or 7G database without it. A WebAssembly module cannot load one, so the patch points libgpod at the built-in `calcHashAB` instead.
+4. **SQLite command set**: a nano 6G or 7G's `SysInfoExtended` lists the SQL steps that make a library fit the device, in numbered sets keyed by library version. The nano 7G offers sets 25 and 26. Set 26 is set 25 without its first two steps, `CreateIsHomeVideo` and a `user_version` of 26. libgpod ran the highest set, so a rewritten library had no `is_home_video` column and `user_version` 0, where the library iTunes wrote has the column. The patch runs the lowest set, which has every step. Steps already done fail harmlessly. Found by the rewrite check on the owner's nano 7G, see [HARDWARE-TESTING.md](HARDWARE-TESTING.md).
 
 Build decisions:
 

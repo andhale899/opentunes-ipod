@@ -15,7 +15,7 @@
 
 import { NUMBER_FIELDS, TEXT_FIELDS, type Engine, type PlaylistInfo, type TrackInfo } from './engine.ts';
 import { verifySignatures, type SignatureCheck } from './signature.ts';
-import { compareProfiles, lossesIn, profileDatabase, type DatabaseProfile, type TableChange } from './sqlite.ts';
+import { compareProfiles, describeChanges, profileDatabase, type DatabaseProfile, type TableChange } from './sqlite.ts';
 
 export interface FileChange {
   /** From the iPod's top folder. */
@@ -52,8 +52,10 @@ export interface RewriteReport {
   files: FileChange[];
   sqlite: SqliteFileChange[];
   signatures: SignatureCheck[];
-  /** One sentence for each way the rewrite differs from what was there. Empty means none were found. */
+  /** One sentence for each way the rewrite loses something the iPod holds. Empty means none were found. */
   problems: string[];
+  /** Tables and columns the iPod's files have that the rewritten files lack, where they held no data. */
+  schemaDifferences: string[];
   /** What could not be compared, so the comparison is blind there. */
   notes: string[];
 }
@@ -262,6 +264,7 @@ export async function checkRewrite(engine: Engine, mount: string, fireWireId: st
   const sqlite: SqliteFileChange[] = [];
   const notes: string[] = [];
   const problems: string[] = [];
+  const schemaDifferences: string[] = [];
   for (const file of [...new Set([...profilesBefore.keys(), ...profilesAfter.keys()])].sort()) {
     const before = profilesBefore.get(file) ?? EMPTY_PROFILE;
     const after = profilesAfter.get(file) ?? EMPTY_PROFILE;
@@ -272,7 +275,9 @@ export async function checkRewrite(engine: Engine, mount: string, fireWireId: st
     }
     const tables = compareProfiles(before, after);
     if (tables.length) sqlite.push({ file, tables });
-    problems.push(...lossesIn(file, tables));
+    const described = describeChanges(file, tables);
+    problems.push(...described.lost);
+    schemaDifferences.push(...described.missing);
   }
 
   const signatures = writeError ? [] : await verifySignatures(engine, mount, fireWireId);
@@ -305,6 +310,7 @@ export async function checkRewrite(engine: Engine, mount: string, fireWireId: st
     sqlite,
     signatures,
     problems: [...early, ...problems],
+    schemaDifferences,
     notes,
   };
 }
