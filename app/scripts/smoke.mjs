@@ -57,6 +57,8 @@ function writeTone(path, { rate, bits, seconds }) {
 const toneFolder = mkdtempSync(join(tmpdir(), 'opentunes-tones-'));
 const TONE_COPY = join(toneFolder, 'smoke tone copy.wav');
 const TONE_CONVERT = join(toneFolder, 'smoke tone convert.wav');
+const COVER = join(toneFolder, 'cover.jpg');
+writeFileSync(COVER, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 writeTone(TONE_COPY, { rate: 44100, bits: 16, seconds: 2 });
 writeTone(TONE_CONVERT, { rate: 96000, bits: 24, seconds: 1 });
 
@@ -160,6 +162,12 @@ const SCENARIOS = [
         await page.click('Put on the iPod');
         await page.waitFor('Copied 2 files and checked the iPod by reading it back', 90_000);
         await page.waitFor('7 tracks');
+        // A picture next to the music, as in a chosen folder, is left out without a fuss.
+        await page.click('Add music');
+        await page.chooseFiles([TONE_COPY, COVER]);
+        await page.waitFor('1 of 1 can be added');
+        await page.waitFor('1 other file was left out');
+        await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
         // Remove the copied file and its media file, then fix a title.
         await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
         await page.waitFor('Your library');
@@ -260,9 +268,9 @@ async function dumpWithDevTools(chromePath, url, { doneSelector, timeoutMs, driv
           const clicked = await evaluate(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === ${JSON.stringify(text)} && !x.disabled); if (!b) return false; b.click(); return true; })()`);
           if (!clicked) throw new Error(`No enabled button "${text}". The page shows: ${await shown()}`);
         },
-        async chooseFiles(paths) {
+        async chooseFiles(paths, selector = 'input[data-pick=files]') {
           const { result: doc } = await send('DOM.getDocument');
-          const { result: found } = await send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: 'input[type=file]' });
+          const { result: found } = await send('DOM.querySelector', { nodeId: doc.root.nodeId, selector });
           await send('DOM.setFileInputFiles', { nodeId: found.nodeId, files: paths });
         },
       });
