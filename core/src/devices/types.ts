@@ -105,6 +105,14 @@ export interface DeviceDeclared {
   images?: { albumArt?: ImageFormat[]; photo?: ImageFormat[]; chapter?: ImageFormat[] };
 }
 
+/** Something seen on a real unit, dated. The most trustworthy kind of fact, for that unit. */
+export interface Observation {
+  date: string;
+  /** Who ran what, on what. */
+  source: string;
+  facts: string[];
+}
+
 export interface DeviceModel {
   /** Stable kebab-case id, for example "nano-7g". */
   id: string;
@@ -123,6 +131,13 @@ export interface DeviceModel {
   media: DeviceMedia | null;
   /** What a unit of this model says about itself, when we have its SysInfoExtended. */
   deviceDeclared?: DeviceDeclared;
+  /**
+   * USB product ids (vendor 0x05ac) the model shows up with, which is how the app can tell
+   * what is plugged in. From the public USB id list, except where `observed` says it was seen.
+   */
+  usbProductIds?: number[];
+  /** Facts seen on a real unit. Must never contain a serial number or FireWire ID. */
+  observed?: Observation[];
   verification: Verification;
   sources: Source[];
   notes: string[];

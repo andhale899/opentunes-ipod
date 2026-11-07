@@ -90,6 +90,16 @@ describe('hashAB database write (nano 7G style)', () => {
     assert.equal(track.album, 'Album');
   });
 
+  it('opens an iPod that has only iTunesCDB, the layout a nano 7G is likely to have', async () => {
+    const engine = await nano7gStyleIpod();
+    addFile(engine, 'music', { title: 'Song' }, 'x.mp3', 10);
+    engine.write();
+    engine.fs.unlink(`${ITUNES}/iTunesDB`); // libgpod reads iTunesCDB first and does not need this
+
+    const [track] = (await restart(engine)).tracks();
+    assert.equal(track.title, 'Song');
+  });
+
   it('fails the write when the FireWire ID is not a real one', async () => {
     const engine = await nano7gStyleIpod({ fireWireId: null });
     addFile(engine, 'music', { title: 'Song' }, 'x.mp3', 10);

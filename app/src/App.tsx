@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'preact/hooks';
 import { detectCapabilities, devices, type Capability, type EnvLike } from '@opentunes/core';
 import { IpodViewer } from './IpodViewer';
-import { probeFolder, probeUsb, type ProbeResult } from './probes';
+import { probeFolder, probeUsb, probeWriteSpeed, type ProbeResult } from './probes';
 
-type ProbeKey = 'usb' | 'folderRead' | 'folderWrite';
+type ProbeKey = 'usb' | 'folderRead' | 'folderWrite' | 'speed';
 
 interface ProbeCardProps {
   title: string;
@@ -128,7 +128,7 @@ export function App() {
       <section>
         <h2>Try it with your iPod</h2>
         <p class="muted">
-          Connect the iPod first so it shows up as a drive. These checks read only, apart from the write test, which creates one tiny file in the iPod's root folder and deletes it again.
+          Connect the iPod first so it shows up as a drive. These checks read only, apart from the write test and the speed test, which create temporary files in the iPod's root folder and delete them again.
         </p>
         <ProbeCard
           title="1. USB"
@@ -140,7 +140,7 @@ export function App() {
         />
         <ProbeCard
           title="2. Folder access, read only"
-          help="Pick the iPod's drive. This shows whether Chrome can open it and whether it contains iPod_Control."
+          help="Pick the iPod's drive. This shows whether Chrome can open it, and lists what is in iPod_Control, with file sizes. Nothing is read from the files."
           button="Check iPod folder"
           busy={busy === 'folderRead'}
           result={probes.folderRead}
@@ -148,11 +148,19 @@ export function App() {
         />
         <ProbeCard
           title="3. Folder access, write test"
-          help="Same as 2, then writes and removes a four-byte file named .opentunes-write-test to prove Chrome can write to the iPod."
+          help="Same as 2, then writes and removes a two-byte file named .opentunes-write-test to prove Chrome can write to the iPod, and times each step."
           button="Run write test"
           busy={busy === 'folderWrite'}
           result={probes.folderWrite}
           onRun={() => void run('folderWrite', () => probeFolder({ writeTest: true }))}
+        />
+        <ProbeCard
+          title="4. Write speed"
+          help="Writes about 20 MB of temporary files to the iPod's top folder and deletes them, to measure how fast Chrome can write to this iPod. The result decides how a sync is arranged."
+          button="Run speed test"
+          busy={busy === 'speed'}
+          result={probes.speed}
+          onRun={() => void run('speed', probeWriteSpeed)}
         />
       </section>
 

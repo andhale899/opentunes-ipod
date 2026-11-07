@@ -34,14 +34,15 @@ function summaryTable(): string[] {
       device.connector,
       device.databaseFormat,
       device.checksum ?? 'unknown',
+      (device.usbProductIds ?? []).map((id) => `0x${id.toString(16)}`).join(', ') || '-',
       STATUS_LABELS[device.verification],
     ]
       .map(cell)
       .join(' | '),
   );
   return [
-    '| Model | Years | Connector | Database | Checksum | Status |',
-    '| --- | --- | --- | --- | --- | --- |',
+    '| Model | Years | Connector | Database | Checksum | USB id | Status |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
     ...rows.map((row) => `| ${row} |`),
   ];
 }
@@ -92,6 +93,11 @@ function detailSection(device: DeviceModel): string[] {
     if (declared.images?.chapter) lines.push(`- Chapter image formats: ${formats(declared.images.chapter)}`);
   }
 
+  for (const observation of device.observed ?? []) {
+    lines.push('', `Seen on a real unit, ${observation.date} (${observation.source}):`, '');
+    for (const fact of observation.facts) lines.push(`- ${fact}`);
+  }
+
   if (device.sources.length) {
     lines.push('', 'Sources:');
     for (const source of device.sources) lines.push(`- [${source.label}](${source.url}), read ${source.retrieved}`);
@@ -113,7 +119,7 @@ const out = [
   '',
   'Every row says how far it can be trusted. "Tested on hardware" means a sync was run on a real iPod of that model and the result recorded. Nothing has reached that level yet.',
   '',
-  'Capability limits are only filled in once they have been read from a published specification. Models without them show identity facts only.',
+  'Capability limits are only filled in once they have been read from a published specification. Models without them show identity facts only. USB ids come from the public USB id list except where a row says it was seen on a real unit.',
   '',
   '## All models',
   '',

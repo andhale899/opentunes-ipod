@@ -45,6 +45,46 @@ describe('device registry', () => {
   });
 });
 
+describe('USB product ids', () => {
+  it('are Apple iPod ids, and the nano 7G has the one seen on hardware', () => {
+    for (const device of devices) {
+      for (const id of device.usbProductIds ?? []) {
+        expect(id, device.id).toBeGreaterThanOrEqual(0x1200);
+        expect(id, device.id).toBeLessThanOrEqual(0x13ff);
+      }
+    }
+    expect(getDevice('nano-7g')?.usbProductIds).toEqual([0x1267]);
+  });
+
+  it('are not claimed by two models that differ in family, except where one id covers both', () => {
+    const owners = new Map<number, string[]>();
+    for (const device of devices) {
+      for (const id of device.usbProductIds ?? []) owners.set(id, [...(owners.get(id) ?? []), device.family]);
+    }
+    for (const [id, families] of owners) {
+      expect(new Set(families).size, `0x${id.toString(16)} is shared across families`).toBe(1);
+    }
+  });
+});
+
+describe('observations from real units', () => {
+  it('are dated and say who saw them', () => {
+    const observations = devices.flatMap((device) => device.observed ?? []);
+    expect(observations.length).toBeGreaterThan(0);
+    for (const observation of observations) {
+      expect(observation.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(observation.source).not.toBe('');
+      expect(observation.facts.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('never contain a serial number or FireWire ID', () => {
+    const text = JSON.stringify(devices.flatMap((device) => device.observed ?? []));
+    expect(text).not.toMatch(/\b[0-9A-Fa-f]{16}\b/);
+    expect(text).not.toMatch(/serial(?!\s+number string)/i);
+  });
+});
+
 describe('nano 7G row', () => {
   const nano = getDevice('nano-7g');
 

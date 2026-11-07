@@ -8,7 +8,7 @@ Personal project. It is not published or hosted anywhere.
 
 The project is mid-rebuild, and **nothing syncs yet**. What exists today:
 
-- An environment check page that tells you whether your browser can reach an iPod, and tries USB and folder access against a real one.
+- An environment check page that tells you whether your browser can reach an iPod, and tries USB and folder access against a real one, including how fast Chrome can write to it. It has run once against a real nano 7th generation, see [docs/HARDWARE-TESTING.md](docs/HARDWARE-TESTING.md).
 - A **read-only iPod reader**: pick an iPod's folder and the engine, running in the browser, opens its database and shows the model, how the database is signed, and your library and playlists. It never writes. A demo iPod lets you try it without hardware.
 - A device registry that records, per iPod model, what it can play and how far each fact can be trusted. Only the nano 7th generation has capability data so far.
 - Tested core logic for capability detection and duplicate-song matching.

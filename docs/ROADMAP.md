@@ -52,7 +52,8 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 ## Open questions
 
 - Do photos and podcasts work on a real nano 7G? Its own file declares both. Apple's page is silent.
-- Is a nano 7G FAT32? The template says so. Confirm on your unit, then Android can mount it.
+- Android mounting. The owner's nano 7G looks FAT (it holds System Volume Information and LOST.DIR), and LOST.DIR means Android has mounted it. Not yet tried with this app.
+- Per-file cost of writing to the iPod from Chrome. The first run took 3.7 seconds for a two-byte file. The speed test measures it, and the result decides whether a sync writes files one at a time or several at once.
 - Smart playlists are now written back untouched. Does libgpod write a real nano 7G's smart playlists without error? Untested until hardware.
 - Does libgpod, which does not know the nano 7G model number, cope everywhere else? Checksum and capabilities work. Artwork does not yet.
 - Does Chrome for Android expose the folder picker for an iPod volume? Phase 0 checks this.

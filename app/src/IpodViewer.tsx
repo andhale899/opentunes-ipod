@@ -4,7 +4,9 @@ import {
   EngineError,
   IpodFolderError,
   buildDemoIpod,
+  buildUnsyncedIpod,
   loadIpodFolder,
+  memoryDirectory,
   type DeviceInfo,
   type DirectoryEntry,
   type Engine,
@@ -26,11 +28,18 @@ interface Snapshot {
   load: LoadReport | null;
 }
 
+/** What the reader had found when something went wrong, so a failure can be diagnosed. */
+interface Diagnostics {
+  folderName: string;
+  load: LoadReport;
+  error: string;
+}
+
 type View =
   | { phase: 'idle' }
   | { phase: 'working'; message: string }
   | { phase: 'ready'; snapshot: Snapshot }
-  | { phase: 'error'; message: string };
+  | { phase: 'error'; message: string; diagnostics?: Diagnostics };
 
 type Picker = (options?: { mode?: 'read' | 'readwrite' }) => Promise<unknown>;
 
@@ -39,9 +48,7 @@ function describeError(error: unknown): string {
     return error.message;
   }
   if (error instanceof EngineError) {
-    return /Could not read the iPod database/.test(error.message)
-      ? `${error.message} If this iPod has never been synced, there is no database to read yet.`
-      : error.message;
+    return error.message;
   }
   if (error instanceof DOMException) {
     return `${error.name}: ${error.message}`;
@@ -95,6 +102,36 @@ function reportOf(snapshot: Snapshot): string {
     },
     null,
     2,
+  );
+}
+
+function diagnosticsOf({ folderName, load, error }: Diagnostics): string {
+  return JSON.stringify(
+    {
+      app: 'opentunes',
+      view: 'ipod-reader-diagnostics',
+      generatedAt: new Date().toISOString(),
+      folderName,
+      error,
+      load: { ...load, skipped: load.skipped.length, musicFolders: load.musicFolders.length },
+    },
+    null,
+    2,
+  );
+}
+
+function FileList({ load }: { load: LoadReport }) {
+  return (
+    <details>
+      <summary>Files read from the iPod ({load.listing.length})</summary>
+      <ul class="files">
+        {load.listing.map((file) => (
+          <li key={file.path}>
+            {file.path} <span class="muted">{formatBytes(file.size)}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -208,11 +245,16 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
       return;
     }
 
+    await readIpod(handle as DirectoryEntry, 'folder');
+  }
+
+  /** The one path every iPod takes, real or demo: copy its database files in, open, read. */
+  async function readIpod(directory: DirectoryEntry, source: Snapshot['source']) {
     setView({ phase: 'working', message: 'Loading the engine...' });
+    let load: LoadReport | null = null;
     try {
       const engine = await newEngine();
-      const directory = handle as DirectoryEntry;
-      const load = await loadIpodFolder(directory, engine, {
+      load = await loadIpodFolder(directory, engine, {
         mount: MOUNT,
         onProgress: (message) => setView({ phase: 'working', message }),
       });
@@ -220,34 +262,34 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
         throw new IpodFolderError(`"${directory.name}" has an iPod_Control folder but no iTunes folder inside it, so this iPod has no database yet. There is nothing to read.`);
       }
       engine.open(load.mount);
-      setView({ phase: 'ready', snapshot: snapshotOf(engine, 'folder', directory.name, load) });
+      setView({ phase: 'ready', snapshot: snapshotOf(engine, source, directory.name, load) });
       engine.close();
     } catch (error) {
-      setView({ phase: 'error', message: describeError(error) });
+      const message = describeError(error);
+      setView({ phase: 'error', message, diagnostics: load ? { folderName: directory.name, load, error: message } : undefined });
     }
   }
 
-  async function showDemo() {
+  async function showDemo(variant: 'full' | 'unsynced' = 'full') {
     setView({ phase: 'working', message: 'Building a demo iPod...' });
     try {
-      const engine = await newEngine();
-      buildDemoIpod(engine, MOUNT);
-      engine.close();
-      engine.open(MOUNT); // read it back, the way a real iPod is read
-      setView({ phase: 'ready', snapshot: snapshotOf(engine, 'demo', 'Demo iPod', null) });
-      engine.close();
+      const demo = await newEngine();
+      if (variant === 'full') buildDemoIpod(demo, MOUNT);
+      else buildUnsyncedIpod(demo, MOUNT);
+      await readIpod(memoryDirectory(demo, MOUNT, 'DEMO IPOD'), 'demo');
     } catch (error) {
       setView({ phase: 'error', message: describeError(error) });
     }
   }
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).has('demo')) void showDemo();
+    const demo = new URLSearchParams(window.location.search).get('demo');
+    if (demo !== null) void showDemo(demo === 'unsynced' ? 'unsynced' : 'full');
   }, []);
 
-  async function copyReport(snapshot: Snapshot) {
+  async function copyReport(text: string) {
     try {
-      await navigator.clipboard.writeText(reportOf(snapshot));
+      await navigator.clipboard.writeText(text);
       setCopied('copied');
     } catch {
       setCopied('failed');
@@ -266,8 +308,11 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
         <button type="button" onClick={() => void chooseFolder()} disabled={working || !canPickFolder}>
           Choose iPod folder
         </button>
-        <button type="button" class="secondary" onClick={() => void showDemo()} disabled={working}>
+        <button type="button" class="secondary" onClick={() => void showDemo('full')} disabled={working}>
           Try a demo iPod
+        </button>
+        <button type="button" class="secondary" onClick={() => void showDemo('unsynced')} disabled={working}>
+          Try an iPod that was never synced
         </button>
       </div>
       {!canPickFolder ? <p class="muted">This browser has no folder picker, so only the demo is available.</p> : null}
@@ -278,13 +323,26 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
         </p>
       ) : null}
       {view.phase === 'error' ? (
-        <div class="result no" role="alert">
-          <p>{view.message}</p>
-        </div>
+        <>
+          <div class="result no" role="alert">
+            <p>{view.message}</p>
+          </div>
+          {view.diagnostics ? (
+            <>
+              <FileList load={view.diagnostics.load} />
+              <button type="button" onClick={() => void copyReport(diagnosticsOf(view.diagnostics as Diagnostics))}>
+                Copy diagnostic report
+              </button>
+              {copied === 'copied' ? <span class="note"> Copied.</span> : null}
+              {copied === 'failed' ? <span class="note"> Copy failed.</span> : null}
+            </>
+          ) : null}
+        </>
       ) : null}
       {view.phase === 'ready' ? (
         <>
           <Facts snapshot={view.snapshot} />
+          {view.snapshot.load ? <FileList load={view.snapshot.load} /> : null}
           <h3>Library</h3>
           <Library tracks={view.snapshot.tracks} />
           <h3>Playlists</h3>
@@ -295,7 +353,7 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
               </li>
             ))}
           </ul>
-          <button type="button" onClick={() => void copyReport(view.snapshot)}>
+          <button type="button" onClick={() => void copyReport(reportOf(view.snapshot))}>
             Copy iPod report
           </button>
           {copied === 'copied' ? <span class="note"> Copied.</span> : null}

@@ -26,6 +26,12 @@ describe('setting up and opening', () => {
     assert.throws(() => engine.open(MOUNT), messageMatches(/Could not read the iPod database/));
   });
 
+  it('explains an iPod whose database is empty, as a never-synced one is', async () => {
+    const engine = await newIpod();
+    engine.fs.writeFile(`${MOUNT}/iPod_Control/iTunes/iTunesDB`, new Uint8Array(0));
+    assert.throws(() => engine.open(MOUNT), messageMatches(/never been synced/));
+  });
+
   it('needs a model number to set up a blank iPod', async () => {
     const engine = await newEngine();
     assert.throws(() => engine.init(MOUNT, ''), messageMatches(/model number/));
