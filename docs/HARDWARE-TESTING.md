@@ -74,3 +74,14 @@ Report or log attached:
 - Outcome: **pass**
 - What happened: the listing shows the layout this model really uses. `iPod_Control/iTunes` holds `iTunesCDB` and the `iTunes Library.itlp` folder of SQLite files, with a `Locations.itdb.cbk` of the size a signature plus 81 block hashes would have. There is no `iTunesDB`, so that was normal for this model. Writing the two-byte test file took 1.49 seconds, of which closing the writer was 1.47. The other steps each took under 10 milliseconds.
 - Notes: `iTunesControl` and `Device/Radio/RadioBuffer` are each exactly 20 MiB and libgpod never opens them, so the loader now leaves them out. The full list is in the registry observations for the nano 7G. The fixed cost per file on close is why the speed test compares one file at a time with several at once. Still to run: the speed test, and the reader with its new signature check.
+
+### 2026-11-07: reader and write-speed test, nano 7th generation, macOS Chrome 157 (third run)
+
+- App commit: `f80de7d` on `main` (the same app code as when the run was made)
+- iPod: the same nano 7th generation as above
+- Host: desktop Chrome 157 on macOS
+- Case: Phase 1 reader (read only) and the write-speed test
+- Outcome: **pass**
+- What happened: the reader opened the iPod's `iTunesCDB` and read 942 music tracks and 2 playlists (the master list and a smart "Videos" list with no tracks). Both signature checks matched. It read 30 files, 1.4 MB, and left out the two 20 MiB files. In the speed test a small file cost a median 327 ms (create, write, close, delete), one 8 MB file wrote at 8.1 MB/s, and three 4 MB files at once at 13.2 MB/s.
+- Decision: a sync writes three files at a time.
+- Notes: the reader listed video as unsupported. That is libgpod judging video from the model number alone, and it does not know MD480, so the page no longer lists video for models libgpod does not know. Not yet shown: that libgpod's rewrite keeps everything on this iPod (artwork links, ratings, the other SQLite files). Next is a backup of the database files before any write, and a read-only rewrite check done in memory.

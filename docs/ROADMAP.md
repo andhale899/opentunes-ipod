@@ -27,8 +27,8 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 
 ## Phase 2: Music on the nano 7G
 
-- [x] Read an iPod's database in the browser, read only, and show the device facts, library and playlists (built, with a demo iPod and a headless-Chrome smoke test). Not yet tried on a real iPod.
-- [x] Check, read only, that the signatures iTunes left on an iPod (`iTunesCDB` and `Locations.itdb.cbk`) are what the engine's own hashAB computes. Tested against engine-made files and files signed with other random bytes, and shown in the reader. Not yet run on the real iPod, and it is the gate before the first write.
+- [x] Read an iPod's database in the browser, read only, and show the device facts, library and playlists (built, with demo iPods and a headless-Chrome smoke test). Run on the owner's nano 7G: it read 942 music tracks and 2 playlists.
+- [x] Check, read only, that the signatures iTunes left on an iPod (`iTunesCDB` and `Locations.itdb.cbk`) are what the engine's own hashAB computes. Tested against engine-made files and files signed with other random bytes, and shown in the reader. Run on the owner's nano 7G: both signatures match, so the engine signs the way this iPod expects.
 - [ ] Connect: WebUSB identity alongside the folder pick, model lookup against the registry, a proper device card.
 - [ ] Add files, probe them, plan copy or convert against the registry.
 - [ ] Convert in a worker.
@@ -53,8 +53,10 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 ## Open questions
 
 - Do photos and podcasts work on a real nano 7G? Its own file declares both. Apple's page is silent.
+- Does a real nano 7G play video? libgpod cannot tell for a model it does not know (it always says no). The description file from another unit declares video, but the reader does not yet parse the owner's own file to confirm.
+- What does libgpod's rewrite of a real nano 7G's library lose? It rebuilds the SQLite files in `iTunes Library.itlp` from its own model, and the real library has artwork links, ratings, Genius and other data. Untested. Next steps: a backup of the iPod's database files before any write, and a read-only rewrite check done in memory.
 - Android mounting. The owner's nano 7G looks FAT (it holds System Volume Information and LOST.DIR), and LOST.DIR means Android has mounted it. Not yet tried with this app.
-- Per-file cost of writing to the iPod from Chrome. The first run took 3.7 seconds for a two-byte file, the second 1.49, of which closing the file was 1.47. The speed test compares one file at a time with several at once, and the result decides how a sync writes.
+- Resolved: how to write files. Closing a file costs about 0.33 seconds whatever its size (first runs 3.7 and 1.49 seconds, the speed test median 0.327). One 8 MB file ran at 8.1 MB/s and three 4 MB files at once at 13.2 MB/s, so a sync writes three files at a time. One run on one iPod, so revisit if Android or Linux differ.
 - libgpod leaves an empty `iTunesDB` beside `iTunesCDB`. The owner's real nano 7G has no `iTunesDB` at all. Does the iPod mind the empty file? Untested. If it does, the sync can remove the file when the iPod had none.
 - Smart playlists are now written back untouched. Does libgpod write a real nano 7G's smart playlists without error? Untested until hardware.
 - Does libgpod, which does not know the nano 7G model number, cope everywhere else? Checksum and capabilities work. Artwork does not yet.

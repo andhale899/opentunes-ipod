@@ -184,7 +184,13 @@ function Facts({ snapshot }: { snapshot: Snapshot }) {
   const { device, tracks, playlists, load } = snapshot;
   const master = playlists.find((playlist) => playlist.master);
   const kinds = countBy(tracks, (track) => track.kind);
-  const supports = device ? Object.entries(device.supports).filter(([, on]) => on).map(([name]) => name.replace('_', ' ')) : [];
+  // libgpod judges video from the model number alone, so for a model it does not know it always says no.
+  const recognised = device?.device_recognized === true;
+  const supports = device
+    ? Object.entries(device.supports)
+        .filter(([name, on]) => on && (recognised || name !== 'video'))
+        .map(([name]) => name.replace('_', ' '))
+    : [];
   const idValid = isValidFireWireId(device?.firewire_id);
   const needsId = device !== null && device.checksum !== 'none';
 
@@ -206,7 +212,10 @@ function Facts({ snapshot }: { snapshot: Snapshot }) {
           : 'not needed',
     ],
     ['Device description file', device?.has_sysinfo_extended ? 'SysInfoExtended found' : 'No SysInfoExtended'],
-    ['Supports, according to libgpod', supports.length ? supports.join(', ') : 'nothing listed'],
+    [
+      'Supports, according to libgpod',
+      `${supports.length ? supports.join(', ') : 'nothing listed'}${device && !recognised ? '. Video is not judged for an unknown model' : ''}`,
+    ],
     ['Library', `${plural(tracks.length, 'track')}, ${plural(playlists.length, 'playlist')}${kinds.length ? ` (${kinds.map(([kind, n]) => `${n} ${kindLabel(kind).toLowerCase()}`).join(', ')})` : ''}`],
   ];
   if (hasSignatureNews(snapshot.signatures)) {
@@ -241,7 +250,7 @@ function Facts({ snapshot }: { snapshot: Snapshot }) {
       </dl>
       {device && !device.device_recognized ? (
         <p class="muted">
-          libgpod does not recognise this model number. That is expected for a nano 6th or 7th generation with the libgpod version in use. The signing scheme and capabilities above come from the iPod's own description file instead.
+          libgpod does not recognise this model number. That is expected for a nano 6th or 7th generation with the libgpod version in use. The signing scheme, artwork, photo and podcast support come from the iPod's own description file instead. Video is left out of the list because libgpod only judges it from the model number, so for a model it does not know it always says no.
         </p>
       ) : null}
     </section>

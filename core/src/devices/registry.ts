@@ -150,6 +150,17 @@ const nano7g: DeviceModel = {
         'Writing the two-byte test file took 1.49 seconds this time. Closing the writer was 1.47 seconds of that. Creating the file, writing, reading it back and deleting it each took under 10 milliseconds. Chrome appears to flush the volume on every close, so the cost is per file, not per byte.',
       ],
     },
+    {
+      date: '2026-11-07',
+      source: 'Read-only reader and write-speed test on the same unit, macOS, Chrome 157',
+      facts: [
+        'The model number on the unit is MD480. The 2012 libgpod model table does not know it, so libgpod reports an unknown model, and because it judges video from the model number alone it also reports no video. The unit\'s own description file is the better source.',
+        'iPod_Control/Device/SysInfo is 52 bytes: a ModelNumStr line and a FirewireGuid line, the two lines the old TunesReloaded setup writes. The FireWire ID the engine used came from there.',
+        'libgpod opened iTunesCDB and read the library: music only, one master playlist and one smart playlist called Videos that held no tracks.',
+        'The signature on iTunesCDB and the one on Locations.itdb.cbk both match what the engine computes with hashAB. That confirms the signature layout, which header fields are zeroed before hashing, and the FireWire ID bytes used as the key. It does not show that the iPod accepts a database libgpod writes.',
+        'Writes from Chrome: closing a file took between 0.3 and 3.7 seconds across runs, and 0.3 to 0.4 seconds in the speed test for both tiny and 8 MB files. One 8 MB file wrote at 8.1 MB/s and three 4 MB files at once at 13.2 MB/s.',
+      ],
+    },
   ],
   verification: 'spec-sourced',
   sources: [APPLE_NANO_7G],
