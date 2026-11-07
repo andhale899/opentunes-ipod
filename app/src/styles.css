@@ -221,3 +221,81 @@ footer {
   margin-top: 2rem;
   font-size: 0.85rem;
 }
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.facts {
+  margin: 0.5rem 0 0;
+}
+
+.facts div {
+  display: grid;
+  grid-template-columns: minmax(9rem, 12rem) 1fr;
+  gap: 0.25rem 1rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.facts dt {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 30rem) {
+  .facts div {
+    grid-template-columns: 1fr;
+  }
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.library {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.library th,
+.library td {
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.library th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.playlists {
+  margin: 0.25rem 0 1rem;
+  padding-left: 1.25rem;
+}
+
+.playlists .muted {
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
+}
+
+section > h3 {
+  margin: 1.5rem 0 0.5rem;
+}

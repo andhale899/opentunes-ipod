@@ -6,6 +6,7 @@
   "type": "module",
   "workspaces": [
     "core",
+    "engine",
     "app"
   ],
   "scripts": {
@@ -19,7 +20,8 @@
     "docs:check": "npm run docs:devices && git diff --exit-code docs/DEVICE-SUPPORT.md",
     "engine:build": "sh engine/scripts/build.sh",
     "engine:test": "node --test \"engine/test/*.test.mjs\"",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build",
+    "smoke": "npm run build && node app/scripts/smoke.mjs"
   },
   "engines": {
     "node": ">=20"

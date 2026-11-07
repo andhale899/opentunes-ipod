@@ -21,4 +21,5 @@ npm run check        # typecheck + tests + build
 npm run docs:check   # fails if DEVICE-SUPPORT.md is stale
 npm run engine:build # engine in Docker (Docker must be running), output in engine/build/
 npm run engine:test  # engine tests in Node, need the build above
+npm run smoke        # builds the app, loads the demo iPod in headless Chrome (needs the engine build and Chrome)
 ```

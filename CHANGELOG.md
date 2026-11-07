@@ -12,6 +12,9 @@
 - Engine tests in Node: lifecycle, every media kind (checked in the SQLite library a nano 7G reads), and signed database writes for a nano 7G-style device.
 - A C interface of our own for the engine, with handles, a single field table, and kinds for music, movies, music videos, TV shows, podcasts, video podcasts and audiobooks (with chapters). Typed TypeScript bindings for it.
 - Device-declared facts for the nano 7G in the device registry: FAT32, 48 kHz audio limit, video limits, photo and album art formats.
+- A read-only iPod reader in the app: loads the engine in the browser, copies an iPod's database files into it (leaving music and macOS clutter behind), and shows device facts, library and playlists. A demo iPod stands in without hardware.
+- `npm run smoke`: serves the built app and loads the demo iPod in headless Chrome, failing if the engine does not run there.
+- Size, duration and kind formatting helpers in `core`, with tests.
 
 ### Changed
 - The nano 7G is recorded as supporting photos and podcasts, because the device declares both. Apple's spec page lists neither.

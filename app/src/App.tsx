@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'preact/hooks';
 import { detectCapabilities, devices, type Capability, type EnvLike } from '@opentunes/core';
+import { IpodViewer } from './IpodViewer';
 import { probeFolder, probeUsb, type ProbeResult } from './probes';
 
 type ProbeKey = 'usb' | 'folderRead' | 'folderWrite';
@@ -96,7 +97,7 @@ export function App() {
     <main class="page">
       <header>
         <h1>OpenTunes</h1>
-        <p class="muted">Environment check. This page finds out whether your browser can reach an iPod. Syncing itself is not built yet.</p>
+        <p class="muted">This page checks that your browser can reach an iPod, and can read one, read only. Syncing is not built yet.</p>
       </header>
 
       <section class={`card verdict ${report.syncReady ? 'ok' : 'no'}`} aria-live="polite">
@@ -154,6 +155,8 @@ export function App() {
           onRun={() => void run('folderWrite', () => probeFolder({ writeTest: true }))}
         />
       </section>
+
+      <IpodViewer canPickFolder={report.capabilities.find((capability) => capability.id === 'folderPicker')?.ok ?? false} />
 
       <section>
         <h2>Report</h2>

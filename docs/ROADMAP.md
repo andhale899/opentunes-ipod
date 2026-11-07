@@ -27,11 +27,11 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 
 ## Phase 2: Music on the nano 7G
 
-- [ ] Connect: WebUSB identity, folder pick, model lookup, device card.
+- [x] Read an iPod's database in the browser, read only, and show the device facts, library and playlists (built, with a demo iPod and a headless-Chrome smoke test). Not yet tried on a real iPod.
+- [ ] Connect: WebUSB identity alongside the folder pick, model lookup against the registry, a proper device card.
 - [ ] Add files, probe them, plan copy or convert against the registry.
 - [ ] Convert in a worker.
 - [ ] Sync with backup, verification and resume.
-- [ ] Demo iPod mode and a headless smoke test against it.
 - [ ] Hardware test on the nano 7G from desktop and from Android, see [HARDWARE-TESTING.md](HARDWARE-TESTING.md).
 
 ## Phase 3: More media and management
