@@ -8,10 +8,14 @@
     "dev:lan": "vite --host",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "predev": "node scripts/sync-engine.mjs",
+    "predev:lan": "node scripts/sync-engine.mjs",
+    "prebuild": "node scripts/sync-engine.mjs"
   },
   "dependencies": {
     "@opentunes/core": "*",
+    "@opentunes/engine": "*",
     "preact": "^11.2.0"
   },
   "devDependencies": {

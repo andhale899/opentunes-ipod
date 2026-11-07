@@ -58,7 +58,7 @@ Writing the database last means an interrupted sync leaves the iPod with its old
 ## What exists
 
 - `core/`: capability detection, song identity, device registry, with tests.
-- `app/`: the environment check page and two hands-on probes (USB, folder read and write).
+- `app/`: the environment check page with its hands-on probes (USB, folder read and write), and the read-only iPod reader, which loads the engine in the browser, copies an iPod's database files into it and shows what it finds. A demo iPod stands in when there is no hardware.
 - `engine/`: a reproducible Docker build of libgpod, a C interface of our own that handles all seven media kinds, playlists and chapters, typed bindings, and tests in Node.
 
 Not built yet: album artwork, converter, planner, sync, library manager. See [ROADMAP.md](ROADMAP.md).

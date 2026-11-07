@@ -6,6 +6,7 @@ coverage/
 # Engine build output (generated, see docs/ENGINE-BUILD.md)
 engine/build/
 engine/.cache/
+app/public/engine/
 
 # Local files
 .env

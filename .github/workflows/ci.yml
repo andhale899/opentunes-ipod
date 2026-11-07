@@ -32,3 +32,5 @@ jobs:
           node-version: 24
       - run: npm run engine:build
       - run: npm run engine:test
+      - run: npm ci
+      - run: npm run smoke
