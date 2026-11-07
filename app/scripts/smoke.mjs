@@ -16,7 +16,7 @@
 // for the built-in WebSocket (CI uses 22 and 24).
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +24,41 @@ import { fileURLToPath } from 'node:url';
 const appDirectory = fileURLToPath(new URL('..', import.meta.url));
 // SMOKE_PORT lets several checkouts run the smoke test at the same time.
 const port = Number(process.env.SMOKE_PORT ?? 4179);
+
+/** A short stereo tone as a WAV file, written to `path`. 16-bit at 44.1 kHz plays on the iPod as it is, 24-bit at 96 kHz must be converted. */
+function writeTone(path, { rate, bits, seconds }) {
+  const bytesPer = bits / 8;
+  const frames = rate * seconds;
+  const data = Buffer.alloc(frames * 2 * bytesPer);
+  for (let i = 0; i < frames; i += 1) {
+    const sample = Math.sin((2 * Math.PI * 440 * i) / rate) * 0.3;
+    for (let channel = 0; channel < 2; channel += 1) {
+      const at = (i * 2 + channel) * bytesPer;
+      if (bits === 16) data.writeInt16LE(Math.round(sample * 32767), at);
+      else data.writeIntLE(Math.round(sample * 8388607), at, 3);
+    }
+  }
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write('WAVEfmt ', 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(2, 22);
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 2 * bytesPer, 28);
+  header.writeUInt16LE(2 * bytesPer, 32);
+  header.writeUInt16LE(bits, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(data.length, 40);
+  writeFileSync(path, Buffer.concat([header, data]));
+}
+
+const toneFolder = mkdtempSync(join(tmpdir(), 'opentunes-tones-'));
+const TONE_COPY = join(toneFolder, 'smoke tone copy.wav');
+const TONE_CONVERT = join(toneFolder, 'smoke tone convert.wav');
+writeTone(TONE_COPY, { rate: 44100, bits: 16, seconds: 2 });
+writeTone(TONE_CONVERT, { rate: 96000, bits: 24, seconds: 1 });
 
 const SCENARIOS = [
   {
@@ -92,13 +127,54 @@ const SCENARIOS = [
     forbidden: ['FAILED', 'cases failed'],
     alert: false,
   },
+  {
+    // The whole add flow on a practice iPod held in memory: back up, pick two files, one copied
+    // as it is and one converted by the real ffmpeg.wasm, plan, write, read the iPod back.
+    name: 'adding files to a practice iPod (one copied, one converted), removing one and editing a title',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        await page.waitFor('Back up the database files');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        await page.chooseFiles([TONE_COPY, TONE_CONVERT]);
+        await page.waitFor('2 of 2 can be added');
+        await page.waitFor('Copy as it is');
+        await page.waitFor('Convert to AAC');
+        await page.click('Convert and check');
+        await page.waitFor('Ready to copy 2 files', 90_000);
+        await page.click('Put on the iPod');
+        await page.waitFor('Copied 2 files and checked the iPod by reading it back', 90_000);
+        await page.waitFor('7 tracks');
+        // Remove the copied file and its media file, then fix a title.
+        await page.evaluate(`document.querySelector('input[aria-label="Select smoke tone copy"]').click()`);
+        await page.waitFor('1 track selected');
+        await page.click('Remove selected');
+        await page.waitFor('Ready to remove 1 track and delete 1 file');
+        await page.click('Remove from the iPod');
+        await page.waitFor('Removed 1 track and deleted 1 file');
+        await page.waitFor('6 tracks');
+        await page.evaluate(`document.querySelector('input[aria-label="Select Morning Light"]').click()`);
+        await page.waitFor('Edit this track');
+        await page.evaluate(`(() => { const box = document.querySelector('h4 + label input'); box.value = 'Morning Light (edited)'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        await page.click('Save changes to the iPod');
+        await page.waitFor('Saved.');
+        await page.waitFor('Morning Light (edited)');
+      },
+    },
+    expected: ['smoke tone convert', 'Morning Light (edited)', 'Saved.', '6 tracks'],
+    forbidden: ['smoke tone copy', 'did not finish', 'could not be put back'],
+    alert: false,
+  },
 ];
 
 /**
  * Opens a page in headless Chrome over the DevTools protocol and returns its HTML once an element
  * matching `doneSelector` exists, or after `timeoutMs`. Real time, no virtual clock.
  */
-async function dumpWithDevTools(chromePath, url, { doneSelector, timeoutMs }) {
+async function dumpWithDevTools(chromePath, url, { doneSelector, timeoutMs, drive }) {
   if (typeof WebSocket !== 'function') throw new Error('This scenario needs Node 22 or newer (it uses the built-in WebSocket).');
   const profile = mkdtempSync(join(tmpdir(), 'opentunes-smoke-'));
   // Every host except this machine cannot be resolved, so the page passes only if it needs nothing
@@ -145,6 +221,38 @@ async function dumpWithDevTools(chromePath, url, { doneSelector, timeoutMs }) {
     const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, returnByValue: true })).result?.result?.value;
 
     await send('Page.navigate', { url });
+    if (drive) {
+      const pageText = () => evaluate('document.body ? document.body.innerText : ""');
+      // The part of the page the flow works in, not the browser-feature list above it.
+      const shown = async () => {
+        const text = String(await pageText());
+        const at = Math.max(0, text.indexOf('Add to the iPod'));
+        return text.slice(at, at + 2500);
+      };
+      await drive({
+        send,
+        evaluate,
+        /** Waits until the page shows `text`, or throws with what the page shows instead. */
+        async waitFor(text, ms = 60_000) {
+          const until = Date.now() + ms;
+          while (Date.now() < until) {
+            if ((await pageText())?.includes(text)) return;
+            await new Promise((resolve) => setTimeout(resolve, 150));
+          }
+          throw new Error(`Waited ${ms / 1000}s for "${text}". The page shows: ${await shown()}`);
+        },
+        /** Clicks the button whose text is exactly `text`. */
+        async click(text) {
+          const clicked = await evaluate(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === ${JSON.stringify(text)} && !x.disabled); if (!b) return false; b.click(); return true; })()`);
+          if (!clicked) throw new Error(`No enabled button "${text}". The page shows: ${await shown()}`);
+        },
+        async chooseFiles(paths) {
+          const { result: doc } = await send('DOM.getDocument');
+          const { result: found } = await send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: 'input[type=file]' });
+          await send('DOM.setFileInputFiles', { nodeId: found.nodeId, files: paths });
+        },
+      });
+    }
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -213,7 +321,7 @@ try {
   const flags = ['--headless=new', '--disable-gpu', '--virtual-time-budget=20000', '--dump-dom'];
   if (process.env.CI) flags.push('--no-sandbox');
 
-  for (const scenario of SCENARIOS) {
+  for (const scenario of SCENARIOS.filter((entry) => !process.env.SMOKE_ONLY || entry.name.includes(process.env.SMOKE_ONLY))) {
     const dom = scenario.devtools
       ? await dumpWithDevTools(chrome, scenario.url, scenario.devtools)
       : execFileSync(chrome, [...flags, scenario.url], { encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'ignore'] });
@@ -243,5 +351,6 @@ try {
   console.error(error instanceof Error ? error.message : error);
 } finally {
   server.kill();
+  rmSync(toneFolder, { recursive: true, force: true });
 }
 process.exit(failed ? 1 : 0);

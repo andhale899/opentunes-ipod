@@ -19,10 +19,13 @@ import {
   type SignatureStatus,
   type TrackInfo,
 } from '@opentunes/engine';
+import { AddPanel } from './AddPanel';
 import { BackupPanel } from './BackupPanel';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
+import { ManagePanel } from './ManagePanel';
 import { PanelBoundary } from './PanelBoundary';
+import { buildPracticeIpod } from './practice';
 import { RestorePanel } from './RestorePanel';
 import { RewritePanel } from './RewritePanel';
 import { WriteBackPanel } from './WriteBackPanel';
@@ -31,7 +34,7 @@ const MAX_ROWS = 200;
 const MOUNT = '/ipod';
 
 interface Snapshot {
-  source: 'folder' | 'demo';
+  source: 'folder' | 'demo' | 'practice';
   /** The iPod's top folder, kept so the backup and the rewrite check can read it again. */
   root: DirectoryEntry;
   folderName: string;
@@ -190,7 +193,7 @@ function Facts({ snapshot }: { snapshot: Snapshot }) {
   const needsId = device !== null && device.checksum !== 'none';
 
   const rows: [string, string][] = [
-    ['Source', snapshot.source === 'demo' ? 'Demo data, not a real iPod' : `Folder "${snapshot.folderName}"`],
+    ['Source', snapshot.source === 'demo' ? 'Demo data, not a real iPod' : snapshot.source === 'practice' ? 'Practice iPod held in memory. Changes stay in this page and are gone when it reloads' : `Folder "${snapshot.folderName}"`],
     ['Model number on the iPod', device?.model_num_str ?? 'not stated'],
     [
       'Model as libgpod knows it',
@@ -233,7 +236,7 @@ function Facts({ snapshot }: { snapshot: Snapshot }) {
   return (
     <section class="card">
       <h3>
-        {master?.name ?? 'iPod'} {snapshot.source === 'demo' ? <span class="pill optional">Demo</span> : null}
+        {master?.name ?? 'iPod'} {snapshot.source === 'demo' ? <span class="pill optional">Demo</span> : snapshot.source === 'practice' ? <span class="pill optional">Practice</span> : null}
       </h3>
       <dl class="facts">
         {rows.map(([label, value]) => (
@@ -313,16 +316,21 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
   }
 
   /** The one path every iPod takes, real or demo: copy its database files in, open, read. */
-  async function readIpod(directory: DirectoryEntry, source: Snapshot['source']) {
-    setView({ phase: 'working', message: 'Loading the engine...' });
-    setBackup(null);
+  async function readIpod(directory: DirectoryEntry, source: Snapshot['source'], refresh = false) {
+    // A refresh after a change made here keeps the panels on screen, so their results stay readable,
+    // and keeps the backup, which is still the restore point.
+    const progress = (message: string) => {
+      if (!refresh) setView({ phase: 'working', message });
+    };
+    progress('Loading the engine...');
+    if (!refresh) setBackup(null);
     let engine: Engine | null = null;
     let load: LoadReport | null = null;
     try {
       engine = await newEngine();
       load = await loadIpodFolder(directory, engine, {
         mount: MOUNT,
-        onProgress: (message) => setView({ phase: 'working', message }),
+        onProgress: progress,
       });
       if (!load.hasDatabaseFolder) {
         throw new IpodFolderError(`"${directory.name}" has an iPod_Control folder but no iTunes folder inside it, so this iPod has no database yet. There is nothing to read.`);
@@ -339,13 +347,17 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
     }
   }
 
-  async function showDemo(variant: 'full' | 'signed' | 'unsynced' = 'full') {
+  async function showDemo(variant: 'full' | 'signed' | 'unsynced' | 'practice' = 'full') {
     setView({ phase: 'working', message: 'Building a demo iPod...' });
     try {
       const demo = await newEngine();
       if (variant === 'full') buildDemoIpod(demo, MOUNT);
       else if (variant === 'signed') buildSignedDemoIpod(demo, MOUNT);
-      else buildUnsyncedIpod(demo, MOUNT);
+      else if (variant === 'unsynced') buildUnsyncedIpod(demo, MOUNT);
+      if (variant === 'practice') {
+        await readIpod(await buildPracticeIpod(demo, MOUNT), 'practice');
+        return;
+      }
       await readIpod(memoryDirectory(demo, MOUNT, 'DEMO IPOD'), 'demo');
     } catch (error) {
       setView({ phase: 'error', message: describeError(error) });
@@ -354,7 +366,7 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
 
   useEffect(() => {
     const demo = new URLSearchParams(window.location.search).get('demo');
-    if (demo !== null) void showDemo(demo === 'unsynced' ? 'unsynced' : demo === 'signed' ? 'signed' : 'full');
+    if (demo !== null) void showDemo(demo === 'unsynced' ? 'unsynced' : demo === 'signed' ? 'signed' : demo === 'practice' ? 'practice' : 'full');
   }, []);
 
   async function copyReport(text: string) {
@@ -383,6 +395,9 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
         </button>
         <button type="button" class="secondary" onClick={() => void showDemo('signed')} disabled={working}>
           Try a nano 7G-style demo
+        </button>
+        <button type="button" class="secondary" onClick={() => void showDemo('practice')} disabled={working}>
+          Try a practice iPod you can change
         </button>
         <button type="button" class="secondary" onClick={() => void showDemo('unsynced')} disabled={working}>
           Try an iPod that was never synced
@@ -416,15 +431,15 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
         <>
           <Facts snapshot={view.snapshot} />
           {view.snapshot.load ? <FileList load={view.snapshot.load} /> : null}
-          {view.snapshot.source === 'folder' ? (
+          {view.snapshot.source !== 'demo' ? (
             <PanelBoundary name="Backup">
-              <BackupPanel source={view.snapshot.root} onDone={setBackup} />
+              <BackupPanel source={view.snapshot.root} onDone={setBackup} inMemory={view.snapshot.source === 'practice'} />
             </PanelBoundary>
           ) : null}
           <PanelBoundary name="Rewrite check">
             <RewritePanel source={view.snapshot.root} autoStart={new URLSearchParams(window.location.search).get('rewrite') === '1'} />
           </PanelBoundary>
-          {view.snapshot.source === 'folder' ? (
+          {view.snapshot.source !== 'demo' ? (
             <PanelBoundary name="Write back">
               <WriteBackPanel root={view.snapshot.root} backup={backup} />
             </PanelBoundary>
@@ -434,8 +449,21 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
               <RestorePanel root={view.snapshot.root} />
             </PanelBoundary>
           ) : null}
-          <h3>Library</h3>
-          <Library tracks={view.snapshot.tracks} />
+          {view.snapshot.source !== 'demo' ? (
+            <>
+              <PanelBoundary name="Add to the iPod">
+                <AddPanel root={view.snapshot.root} device={view.snapshot.device} backup={backup} onChanged={() => void readIpod(view.snapshot.root, view.snapshot.source, true)} />
+              </PanelBoundary>
+              <PanelBoundary name="Library">
+                <ManagePanel root={view.snapshot.root} tracks={view.snapshot.tracks} backup={backup} onChanged={() => void readIpod(view.snapshot.root, view.snapshot.source, true)} />
+              </PanelBoundary>
+            </>
+          ) : (
+            <>
+              <h3>Library</h3>
+              <Library tracks={view.snapshot.tracks} />
+            </>
+          )}
           <h3>Playlists</h3>
           <ul class="playlists">
             {view.snapshot.playlists.map((playlist) => (

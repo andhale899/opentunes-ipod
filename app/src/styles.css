@@ -321,3 +321,22 @@ summary {
 .files .muted {
   margin-left: 0.5rem;
 }
+
+.field {
+  display: block;
+  margin: 0.5rem 0;
+}
+
+.field input[type='text'],
+.field input[type='search'] {
+  min-width: 14rem;
+  max-width: 100%;
+}
+
+.no-text {
+  color: var(--no);
+}
+
+progress {
+  margin: 0.5rem 0;
+}
