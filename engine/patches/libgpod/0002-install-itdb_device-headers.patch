@@ -1,0 +1,31 @@
+Subject: install itdb_device.h and its dependency as public headers
+
+In this tree only itdb.h is installed, while itdb_device.h (and the
+itdb_sysinfo_extended_parser.h it includes) are marked noinst. Code that
+reads device information, such as the engine wrapper, needs them, and the
+v1 build reached them by pointing at libgpod's source folder instead.
+
+---
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -33,19 +33,17 @@
+ 
+ libgpodincludebase = $(includedir)/gpod-1.0
+ libgpodincludedir = $(libgpodincludebase)/gpod
+-libgpodinclude_HEADERS = itdb.h
++libgpodinclude_HEADERS = itdb.h itdb_device.h itdb_sysinfo_extended_parser.h
+ noinst_HEADERS = 		\
+ 	db-artwork-debug.h	\
+ 	db-artwork-parser.h 	\
+ 	db-image-parser.h   	\
+ 	db-itunes-parser.h  	\
+ 	db-parse-context.h  	\
+-	itdb_device.h  		\
+ 	itdb_endianness.h 	\
+ 	itdb_plist.h		\
+ 	itdb_private.h   	\
+ 	itdb_sqlite_queries.h	\
+-	itdb_sysinfo_extended_parser.h \
+ 	itdb_thumb.h		\
+ 	itdb_tzinfo_data.h 	\
+ 	itdb_zlib.h		\

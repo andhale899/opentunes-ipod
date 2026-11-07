@@ -1,0 +1,48 @@
+Subject: itdb_hashAB.c: use a built-in calcHashAB instead of dlopen
+
+libgpod looks for an external libhashab shared library and refuses to write a
+hashAB database (nano 6G and 7G) when it is missing. A WebAssembly module cannot
+dlopen one, so the hash function is linked into the engine instead. The engine
+supplies calcHashAB from dstaley/hashab (Unlicense), which has the same signature
+libgpod expects. Without this patch writing fails with Unsupported checksum type.
+
+---
+--- a/src/itdb_hashAB.c
++++ b/src/itdb_hashAB.c
+@@ -40,30 +40,14 @@
+ typedef void (*calcHashAB_t)(unsigned char target[57], const unsigned char sha1[20], const unsigned char uuid[20], const unsigned char rnd_bytes[23]);
+ static calcHashAB_t calc_hashAB = NULL;
+ 
++/* calcHashAB is provided by the engine itself (dstaley/hashab, Unlicense), linked into the
++ * same module, instead of being loaded from an external shared library. */
++extern void calcHashAB(unsigned char target[57], const unsigned char sha1[20],
++		       const unsigned char uuid[20], const unsigned char rnd_bytes[23]);
++
+ static gboolean load_libhashab()
+ {
+-	gchar *path;
+-	GModule *handle;
+-
+-	if (!g_module_supported()) {
+-		return FALSE;
+-	}
+-	path = g_module_build_path(LIBGPOD_BLOB_DIR, "hashab");
+-	handle = g_module_open(path, G_MODULE_BIND_LAZY);
+-	g_free(path);
+-	if (!handle) {
+-		return FALSE;
+-	}
+-
+-	if (!g_module_symbol(handle, "calcHashAB", (void**)&calc_hashAB)) {
+-		g_module_close(handle);
+-		g_warning("symbol 'calcHashAB' not found");
+-		return FALSE;
+-	}
+-	g_module_make_resident(handle);
+-
+-	printf("***** hashAB support successfully loaded *****\n");
+-
++	calc_hashAB = calcHashAB;
+ 	return TRUE;
+ }
+ 

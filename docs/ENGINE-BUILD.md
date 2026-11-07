@@ -1,45 +1,71 @@
-# Building the engine
+# The engine
 
-Status: **not started.** This is the Phase 1 plan, written from what the v1 files show. Anything marked unknown has to be found out by trying.
+The engine is libgpod, the library that reads and writes an iPod's databases, compiled to WebAssembly together with a small C wrapper (`engine/src/ipod_manager.c`). The app talks to it through a handful of functions: set a mount point, parse or initialise a database, add and remove tracks, write the database back.
 
-## Why this has to be rebuilt
+## Status
 
-The iPod database engine is libgpod compiled to WebAssembly, wrapped by `engine/src/ipod_manager.c`. v1 shipped it as prebuilt files that cannot be regenerated:
+Built from pinned sources and tested in Node. **Not yet tested on hardware**, and **not yet extended beyond audio**: the wrapper still tags every track as audio, so video, podcasts and audiobooks wait for the next step (see "Next").
 
-- The original build script ([legacy/build-original.sh](../engine/legacy/build-original.sh)) points at the original author's machine: `/Users/rishipadmanabhan/Documents/GitHub/libgpod-wasm/src` for libgpod and a micromamba environment named `libgpod-wasm-latest` for glib and friends. Neither is in this repo.
-- The wrapper hardcodes `ITDB_MEDIATYPE_AUDIO` for every track ([ipod_manager.c:743](../engine/src/ipod_manager.c#L743)), so video, podcasts and audiobooks cannot be written correctly.
-- `ipod_update_track` only edits title, artist, album, genre, track number, year and rating.
+## Build and test
 
-Every media feature after music needs a change to the C code, and that needs a build we control.
+You need Docker running.
 
-## What the v1 build linked
+```
+npm run engine:build    # builds in Docker, copies the result to engine/build/
+npm run engine:test     # runs the engine tests in Node against that build
+```
 
-From the original script: libgpod, libplist, glib (glib, gmodule, gobject, gthread, gio), libiconv, libffi, libxml2, zlib and SQLite, with a small thread-stub file because WebAssembly here is single-threaded. Flags worth keeping: `MODULARIZE`, `ALLOW_MEMORY_GROWTH` (64 MB start, 512 MB cap), `FORCE_FILESYSTEM`, `ASYNCIFY`, and the exported function list in the script.
+The first build compiles every dependency from source and takes a few minutes. Later builds reuse Docker's layer cache, so changing only the wrapper rebuilds in seconds. The output is `engine/build/ipod_manager.js` and `ipod_manager.wasm` (about 2.7 MB), which git ignores.
 
-## Plan
+## What goes into it
 
-1. **Tooling.** Docker is installed on the dev Mac, but its daemon was not running when checked on 2026-11-07. Start Docker Desktop. Use the official emscripten image as the base.
-2. **Find the libgpod source.** Check whether the author's `libgpod-wasm` fork is public. If it is, pin its commit. If not, start from upstream libgpod and re-create whatever patches WebAssembly needs. Unknown how large that is.
-3. **Dependencies.** Build glib, libplist, libxml2, SQLite, zlib, libiconv and libffi for WebAssembly from pinned releases with recorded checksums. Glib is the likely hard part. The v1 author used prebuilt emscripten packages for it, which may be the shortcut.
-4. **Wrapper changes** (in `engine/src/`):
-   - A media type argument on `ipod_add_track` (audio, video, podcast, audiobook).
-   - Podcast flag, audiobook flag, remember-position flag, skip-when-shuffling flag.
-   - Expose libgpod's own `itdb_init_ipod` as the way to set up an empty iPod. The v1 wrapper already exports `ipod_init_new`, but nothing called it.
-   - Keep artwork support (`ipod_track_set_artwork_from_data`).
-   - Photos and chapters are Phase 3 and 4 questions.
-5. **Bindings.** A typed TypeScript layer over the exported functions, replacing v1's `ccall` strings.
-6. **Reproducibility.** One command (`make engine` or an npm script) that produces the `.js` and `.wasm` from a clean checkout. Output goes to `engine/build/`, which is ignored by git. CI builds it on a cache.
+All versions and SHA-256 checksums are in [engine/Dockerfile](../engine/Dockerfile). A download that does not match its checksum stops the build.
 
-## How it will be tested without hardware
+| Piece | Version | Notes |
+| --- | --- | --- |
+| emscripten | 4.0.23 | The official `emscripten/emsdk` image. |
+| zlib, SQLite, libxml2, libplist | pinned | Built from source. SQLite is compiled from the amalgamation, single-threaded. |
+| libffi | 3.5.2 | 3.4.6 does not link: it asks emscripten 4.x for JS helpers that were renamed. |
+| glib | 2.80.5 | With the emscripten patch series from the emscripten-forge recipe. glib's runtime checks stay on, unlike that recipe. |
+| libgpod | `gtkpod/libgpod` commit `7982c55` | The 0.8.2-era tree, last commit May 2012. Plus three patches of ours. |
+| hashAB | `dstaley/hashab` commit `f80d464` | Public-domain C code, compiled into the engine. |
 
-Node tests load the built module and run against fixture iPod folders created by libgpod itself:
+The author of the original TunesReloaded build kept a private libgpod fork, so none of this is a copy of their build. It was reconstructed from public sources.
 
-- Initialise an iPod for a given model number, then parse it back.
-- Add one track of each media kind, write the database, re-read it, and assert the media type, paths and counts.
-- Write twice and confirm the second write keeps the first track.
+## Our changes
 
-This catches most engine mistakes. It cannot prove a checksum is accepted by real hardware, so models stay `spec-sourced` until the owner runs a sync, see [HARDWARE-TESTING.md](HARDWARE-TESTING.md).
+libgpod patches, in `engine/patches/libgpod/`:
 
-## The hashAB module
+1. **`itdb_zlib.h`**: includes glib before using `G_BEGIN_DECLS`. The 2012 code relied on another header having done it.
+2. **Public headers**: installs `itdb_device.h` and `itdb_sysinfo_extended_parser.h`. This tree marks them internal, but device information is needed by the wrapper.
+3. **hashAB**: libgpod looks for an external `libhashab` shared library and refuses to write a nano 6G or 7G database without it. A WebAssembly module cannot load one, so the patch points libgpod at the built-in `calcHashAB` instead.
 
-The nano 6G and 7G need hashAB. v1 used a 506 KB prebuilt `calcHashAB.wasm` plus a loader (`engine/hashab/`). Its origin is not recorded. It stays as it is until its source and licensing are found, see [../THIRD_PARTY.md](../THIRD_PARTY.md). The nano 7G is the only device available for testing, so this module is on the critical path.
+Build decisions:
+
+- **Single-threaded.** glib's build records `-pthread` in its pkg-config files. That is stripped, so the engine needs no SharedArrayBuffer and runs in any worker.
+- **One glib shim** (`engine/src/glib_shims.c`). The patched glib leaves `g_io_channel_unix_new` undefined, and every `g_assert` pulls in a reference to it. A strict test link showed it is the only missing symbol, so a function returning NULL fixes it. Nothing here uses glib's test framework.
+- **No warning suppression.** v1 hid implicit declarations and integer conversions. The wrapper compiles with `-Wall` and zero warnings against this libgpod.
+
+## What the tests show
+
+`engine/test/` has two files, nine tests.
+
+- **Round trip**: initialise an iPod, check the folders and `mhbd` database header, add a track, write, and read it back in a fresh engine instance.
+- **hashAB**: all 100 known-answer vectors from the hashab project match the hash compiled into the engine. A nano 7G-style device (a SysInfoExtended with `DBVersion` 5) selects hashAB, writes a signed `iTunesCDB` and `Locations.itdb.cbk`, and a missing or malformed FireWire ID makes the write fail.
+
+They show the engine builds, writes and reads databases, and produces the signatures hashAB devices expect. **They do not show that a real iPod accepts the result.** That needs a hardware run, see [HARDWARE-TESTING.md](HARDWARE-TESTING.md).
+
+## What was learned about the nano 7G
+
+- libgpod picks the checksum from the device's own `SysInfoExtended` when it exists: `DBVersion` 5 means hashAB. No change to libgpod's model table is needed for that. The app should read the file from the iPod and use the v1 templates in `engine/data/` only as a fallback.
+- For this family libgpod writes an empty `iTunesDB`, a signed `iTunesCDB`, and an `iTunes Library.itlp` folder of SQLite files with a signed `Locations.itdb.cbk`.
+- The FireWire ID can come from `SysInfoExtended` alone. If it is malformed, the write fails with "an error occurred during Locations.itdb.cbk generation", which says nothing useful. The app must check the ID is 16 hex digits before writing.
+- libgpod's model table stops at the nano 6G, so a real nano 7G model number is not recognised. What that costs for artwork formats is untested.
+- The two templates in `engine/data/` were dumped from a real device. Its serial and board serial are scrubbed, and the FireWire ID is a placeholder to fill in.
+
+## Next
+
+1. Extend the wrapper: a media type per track (audio, video, podcast, audiobook), the flags that give podcasts and audiobooks their iPod behaviour (remember position, skip when shuffling), and artwork.
+2. Typed TypeScript bindings in place of `ccall` strings.
+3. Run the engine tests in CI.
+4. Rewrite the wrapper rather than extend it, if its licence stays unresolved. GitHub shows no licence on the upstream TunesReloaded repository.

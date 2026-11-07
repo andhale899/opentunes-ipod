@@ -1,12 +1,19 @@
 # Engine
 
-The iPod database engine: libgpod compiled to WebAssembly, plus the pieces it needs. Status and plan are in [../docs/ENGINE-BUILD.md](../docs/ENGINE-BUILD.md). **No build exists in this repo yet**; the prebuilt files below come from v1.
+The iPod database engine: libgpod compiled to WebAssembly, plus the C wrapper the app calls. What it contains, how it is built and what the tests show are in [../docs/ENGINE-BUILD.md](../docs/ENGINE-BUILD.md).
+
+```
+npm run engine:build    # Docker build, output in engine/build/
+npm run engine:test     # Node tests against that build
+```
 
 | Folder | What it holds |
 | --- | --- |
-| `src/` | The C wrapper (`ipod_manager.c`) and thread stubs, unchanged from v1. The wrapper tags every track as audio. |
-| `prebuilt/` | `ipod_manager.js` and `.wasm` from v1. Cannot be regenerated. See [prebuilt/PROVENANCE.md](prebuilt/PROVENANCE.md). |
-| `hashab/` | The hashAB checksum module the nano 6G and 7G need. Origin unknown. |
-| `data/` | SysInfoExtended files for the nano 5G and 7G, used when an iPod does not provide its own. |
-| `legacy/` | The original build script. Reference only, it points at another person's machine. |
-| `build/` | Will hold generated output. Ignored by git. |
+| `Dockerfile` | The whole build, with every source pinned by version and SHA-256. |
+| `src/` | `ipod_manager.c`, the wrapper (tags every track as audio for now), and `glib_shims.c`. |
+| `patches/libgpod/` | Our three changes to libgpod, applied in name order. |
+| `meson/` | The cross-compilation file used to build glib. |
+| `scripts/` | `build.sh` (Docker build and copy out) and `fetch.sh` (download with a checksum check). |
+| `data/` | SysInfoExtended templates for the nano 5G and 7G, for devices that do not carry their own. Device serial numbers are scrubbed and the FireWire ID is a placeholder. |
+| `test/` | Node tests, and the hashAB known-answer vectors. |
+| `build/` | Generated output. Ignored by git. |

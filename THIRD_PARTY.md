@@ -1,13 +1,36 @@
 # Third-party notices
 
-OpenTunes is a personal project and is not distributed. Before it is ever shared, every row below needs its licensing confirmed. The repository's own `LICENSE` is MIT, but that does not cover the components below, and some of them may not be compatible with it.
+OpenTunes is a personal project and is not distributed. Before it is ever shared, check this list again. The repository's own `LICENSE` is MIT, and that does not cover the components below.
 
-| Component | Where | Licence, as believed | Status |
+Versions and checksums for everything the engine builds are in [engine/Dockerfile](engine/Dockerfile). Licences below are what the projects' own files say, read on 2026-11-07 from the pinned sources unless marked otherwise.
+
+## Compiled into the engine
+
+| Component | Licence | Notes |
+| --- | --- | --- |
+| libgpod (`gtkpod/libgpod`, commit `7982c55`) | LGPL, version 2 or later (source file headers) | Statically linked. Three patches of ours are in `engine/patches/libgpod/`. GitHub labels the licence "Other" because `COPYING` is the older "Library GPL" text. |
+| libplist 2.6.0 | LGPL 2.1 (`COPYING.LESSER`) | Statically linked. |
+| glib 2.80.5 | LGPL 2.1 or later, per the emscripten-forge recipe (not re-read from the source) | Statically linked, with the emscripten patch series from that recipe. |
+| libxml2 2.12.9 | MIT-style (`Copyright` file) | |
+| libffi 3.5.2 | MIT | 3.4.6's licence file was read. 3.5.2's was not. |
+| SQLite 3.47.2 | Public domain | |
+| zlib 1.3.1 | zlib licence | Not re-read from the source. |
+| pcre2 | BSD, believed | Built by glib's own subproject. Not re-read. |
+| hashab (`dstaley/hashab`, commit `f80d464`) | The Unlicense (public domain) | Reverse engineered from nano 6G firmware and checked against `libhashab32.so`. |
+| emscripten runtime and libc | MIT-style, believed | Part of the generated JavaScript and WebAssembly. Not re-read. |
+
+Linking LGPL libraries statically means that anyone given the compiled engine must also be able to get the matching source and rebuild it. The Dockerfile, the patches and the pinned checksums are what would satisfy that. It does not matter for private use.
+
+## In the repository
+
+| Component | Where | Licence | Notes |
 | --- | --- | --- | --- |
-| libgpod | Compiled into `engine/prebuilt/ipod_manager.wasm` | LGPL 2.1 or later | Source version unknown. To be pinned in the engine build. |
-| glib, libplist, libxml2, SQLite, zlib, libiconv, libffi | Statically linked into the same file, per the original build script | Mixed, some LGPL | Versions unknown. To be pinned in the engine build. |
-| TunesReloaded wrapper | `engine/src/ipod_manager.c`, `glib_thread_stubs.c` and the original build script | Unknown | v1 vendored a fork of rish1p/tunesreloaded with no licence file. The upstream licence has not been checked. |
-| calcHashAB.wasm and hashAB.js | `engine/hashab/` | Unknown | 506 KB prebuilt file, origin not recorded. Needed for the nano 6G and 7G. |
-| ffmpeg.wasm | Not included yet | Depends on the build | Planned for the converter. The core may be GPL if it includes x264. Check when added. |
+| TunesReloaded wrapper | `engine/src/ipod_manager.c` | None declared | GitHub shows no licence on rish1p/tunesreloaded (checked 2026-11-07), so it is all rights reserved by default. Acceptable for private use only. The plan is to rewrite the wrapper in Phase 1 so the project does not depend on it. |
+| SysInfoExtended templates | `engine/data/` | Unknown | Dumped from a real nano and kept as a fallback. The device's serial numbers were removed. They come from the same upstream repository. |
+| hashAB test vectors | `engine/test/hashab-vectors.json` | The Unlicense | From `dstaley/hashab` at the pinned commit. |
 
-Prebuilt file hashes and what is known about them are in [engine/prebuilt/PROVENANCE.md](engine/prebuilt/PROVENANCE.md).
+## Planned
+
+| Component | Notes |
+| --- | --- |
+| ffmpeg.wasm | For the converter. The core may be GPL if it includes x264. Check when added. |

@@ -11,8 +11,9 @@ The project is mid-rebuild, and **nothing syncs yet**. What exists today:
 - An environment check page that tells you whether your browser can reach an iPod, and tries USB and folder access against a real one.
 - A device registry that records, per iPod model, what it can play and how far each fact can be trusted. Only the nano 7th generation has capability data so far.
 - Tested core logic for capability detection and duplicate-song matching.
+- The iPod database engine, rebuilt in Docker from pinned sources. Its tests create, write and re-read iPod databases, including the signed ones a nano 7th generation needs, with no hardware involved.
 
-The plan is in [docs/ROADMAP.md](docs/ROADMAP.md). The first real feature, music sync to an iPod nano 7th generation, is Phase 2 and depends on rebuilding the iPod database engine in Phase 1.
+The plan is in [docs/ROADMAP.md](docs/ROADMAP.md). The first real feature, music sync to an iPod nano 7th generation, is Phase 2. It waits on the rest of Phase 1: the engine builds and passes its tests but still handles audio only.
 
 The previous version (a Node server with a downloader) is kept on the `v1-legacy` tag, see [docs/LEGACY.md](docs/LEGACY.md). It no longer ships. YouTube and Spotify downloading is out of scope for now, see [docs/research/spotify-youtube.md](docs/research/spotify-youtube.md).
 
@@ -32,6 +33,8 @@ Other commands:
 ```
 npm run check        # typecheck, tests and build
 npm run docs:check   # fails if docs/DEVICE-SUPPORT.md is out of date
+npm run engine:build # builds the iPod engine in Docker (needs Docker running)
+npm run engine:test  # tests the built engine in Node
 ```
 
 ## Layout
@@ -40,7 +43,7 @@ npm run docs:check   # fails if docs/DEVICE-SUPPORT.md is out of date
 | --- | --- |
 | `app/` | The web app (Vite, TypeScript, Preact). |
 | `core/` | Pure logic with tests: device registry, capability detection, song identity. |
-| `engine/` | The iPod database engine (libgpod compiled to WebAssembly): C wrapper, prebuilt files from v1, build plan. |
+| `engine/` | The iPod database engine (libgpod compiled to WebAssembly): C wrapper, Docker build, patches, tests. |
 | `docs/` | Architecture, roadmap, device support, test guides, research. |
 
 ## Docs
@@ -50,7 +53,7 @@ npm run docs:check   # fails if docs/DEVICE-SUPPORT.md is out of date
 - [Device support](docs/DEVICE-SUPPORT.md) (generated)
 - [Testing on Android](docs/ANDROID-TESTING.md)
 - [Hardware test checklist](docs/HARDWARE-TESTING.md)
-- [Building the engine](docs/ENGINE-BUILD.md)
+- [The engine](docs/ENGINE-BUILD.md)
 - [Third-party notices](THIRD_PARTY.md)
 
 ## Troubleshooting

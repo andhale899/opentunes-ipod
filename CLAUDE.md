@@ -19,4 +19,6 @@ npm run dev          # app on http://localhost:5173
 npm run dev:lan      # same, reachable from a phone on your Wi-Fi (local network only)
 npm run check        # typecheck + tests + build
 npm run docs:check   # fails if DEVICE-SUPPORT.md is stale
+npm run engine:build # engine in Docker (Docker must be running), output in engine/build/
+npm run engine:test  # engine tests in Node, need the build above
 ```
