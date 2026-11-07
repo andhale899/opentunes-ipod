@@ -6,3 +6,4 @@ export * from './devices/usb';
 export * from './format';
 export * from './media/types';
 export * from './media/source';
+export * from './media/decide';

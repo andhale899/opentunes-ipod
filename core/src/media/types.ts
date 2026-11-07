@@ -113,6 +113,8 @@ export interface AudioTarget {
   bitrateKbps?: number;
   sampleRateHz?: number;
   channels?: 1 | 2;
+  /** Apple Lossless only: the bit depth to write, already capped to what the model plays. Omitted for AAC. */
+  bitDepth?: number;
 }
 
 export interface VideoTarget {
