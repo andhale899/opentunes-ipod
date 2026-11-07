@@ -4,14 +4,19 @@ import {
   EngineError,
   IpodFolderError,
   buildDemoIpod,
+  buildSignedDemoIpod,
   buildUnsyncedIpod,
+  findFireWireId,
   loadIpodFolder,
   memoryDirectory,
+  verifySignatures,
   type DeviceInfo,
   type DirectoryEntry,
   type Engine,
   type LoadReport,
   type PlaylistInfo,
+  type SignatureCheck,
+  type SignatureStatus,
   type TrackInfo,
 } from '@opentunes/engine';
 import { EngineUnavailableError, newEngine } from './engineLoader';
@@ -26,6 +31,8 @@ interface Snapshot {
   tracks: TrackInfo[];
   playlists: PlaylistInfo[];
   load: LoadReport | null;
+  /** Whether the signatures iTunes left on the iPod match what the engine computes. */
+  signatures: SignatureCheck[] | null;
 }
 
 /** What the reader had found when something went wrong, so a failure can be diagnosed. */
@@ -33,6 +40,7 @@ interface Diagnostics {
   folderName: string;
   load: LoadReport;
   error: string;
+  signatures: SignatureCheck[] | null;
 }
 
 type View =
@@ -57,15 +65,45 @@ function describeError(error: unknown): string {
 }
 
 /** Reads everything the page shows from an open engine, so the engine can be closed afterwards. */
-function snapshotOf(engine: Engine, source: Snapshot['source'], folderName: string, load: LoadReport | null): Snapshot {
+function snapshotOf(engine: Engine, source: Snapshot['source'], folderName: string, load: LoadReport | null, signatures: SignatureCheck[] | null): Snapshot {
   let device: DeviceInfo | null = null;
   try {
     device = engine.device();
   } catch {
     device = null;
   }
-  return { source, folderName, device, tracks: engine.tracks(), playlists: engine.playlists(), load };
+  return { source, folderName, device, tracks: engine.tracks(), playlists: engine.playlists(), load, signatures };
 }
+
+/**
+ * Compares the signatures on the iPod's own database files with what the engine computes.
+ * Uses the FireWire ID libgpod found when a database is open, and the device files otherwise.
+ * This is an extra check, so a problem inside it is reported as a result, never thrown.
+ */
+async function checkSignatures(engine: Engine, mount: string): Promise<SignatureCheck[]> {
+  let fireWireId: string | null = null;
+  try {
+    fireWireId = engine.device().firewire_id;
+  } catch {
+    fireWireId = null; // no database is open, so ask the device files directly
+  }
+  try {
+    return await verifySignatures(engine, mount, fireWireId ?? findFireWireId(engine, mount));
+  } catch (error) {
+    return [{ file: 'iTunesCDB', status: 'unsupported', detail: `The check could not run: ${describeError(error)}` }];
+  }
+}
+
+const SIGNATURE_STATUS: Record<SignatureStatus, string> = {
+  matches: 'Matches what the engine computes',
+  differs: 'Does not match',
+  unsupported: 'Could not be checked',
+  missing: 'Not on this iPod',
+};
+
+/** True when there is something to say about signatures, so a demo iPod does not show empty rows. */
+const hasSignatureNews = (signatures: SignatureCheck[] | null): signatures is SignatureCheck[] =>
+  signatures !== null && signatures.some((check) => check.status !== 'missing');
 
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;
 
@@ -98,6 +136,7 @@ function reportOf(snapshot: Snapshot): string {
         byKind: Object.fromEntries(countBy(snapshot.tracks, (track) => track.kind)),
       },
       playlists: snapshot.playlists.map(({ name, master, podcasts, smart, tracks }) => ({ name, master, podcasts, smart, tracks: tracks.length })),
+      signatures: snapshot.signatures,
       load: snapshot.load && { ...snapshot.load, skipped: snapshot.load.skipped.length, musicFolders: snapshot.load.musicFolders.length },
     },
     null,
@@ -105,7 +144,7 @@ function reportOf(snapshot: Snapshot): string {
   );
 }
 
-function diagnosticsOf({ folderName, load, error }: Diagnostics): string {
+function diagnosticsOf({ folderName, load, error, signatures }: Diagnostics): string {
   return JSON.stringify(
     {
       app: 'opentunes',
@@ -113,6 +152,7 @@ function diagnosticsOf({ folderName, load, error }: Diagnostics): string {
       generatedAt: new Date().toISOString(),
       folderName,
       error,
+      signatures,
       load: { ...load, skipped: load.skipped.length, musicFolders: load.musicFolders.length },
     },
     null,
@@ -128,6 +168,11 @@ function FileList({ load }: { load: LoadReport }) {
         {load.listing.map((file) => (
           <li key={file.path}>
             {file.path} <span class="muted">{formatBytes(file.size)}</span>
+          </li>
+        ))}
+        {load.notNeeded.map((file) => (
+          <li key={file.path}>
+            {file.path} <span class="muted">{formatBytes(file.size)}, not read: libgpod never opens it</span>
           </li>
         ))}
       </ul>
@@ -164,8 +209,21 @@ function Facts({ snapshot }: { snapshot: Snapshot }) {
     ['Supports, according to libgpod', supports.length ? supports.join(', ') : 'nothing listed'],
     ['Library', `${plural(tracks.length, 'track')}, ${plural(playlists.length, 'playlist')}${kinds.length ? ` (${kinds.map(([kind, n]) => `${n} ${kindLabel(kind).toLowerCase()}`).join(', ')})` : ''}`],
   ];
+  if (hasSignatureNews(snapshot.signatures)) {
+    for (const check of snapshot.signatures) {
+      rows.push([
+        `Signature on ${check.file}`,
+        check.status === 'matches' ? SIGNATURE_STATUS.matches : `${SIGNATURE_STATUS[check.status]}. ${check.detail}`,
+      ]);
+    }
+  }
   if (load) {
-    rows.push(['Read from the iPod', `${load.files} database files, ${formatBytes(load.bytes)}, ${load.musicFolders.length} music folders${load.skipped.length ? `, ${load.skipped.length} clutter files skipped` : ''}`]);
+    rows.push(['Read from the iPod', `${load.files} database files, ${formatBytes(load.bytes)}, ${load.musicFolders.length} music folders`]);
+    const leftOut = [
+      load.skipped.length ? `${plural(load.skipped.length, 'clutter file')}` : '',
+      load.notNeeded.length ? `${plural(load.notNeeded.length, 'file')} libgpod never opens (${formatBytes(load.notNeeded.reduce((sum, file) => sum + file.size, 0))})` : '',
+    ].filter(Boolean);
+    if (leftOut.length) rows.push(['Left out', leftOut.join(', ')]);
   }
 
   return (
@@ -251,9 +309,10 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
   /** The one path every iPod takes, real or demo: copy its database files in, open, read. */
   async function readIpod(directory: DirectoryEntry, source: Snapshot['source']) {
     setView({ phase: 'working', message: 'Loading the engine...' });
+    let engine: Engine | null = null;
     let load: LoadReport | null = null;
     try {
-      const engine = await newEngine();
+      engine = await newEngine();
       load = await loadIpodFolder(directory, engine, {
         mount: MOUNT,
         onProgress: (message) => setView({ phase: 'working', message }),
@@ -262,19 +321,23 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
         throw new IpodFolderError(`"${directory.name}" has an iPod_Control folder but no iTunes folder inside it, so this iPod has no database yet. There is nothing to read.`);
       }
       engine.open(load.mount);
-      setView({ phase: 'ready', snapshot: snapshotOf(engine, source, directory.name, load) });
+      const signatures = await checkSignatures(engine, load.mount);
+      setView({ phase: 'ready', snapshot: snapshotOf(engine, source, directory.name, load, signatures) });
       engine.close();
     } catch (error) {
       const message = describeError(error);
-      setView({ phase: 'error', message, diagnostics: load ? { folderName: directory.name, load, error: message } : undefined });
+      // When the database would not open, the signatures can still say whether the files are intact.
+      const signatures = engine && load?.hasDatabaseFolder ? await checkSignatures(engine, load.mount) : null;
+      setView({ phase: 'error', message, diagnostics: load ? { folderName: directory.name, load, error: message, signatures } : undefined });
     }
   }
 
-  async function showDemo(variant: 'full' | 'unsynced' = 'full') {
+  async function showDemo(variant: 'full' | 'signed' | 'unsynced' = 'full') {
     setView({ phase: 'working', message: 'Building a demo iPod...' });
     try {
       const demo = await newEngine();
       if (variant === 'full') buildDemoIpod(demo, MOUNT);
+      else if (variant === 'signed') buildSignedDemoIpod(demo, MOUNT);
       else buildUnsyncedIpod(demo, MOUNT);
       await readIpod(memoryDirectory(demo, MOUNT, 'DEMO IPOD'), 'demo');
     } catch (error) {
@@ -284,7 +347,7 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
 
   useEffect(() => {
     const demo = new URLSearchParams(window.location.search).get('demo');
-    if (demo !== null) void showDemo(demo === 'unsynced' ? 'unsynced' : 'full');
+    if (demo !== null) void showDemo(demo === 'unsynced' ? 'unsynced' : demo === 'signed' ? 'signed' : 'full');
   }, []);
 
   async function copyReport(text: string) {
@@ -310,6 +373,9 @@ export function IpodViewer({ canPickFolder }: { canPickFolder: boolean }) {
         </button>
         <button type="button" class="secondary" onClick={() => void showDemo('full')} disabled={working}>
           Try a demo iPod
+        </button>
+        <button type="button" class="secondary" onClick={() => void showDemo('signed')} disabled={working}>
+          Try a nano 7G-style demo
         </button>
         <button type="button" class="secondary" onClick={() => void showDemo('unsynced')} disabled={working}>
           Try an iPod that was never synced

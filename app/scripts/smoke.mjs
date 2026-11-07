@@ -19,12 +19,30 @@ const SCENARIOS = [
     name: 'a demo iPod with one of each kind',
     url: `http://localhost:${port}/?demo=1`,
     expected: ['Demo iPod', '5 tracks, 3 playlists', 'Morning Light', 'Episode 12: Engines', 'A Short Story', 'Demo Film', 'Road trip', 'Audiobook', 'Podcast', 'Files read from the iPod'],
+    forbidden: ['Signature on'],
+    alert: false,
+  },
+  {
+    name: 'a nano 7G-style iPod with signed databases',
+    url: `http://localhost:${port}/?demo=signed`,
+    expected: [
+      'Demo nano 7G',
+      '5 tracks, 3 playlists',
+      'Signed with hashAB',
+      'Signature on iTunesCDB',
+      'Signature on Locations.itdb.cbk',
+      'Matches what the engine computes',
+      '2 files libgpod never opens',
+      'not read: libgpod never opens it',
+    ],
+    forbidden: ['Does not match', 'Could not be checked'],
     alert: false,
   },
   {
     name: 'an iPod that was never synced',
     url: `http://localhost:${port}/?demo=unsynced`,
     expected: ['never been synced', 'Copy diagnostic report', 'Files read from the iPod'],
+    forbidden: [],
     alert: true,
   },
 ];
@@ -80,16 +98,21 @@ try {
   for (const scenario of SCENARIOS) {
     const dom = execFileSync(chrome, [...flags, scenario.url], { encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'ignore'] });
     const missing = scenario.expected.filter((text) => !dom.includes(text));
+    const present = scenario.forbidden.filter((text) => dom.includes(text));
     const hasAlert = dom.includes('role="alert"');
     if (missing.length) {
       failed = true;
       console.error(`${scenario.name}: the page is missing: ${missing.join(', ')}`);
     }
+    if (present.length) {
+      failed = true;
+      console.error(`${scenario.name}: the page should not show: ${present.join(', ')}`);
+    }
     if (hasAlert !== scenario.alert) {
       failed = true;
       console.error(`${scenario.name}: expected ${scenario.alert ? 'an error message' : 'no error message'} on the page.`);
     }
-    if (!missing.length && hasAlert === scenario.alert) {
+    if (!missing.length && !present.length && hasAlert === scenario.alert) {
       console.log(`Smoke test passed for ${scenario.name}.`);
     }
   }

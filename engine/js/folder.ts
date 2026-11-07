@@ -56,6 +56,8 @@ export interface LoadReport {
   musicFolders: string[];
   /** Files left out because they are only clutter, such as macOS "._" files. */
   skipped: string[];
+  /** Files left out because libgpod never opens them, with their sizes. Paths are from the top of the iPod. */
+  notNeeded: ListedFile[];
   /** False when iPod_Control exists but has no iTunes folder, so no database to read. */
   hasDatabaseFolder: boolean;
 }
@@ -64,6 +66,15 @@ const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
 
 /** Files that appear on a FAT volume mounted by macOS or Windows and mean nothing to an iPod. */
 const isClutter = (name: string): boolean => name.startsWith('._') || name === '.DS_Store' || name === 'Thumbs.db';
+
+/**
+ * Big files inside the folders the loader copies that libgpod never opens. On the owner's
+ * nano 7G, iTunesControl and the radio's RadioBuffer are each exactly 20 MiB, about 40 MiB
+ * of USB reads for nothing. Neither name appears anywhere in the libgpod source the engine
+ * is built from. Paths are from iPod_Control, spelled the way the iPod stores them, so a
+ * file with the same name somewhere else is still read.
+ */
+const NOT_NEEDED = new Set(['iTunes/iTunesControl', 'Device/Radio/RadioBuffer']);
 
 function makeDirectories(fs: Engine['fs'], path: string): void {
   let current = '';
@@ -87,21 +98,24 @@ interface Totals {
   files: number;
   bytes: number;
   skipped: string[];
+  notNeeded: ListedFile[];
   listing: ListedFile[];
 }
 
-async function copyDirectory(
-  source: DirectoryEntry,
-  fs: Engine['fs'],
-  target: string,
-  totals: Totals,
-  options: Required<Pick<LoadOptions, 'maxBytes'>> & Pick<LoadOptions, 'onProgress'>,
-): Promise<void> {
+interface CopyOptions extends Pick<LoadOptions, 'onProgress'> {
+  maxBytes: number;
+  /** The engine path of iPod_Control followed by a slash, to turn a path into one from iPod_Control. */
+  controlPrefix: string;
+}
+
+async function copyDirectory(source: DirectoryEntry, fs: Engine['fs'], target: string, totals: Totals, options: CopyOptions): Promise<void> {
   makeDirectories(fs, target);
   for await (const [name, entry] of source.entries()) {
     const path = `${target}/${name}`;
     if (isClutter(name)) {
       totals.skipped.push(path);
+    } else if (entry.kind === 'file' && NOT_NEEDED.has(path.slice(options.controlPrefix.length))) {
+      totals.notNeeded.push({ path, size: (await entry.getFile()).size });
     } else if (entry.kind === 'directory') {
       await copyDirectory(entry, fs, path, totals, options);
     } else {
@@ -133,8 +147,8 @@ export async function loadIpodFolder(root: DirectoryEntry, engine: Engine, optio
     );
   }
 
-  const totals: Totals = { files: 0, bytes: 0, skipped: [], listing: [] };
-  const copyOptions = { maxBytes, onProgress: options.onProgress };
+  const totals: Totals = { files: 0, bytes: 0, skipped: [], notNeeded: [], listing: [] };
+  const copyOptions: CopyOptions = { maxBytes, onProgress: options.onProgress, controlPrefix: `${mount}/iPod_Control/` };
   makeDirectories(fs, `${mount}/iPod_Control`);
 
   const iTunes = await findDirectory(control, 'iTunes');
@@ -165,6 +179,7 @@ export async function loadIpodFolder(root: DirectoryEntry, engine: Engine, optio
     listing: totals.listing.map(({ path, size }) => ({ path: path.slice(mount.length + 1), size })),
     musicFolders,
     skipped: totals.skipped,
+    notNeeded: totals.notNeeded.map(({ path, size }) => ({ path: path.slice(mount.length + 1), size })),
     hasDatabaseFolder: iTunes !== null,
   };
 }

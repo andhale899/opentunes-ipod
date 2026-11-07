@@ -9,7 +9,7 @@ Personal project. It is not published or hosted anywhere.
 The project is mid-rebuild, and **nothing syncs yet**. What exists today:
 
 - An environment check page that tells you whether your browser can reach an iPod, and tries USB and folder access against a real one, including how fast Chrome can write to it. It has run once against a real nano 7th generation, see [docs/HARDWARE-TESTING.md](docs/HARDWARE-TESTING.md).
-- A **read-only iPod reader**: pick an iPod's folder and the engine, running in the browser, opens its database and shows the model, how the database is signed, and your library and playlists. It never writes. A demo iPod lets you try it without hardware.
+- A **read-only iPod reader**: pick an iPod's folder and the engine, running in the browser, opens its database and shows the model, how the database is signed, whether the signatures iTunes left on its database files match what the engine computes, and your library and playlists. It never writes. Demo iPods let you try it without hardware.
 - A device registry that records, per iPod model, what it can play and how far each fact can be trusted. Only the nano 7th generation has capability data so far.
 - Tested core logic for capability detection and duplicate-song matching.
 - The iPod database engine, rebuilt in Docker from pinned sources, with typed bindings. Its tests create, write and re-read databases for music, movies, music videos, TV shows, podcasts and audiobooks (with chapters), including the signed databases a nano 7th generation needs, with no hardware involved.
@@ -36,7 +36,7 @@ npm run check        # typecheck, tests and build
 npm run docs:check   # fails if docs/DEVICE-SUPPORT.md is out of date
 npm run engine:build # builds the iPod engine in Docker (needs Docker running)
 npm run engine:test  # tests the built engine in Node
-npm run smoke        # builds the app and loads the demo iPod in headless Chrome
+npm run smoke        # builds the app and loads the demo iPods in headless Chrome
 ```
 
 ## Layout

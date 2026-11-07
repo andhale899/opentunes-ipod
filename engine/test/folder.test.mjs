@@ -6,7 +6,17 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { IpodFolderError, buildDemoIpod, buildUnsyncedIpod, describeIpodLayout, loadIpodFolder, memoryDirectory } from '../js/index.ts';
+import {
+  DEMO_FIREWIRE_ID,
+  IpodFolderError,
+  buildDemoIpod,
+  buildSignedDemoIpod,
+  buildUnsyncedIpod,
+  describeIpodLayout,
+  loadIpodFolder,
+  memoryDirectory,
+  verifySignatures,
+} from '../js/index.ts';
 import { MOUNT, addFile, nano7gStyleIpod, newEngine, restart } from './helpers.mjs';
 
 const kindsOf = (engine) => Object.fromEntries(engine.tracks().map((track) => [track.title, track.kind]));
@@ -52,6 +62,36 @@ describe('loading an iPod folder', () => {
 
     assert.deepEqual(report.skipped.sort(), [`${MOUNT}/iPod_Control/iTunes/.DS_Store`, `${MOUNT}/iPod_Control/iTunes/._iTunesDB`]);
     assert.equal(target.fs.analyzePath(`${MOUNT}/iPod_Control/iTunes/._iTunesDB`).exists, false);
+  });
+
+  it('leaves out the big files libgpod never opens, and lists them', async () => {
+    const source = await newEngine();
+    buildDemoIpod(source);
+    const megabytes3 = 3 * 1024 * 1024;
+    source.fs.writeFile(`${MOUNT}/iPod_Control/iTunes/iTunesControl`, new Uint8Array(megabytes3));
+    source.fs.mkdir(`${MOUNT}/iPod_Control/Device/Radio`);
+    source.fs.writeFile(`${MOUNT}/iPod_Control/Device/Radio/RadioBuffer`, new Uint8Array(megabytes3));
+    source.fs.writeFile(`${MOUNT}/iPod_Control/Device/Radio/Presets_US_FM.plist`, new Uint8Array(408));
+    source.fs.writeFile(`${MOUNT}/iPod_Control/Device/iTunesControl`, new Uint8Array(10)); // same name, another folder
+
+    const target = await newEngine();
+    // 1 MiB is far less than the two buffers, so this only loads if they are not read.
+    const report = await loadIpodFolder(memoryDirectory(source, MOUNT), target, { maxBytes: 1024 * 1024 });
+
+    assert.deepEqual(report.notNeeded, [
+      { path: 'iPod_Control/iTunes/iTunesControl', size: megabytes3 },
+      { path: 'iPod_Control/Device/Radio/RadioBuffer', size: megabytes3 },
+    ]);
+    assert.equal(target.fs.analyzePath(`${MOUNT}/iPod_Control/iTunes/iTunesControl`).exists, false);
+    assert.equal(target.fs.analyzePath(`${MOUNT}/iPod_Control/Device/Radio/RadioBuffer`).exists, false);
+    assert.ok(report.bytes < 1024 * 1024);
+
+    const read = report.listing.map((file) => file.path);
+    assert.ok(read.includes('iPod_Control/Device/Radio/Presets_US_FM.plist'), 'its small neighbours are still read');
+    assert.ok(read.includes('iPod_Control/Device/iTunesControl'), 'only the exact path is left out');
+    assert.equal(report.listing.length, report.files);
+    target.open(MOUNT);
+    assert.equal(target.tracks().length, 5, 'the database is unaffected');
   });
 
   it('explains a folder that is not an iPod', async () => {
@@ -200,6 +240,29 @@ describe('the unsynced demo iPod', () => {
     assert.equal(report.hasDatabaseFolder, true);
     assert.deepEqual(report.listing.find((file) => file.path === 'iPod_Control/iTunes/iTunesDB'), { path: 'iPod_Control/iTunes/iTunesDB', size: 0 });
     assert.throws(() => target.open(MOUNT), /never been synced/);
+  });
+});
+
+describe('the signed demo iPod', () => {
+  it('is laid out like a nano 7G, loads, and its signatures check out', async () => {
+    const source = await newEngine();
+    buildSignedDemoIpod(source);
+    const target = await newEngine();
+    const report = await loadIpodFolder(memoryDirectory(source, MOUNT, 'DEMO IPOD'), target);
+    target.open(MOUNT);
+
+    const read = report.listing.map((file) => file.path);
+    assert.ok(read.includes('iPod_Control/iTunes/iTunesCDB'));
+    // libgpod leaves an empty iTunesDB beside iTunesCDB. The owner's real nano 7G has no iTunesDB at all.
+    assert.equal(report.listing.find((file) => file.path === 'iPod_Control/iTunes/iTunesDB')?.size, 0);
+    assert.ok(read.includes('iPod_Control/iTunes/iTunes Library.itlp/Locations.itdb.cbk'));
+    assert.deepEqual(report.notNeeded.map((file) => file.path), ['iPod_Control/iTunes/iTunesControl', 'iPod_Control/Device/Radio/RadioBuffer']);
+    assert.equal(target.device().checksum, 'hashAB');
+    assert.equal(target.device().firewire_id, DEMO_FIREWIRE_ID);
+    assert.equal(target.tracks().length, 5);
+
+    const checks = await verifySignatures(target, MOUNT, target.device().firewire_id);
+    assert.deepEqual(checks.map((check) => [check.file, check.status]), [['iTunesCDB', 'matches'], ['Locations.itdb.cbk', 'matches']]);
   });
 });
 

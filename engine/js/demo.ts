@@ -39,13 +39,8 @@ const DEMO_TRACKS: DemoTrack[] = [
   },
 ];
 
-/** Sets up a blank iPod at `mount` and fills it. Leaves the database written and open. */
-export function buildDemoIpod(engine: Engine, mount = '/ipod'): void {
-  if (!engine.fs.analyzePath(mount).exists) {
-    engine.fs.mkdir(mount);
-  }
-  engine.init(mount, 'MA450', 'Demo iPod');
-
+/** Adds the demo tracks and a playlist to the open iPod, then writes the database. */
+function fillDemoIpod(engine: Engine): void {
   const handles: number[] = [];
   for (const demo of DEMO_TRACKS) {
     const handle = engine.addTrack(demo.kind, demo.fields);
@@ -63,18 +58,64 @@ export function buildDemoIpod(engine: Engine, mount = '/ipod'): void {
   engine.write();
 }
 
+function makeFolder(engine: Engine, path: string): void {
+  if (!engine.fs.analyzePath(path).exists) engine.fs.mkdir(path);
+}
+
+/** Sets up a blank iPod at `mount` and fills it. Leaves the database written and open. */
+export function buildDemoIpod(engine: Engine, mount = '/ipod'): void {
+  makeFolder(engine, mount);
+  engine.init(mount, 'MA450', 'Demo iPod');
+  fillDemoIpod(engine);
+}
+
+/** A made-up FireWire ID for the signed demo. It belongs to no real iPod. */
+export const DEMO_FIREWIRE_ID = '0000000000000001';
+
+/**
+ * The least a SysInfoExtended needs for libgpod to treat the iPod like a nano 7G: DBVersion 5
+ * (hashAB signing), SQLiteDB (iTunesCDB and the iTunes Library.itlp folder) and an ID.
+ */
+const DEMO_SYSINFO_EXTENDED = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>DBVersion</key>
+  <integer>5</integer>
+  <key>SQLiteDB</key>
+  <true/>
+  <key>FireWireGUID</key>
+  <string>${DEMO_FIREWIRE_ID}</string>
+</dict>
+</plist>
+`;
+
+/**
+ * Like the demo iPod, but laid out the way a nano 7G is: iTunesCDB, the iTunes Library.itlp
+ * folder, and signatures from hashAB. It also holds the two big files a real nano 7G has
+ * that libgpod never opens, as small stand-ins. Leaves the database written and open.
+ */
+export function buildSignedDemoIpod(engine: Engine, mount = '/ipod'): void {
+  makeFolder(engine, mount);
+  engine.init(mount, 'MA450', 'Demo nano 7G');
+  engine.fs.writeFile(`${mount}/iPod_Control/Device/SysInfoExtended`, DEMO_SYSINFO_EXTENDED);
+  engine.open(mount); // reopen so libgpod reads the device file
+  fillDemoIpod(engine);
+
+  makeFolder(engine, `${mount}/iPod_Control/Device/Radio`);
+  engine.fs.writeFile(`${mount}/iPod_Control/iTunes/iTunesControl`, new Uint8Array(16));
+  engine.fs.writeFile(`${mount}/iPod_Control/Device/Radio/RadioBuffer`, new Uint8Array(16));
+}
+
 /**
  * An iPod that has never been synced: the folders are there, and the database is an empty
  * file. Reading it fails, and the point is to see how that failure is explained.
  */
 export function buildUnsyncedIpod(engine: Engine, mount = '/ipod'): void {
-  const make = (path: string) => {
-    if (!engine.fs.analyzePath(path).exists) engine.fs.mkdir(path);
-  };
   for (const path of [mount, `${mount}/iPod_Control`, `${mount}/iPod_Control/iTunes`, `${mount}/iPod_Control/Device`, `${mount}/iPod_Control/Music`]) {
-    make(path);
+    makeFolder(engine, path);
   }
-  for (let i = 0; i < 50; i += 1) make(`${mount}/iPod_Control/Music/F${String(i).padStart(2, '0')}`);
+  for (let i = 0; i < 50; i += 1) makeFolder(engine, `${mount}/iPod_Control/Music/F${String(i).padStart(2, '0')}`);
   engine.fs.writeFile(`${mount}/iPod_Control/iTunes/iTunesDB`, new Uint8Array(0));
   engine.fs.writeFile(`${mount}/iPod_Control/Device/SysInfo`, 'ModelNumStr: MA450\n');
 }

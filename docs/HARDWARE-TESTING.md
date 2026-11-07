@@ -20,6 +20,7 @@ The first run against real data, and it writes nothing. In the app, under "Read 
 4. "Device description file" says SysInfoExtended was found. If not, say so: the app would then fall back to a template.
 5. The track and playlist counts match what the iPod shows.
 6. Compare the report with the nano 7G facts in [DEVICE-SUPPORT.md](DEVICE-SUPPORT.md): disk format, supported features. Note any difference. Those facts came from someone else's unit.
+7. "Signature on iTunesCDB" and "Signature on Locations.itdb.cbk" both say "Matches what the engine computes". This compares the signatures iTunes wrote on the iPod with the engine's own hashAB, so a match shows the engine signs the way this iPod expects, before anything is written. "Does not match" does not mean the iPod is damaged. It means the engine's understanding of the signature is off, so copy the report and do not sync. "Try a nano 7G-style demo" on the same page shows what a match looks like.
 
 The report leaves out track titles but includes the iPod's serial number and FireWire ID.
 
@@ -63,3 +64,13 @@ Report or log attached:
 - Outcome: **pass**
 - What happened: Chrome saw the iPod over USB and read its FireWire ID without opening the device. It opened the volume and found `iPod_Control` and `iPod_Control/Device/SysInfo`. It wrote, read back and deleted a two-byte file.
 - Notes: the write step took 3.7 seconds for two bytes, so the cost per file on this iPod needs measuring (the speed test was added after this run). No `iTunesDB` was found at the expected path. libgpod reads `iTunesCDB` first, so that may be normal for this model, and the reader's file listing will show. The volume holds folders made by Windows and by Android, so it has been used with both. The reader and the speed test have not been run yet.
+
+### 2026-11-07: environment check with file listing, nano 7th generation, macOS Chrome 157 (second run)
+
+- App commit: `b6e6ee0` on `main`
+- iPod: the same nano 7th generation as above
+- Host: desktop Chrome 157 on macOS
+- Case: Phase 0 environment check with the `iPod_Control` listing and the timed write steps. The write-speed test and the Phase 1 reader were not run.
+- Outcome: **pass**
+- What happened: the listing shows the layout this model really uses. `iPod_Control/iTunes` holds `iTunesCDB` and the `iTunes Library.itlp` folder of SQLite files, with a `Locations.itdb.cbk` of the size a signature plus 81 block hashes would have. There is no `iTunesDB`, so that was normal for this model. Writing the two-byte test file took 1.49 seconds, of which closing the writer was 1.47. The other steps each took under 10 milliseconds.
+- Notes: `iTunesControl` and `Device/Radio/RadioBuffer` are each exactly 20 MiB and libgpod never opens them, so the loader now leaves them out. The full list is in the registry observations for the nano 7G. The fixed cost per file on close is why the speed test compares one file at a time with several at once. Still to run: the speed test, and the reader with its new signature check.

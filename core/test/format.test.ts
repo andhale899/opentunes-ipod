@@ -45,8 +45,8 @@ describe('kindLabel', () => {
 
 describe('isValidFireWireId', () => {
   it('accepts 16 hex digits and nothing else', () => {
-    expect(isValidFireWireId('000A27001234ABCD')).toBe(true);
-    expect(isValidFireWireId('000a27001234abcd')).toBe(true);
+    expect(isValidFireWireId('0123456789ABCDEF')).toBe(true);
+    expect(isValidFireWireId('0123456789abcdef')).toBe(true);
     expect(isValidFireWireId('REPLACE_ME_WITH_FIREWIRE_GUID')).toBe(false);
     expect(isValidFireWireId('0xDEADBEEF')).toBe(false);
     expect(isValidFireWireId('')).toBe(false);
