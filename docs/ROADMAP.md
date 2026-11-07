@@ -33,9 +33,11 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 - [x] Rewrite check: write the database in memory as a sync would and compare it with what is on the iPod, including the SQLite files a nano 7G keeps. Run on the owner's nano 7G, see the open questions. Needs a read-only SQL function in the engine, so the engine was rebuilt.
 - [x] Write-back and restore: write the rebuilt database back to an iPod after a verified backup, roll back on any failure, and restore a backup after checking its checksums. Built and tested against in-memory iPods, not yet run on a real one. It is the first real test of whether a nano 7G accepts libgpod's rebuilt library.
 - [ ] Connect: WebUSB identity alongside the folder pick, model lookup against the registry, a proper device card.
-- [ ] Add files, probe them, plan copy or convert against the registry.
-- [ ] Convert in a worker.
-- [ ] Sync with backup, verification and resume.
+- [x] Probe: tags, codecs, length, chapters and cover art from MP3, AAC, M4A/M4B/M4V/MP4/MOV, FLAC, WAV, AIFF, Ogg and Opus, and codec names from MKV, AVI and WMA (`core/src/media/probe/`). Built with 280 tests on fixtures, damage handling and large virtual files, checked against a few Apple-encoded audio files. Not yet tried on real video, a LAME VBR MP3, an M4B with chapters, FairPlay, Ogg/Opus or MKV, and not in Chrome.
+- [x] Plan copy or convert against the registry (`core/src/media/decide.ts`). Unit-tested, not yet fed real probe output.
+- [x] Convert in a worker (`app/src/convert/`): audio to AAC-LC or Apple Lossless, video to H.264 within the spec, audiobook merge to m4b with exact chapter marks. Built and browser-tested in headless Chrome (real worker and wasm, outputs read back with ffprobe). Not hardware-tested. Known limits: output held in browser memory, capped at 1 GiB. Streaming output to disk (OPFS) would lift it. The GPL licence of the ffmpeg core needs a decision before any sharing.
+- [x] Sync pipeline (`engine/js/sync.ts`): add, remove, edit tags, playlists and orphan cleanup, with backup, per-file read-back and rollback. Tested against in-memory iPods only. Known gaps: no automatic recovery if the tab dies mid-run (restore the backup, `findOrphans` lists leftover files), no resume, album art not written, Chrome `.crswap` leftovers not detected.
+- [ ] Library screen that ties the above together (add files, plan table, convert, sync, edit, delete).
 - [ ] Hardware test on the nano 7G from desktop and from Android, see [HARDWARE-TESTING.md](HARDWARE-TESTING.md).
 
 ## Phase 3: More media and management
