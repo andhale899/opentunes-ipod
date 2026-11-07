@@ -13,12 +13,12 @@
     "dev:lan": "npm run dev:lan -w app",
     "build": "npm run build -w app",
     "preview": "npm run preview -w app",
-    "typecheck": "npm run typecheck -w core && npm run typecheck -w app",
+    "typecheck": "npm run typecheck -w core && npm run typecheck -w app && tsc -p engine/tsconfig.json",
     "test": "npm run test -w core",
     "docs:devices": "npm run docs:devices -w core",
     "docs:check": "npm run docs:devices && git diff --exit-code docs/DEVICE-SUPPORT.md",
     "engine:build": "sh engine/scripts/build.sh",
-    "engine:test": "node --test engine/test/",
+    "engine:test": "node --test \"engine/test/*.test.mjs\"",
     "check": "npm run typecheck && npm test && npm run build"
   },
   "engines": {

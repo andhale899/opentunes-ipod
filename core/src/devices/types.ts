@@ -44,6 +44,10 @@ export interface AudioFormat {
   codec: string;
   bitrateKbps?: { min: number; max: number };
   variableBitrate?: boolean;
+  /** Highest sample rate the model plays. Higher rates must be resampled first. */
+  maxSampleRateHz?: number;
+  /** Highest bit depth played without truncation. */
+  maxBitDepth?: number;
   note?: string;
 }
 
@@ -76,6 +80,31 @@ export interface DeviceMedia {
   notes?: MediaSupport;
 }
 
+export interface ImageFormat {
+  /** libgpod's format id, which also names the .ithmb file the thumbnails live in. */
+  id: number;
+  width: number;
+  height: number;
+  /** Pixel layout, for example "L565" (16-bit RGB565, little-endian). */
+  pixelFormat: string;
+}
+
+/**
+ * Facts read from a device's own SysInfoExtended file, which an iPod uses to describe
+ * itself. More precise than a marketing page, but only as good as the unit it came from.
+ */
+export interface DeviceDeclared {
+  /** Where the file is, as a path in this repository. */
+  source: string;
+  /** Whose unit it came from and what is still unconfirmed. */
+  note: string;
+  volumeFormat?: 'FAT32' | 'HFS+';
+  maxTracks?: number;
+  maxFileSizeGB?: number;
+  features?: Partial<Record<'podcasts' | 'photos' | 'voiceMemos' | 'playlistFolders' | 'genius', boolean>>;
+  images?: { albumArt?: ImageFormat[]; photo?: ImageFormat[]; chapter?: ImageFormat[] };
+}
+
 export interface DeviceModel {
   /** Stable kebab-case id, for example "nano-7g". */
   id: string;
@@ -92,6 +121,8 @@ export interface DeviceModel {
   checksumBasis?: string;
   /** What the model can play. `null` until researched. */
   media: DeviceMedia | null;
+  /** What a unit of this model says about itself, when we have its SysInfoExtended. */
+  deviceDeclared?: DeviceDeclared;
   verification: Verification;
   sources: Source[];
   notes: string[];

@@ -17,6 +17,8 @@ fi
 
 docker build -f "$here/Dockerfile" --target engine -t opentunes-engine:engine "$here"
 
+# engine/build holds only generated output, so start clean: no stale files from older builds.
+rm -rf "$out"
 mkdir -p "$out"
 container=$(docker create opentunes-engine:engine)
 trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT

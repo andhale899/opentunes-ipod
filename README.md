@@ -1,6 +1,6 @@
 # OpenTunes
 
-A Chrome web app that puts music, video and podcasts on a classic iPod without iTunes and without a server. It runs in desktop Chrome and, if your phone's Chrome supports folder access, in Chrome on Android.
+A web app that puts music, video, podcasts and audiobooks on a classic iPod without iTunes and without a server. It is built for any Chromium browser on any OS where the iPod mounts as a drive: macOS, Linux and other Unix, ChromeOS, Android and Windows. Nothing has been tried with a real iPod yet, and Linux may need a udev rule and Windows a WinUSB driver for the USB step. Both are unverified.
 
 Personal project. It is not published or hosted anywhere.
 
@@ -11,9 +11,9 @@ The project is mid-rebuild, and **nothing syncs yet**. What exists today:
 - An environment check page that tells you whether your browser can reach an iPod, and tries USB and folder access against a real one.
 - A device registry that records, per iPod model, what it can play and how far each fact can be trusted. Only the nano 7th generation has capability data so far.
 - Tested core logic for capability detection and duplicate-song matching.
-- The iPod database engine, rebuilt in Docker from pinned sources. Its tests create, write and re-read iPod databases, including the signed ones a nano 7th generation needs, with no hardware involved.
+- The iPod database engine, rebuilt in Docker from pinned sources, with typed bindings. Its tests create, write and re-read databases for music, movies, music videos, TV shows, podcasts and audiobooks (with chapters), including the signed databases a nano 7th generation needs, with no hardware involved.
 
-The plan is in [docs/ROADMAP.md](docs/ROADMAP.md). The first real feature, music sync to an iPod nano 7th generation, is Phase 2. It waits on the rest of Phase 1: the engine builds and passes its tests but still handles audio only.
+The plan is in [docs/ROADMAP.md](docs/ROADMAP.md). The first real feature, music sync to an iPod nano 7th generation, is Phase 2. The engine is ready for it apart from album artwork.
 
 The previous version (a Node server with a downloader) is kept on the `v1-legacy` tag, see [docs/LEGACY.md](docs/LEGACY.md). It no longer ships. YouTube and Spotify downloading is out of scope for now, see [docs/research/spotify-youtube.md](docs/research/spotify-youtube.md).
 
@@ -43,7 +43,7 @@ npm run engine:test  # tests the built engine in Node
 | --- | --- |
 | `app/` | The web app (Vite, TypeScript, Preact). |
 | `core/` | Pure logic with tests: device registry, capability detection, song identity. |
-| `engine/` | The iPod database engine (libgpod compiled to WebAssembly): C wrapper, Docker build, patches, tests. |
+| `engine/` | The iPod database engine (libgpod compiled to WebAssembly): C interface, bindings, Docker build, patches, tests. |
 | `docs/` | Architecture, roadmap, device support, test guides, research. |
 
 ## Docs

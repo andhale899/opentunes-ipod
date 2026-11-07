@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { devices, getDevice } from '../src/devices/registry';
 
@@ -50,21 +52,52 @@ describe('nano 7G row', () => {
     expect(nano?.verification).toBe('spec-sourced');
     expect(nano?.connector).toBe('lightning');
 
-    const h264 = nano?.media?.video?.formats?.find((format) => format.codec === 'h264');
+    const [h264, h264Baseline] = (nano?.media?.video?.formats ?? []).filter((format) => format.codec === 'h264');
     expect(h264).toMatchObject({ maxWidth: 720, maxHeight: 576, maxFps: 30, level: '3.0' });
     expect(h264?.profiles).toEqual(['Baseline', 'Main', 'High']);
-    expect(h264?.maxVideoBitrateKbps).toBeUndefined();
 
     const mpeg4 = nano?.media?.video?.formats?.find((format) => format.codec === 'mpeg4');
     expect(mpeg4?.maxVideoBitrateKbps).toBe(2500);
+
+    // The device also lists a Baseline-only H.264 entry capped at 640x480. That size is
+    // inside both entries, so it is the safe default for the planner.
+    expect(h264Baseline).toMatchObject({ profiles: ['Baseline'], maxWidth: 640, maxHeight: 480 });
   });
 
-  it('records photos as not listed rather than supported', () => {
-    expect(nano?.media?.photo?.status).toBe('not-listed');
+  it('caps audio at 48 kHz and lossless at 16 bits, as the device declares', () => {
+    const formats = nano?.media?.music?.formats ?? [];
+    for (const codec of ['AAC', 'MP3', 'Apple Lossless', 'AIFF', 'WAV']) {
+      expect(formats.find((format) => format.codec === codec)?.maxSampleRateHz, codec).toBe(48000);
+    }
+    expect(formats.find((format) => format.codec === 'Apple Lossless')?.maxBitDepth).toBe(16);
   });
 
-  it('flags its checksum as inferred, not sourced', () => {
+  it('records photos and podcasts as supported on the device, not on the spec page', () => {
+    expect(nano?.media?.photo?.status).toBe('supported');
+    expect(nano?.media?.photo?.note).toMatch(/Not on Apple's page/);
+    expect(nano?.media?.podcast?.status).toBe('supported');
+    expect(nano?.deviceDeclared?.images?.photo).toEqual([
+      { id: 1007, width: 480, height: 864, pixelFormat: 'L565' },
+      { id: 1005, width: 80, height: 80, pixelFormat: 'L565' },
+    ]);
+  });
+
+  it('records the disk format and limits the device declares', () => {
+    expect(nano?.deviceDeclared).toMatchObject({ volumeFormat: 'FAT32', maxTracks: 65534, maxFileSizeGB: 4 });
+    expect(nano?.deviceDeclared?.images?.albumArt?.map((format) => format.id)).toEqual([1010, 1011, 1013, 1015, 1016]);
+  });
+
+  it('points at a device file that really is in the repository', () => {
+    const source = nano?.deviceDeclared?.source ?? '';
+    const path = fileURLToPath(new URL(`../../${source}`, import.meta.url));
+    expect(source).not.toBe('');
+    expect(existsSync(path), path).toBe(true);
+  });
+
+  it('bases its checksum on the device declaration, and has not been written to hardware', () => {
     expect(nano?.checksum).toBe('hashAB');
-    expect(nano?.checksumBasis).toMatch(/Inferred/);
+    expect(nano?.checksumBasis).toMatch(/database version 5/);
+    expect(nano?.checksumBasis).toMatch(/Not yet confirmed/);
+    expect(nano?.verification).not.toBe('hardware-tested');
   });
 });

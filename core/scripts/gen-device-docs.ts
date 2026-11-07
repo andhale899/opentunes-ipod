@@ -67,13 +67,29 @@ function detailSection(device: DeviceModel): string[] {
           }
           const range = format.bitrateKbps ? ` ${format.bitrateKbps.min}-${format.bitrateKbps.max} kbps` : '';
           const vbr = format.variableBitrate ? ' (VBR)' : '';
+          const rate = format.maxSampleRateHz ? `, up to ${format.maxSampleRateHz / 1000} kHz` : '';
+          const depth = format.maxBitDepth ? `, ${format.maxBitDepth}-bit` : '';
           const note = format.note ? ` (${format.note})` : '';
-          return `${format.codec}${range}${vbr}${note}`;
+          return `${format.codec}${range}${vbr}${rate}${depth}${note}`;
         })
         .join('; ');
       const detail = [formats, support.note].filter(Boolean).join('. ');
       lines.push(`| ${MEDIA_LABELS[kind]} | ${support.status} | ${cell(detail)} |`);
     }
+  }
+
+  if (device.deviceDeclared) {
+    const declared = device.deviceDeclared;
+    const formats = (list: { id: number; width: number; height: number }[] | undefined) =>
+      (list ?? []).map((format) => `${format.id} (${format.width}x${format.height})`).join(', ');
+    lines.push('', `Declared by the device itself (\`${declared.source}\`):`, '', `- ${declared.note}`);
+    if (declared.volumeFormat) lines.push(`- Disk format: ${declared.volumeFormat}`);
+    if (declared.maxTracks) lines.push(`- Up to ${declared.maxTracks} tracks, files up to ${declared.maxFileSizeGB ?? '?'} GB`);
+    const features = Object.entries(declared.features ?? {}).filter(([, on]) => on).map(([name]) => name);
+    if (features.length) lines.push(`- Features: ${features.join(', ')}`);
+    if (declared.images?.albumArt) lines.push(`- Album art formats: ${formats(declared.images.albumArt)}`);
+    if (declared.images?.photo) lines.push(`- Photo formats: ${formats(declared.images.photo)}`);
+    if (declared.images?.chapter) lines.push(`- Chapter image formats: ${formats(declared.images.chapter)}`);
   }
 
   if (device.sources.length) {
