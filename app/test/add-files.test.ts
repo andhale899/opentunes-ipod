@@ -14,3 +14,23 @@ describe('leaving out what is not media when a folder is chosen', () => {
     }
   });
 });
+
+import { limitedByConverter } from '../src/addFiles';
+import type { MediaInfo, PlanDecision } from '@opentunes/core';
+
+describe('what the converter cannot read', () => {
+  const info = (codec: string) => ({ video: { codec } }) as unknown as MediaInfo;
+  const convert: PlanDecision = { action: 'convert', reasons: ['x'], kind: 'movie', conversion: { container: 'm4v', audio: null, video: null, keepChapters: false, keepArtwork: false, keepTags: true }, outputExtension: '.m4v' };
+
+  it('turns a conversion of AV1 into a plain not-supported with the reason', () => {
+    const result = limitedByConverter(info('av1'), convert);
+    expect(result.action).toBe('unsupported');
+    expect(result.conversion).toBeNull();
+    expect(result.reasons[0]).toMatch(/AV1/);
+  });
+
+  it('leaves other video and plain copies alone', () => {
+    expect(limitedByConverter(info('hevc'), convert)).toBe(convert);
+    expect(limitedByConverter(info('av1'), { ...convert, action: 'copy', conversion: null })).toMatchObject({ action: 'copy' });
+  });
+});

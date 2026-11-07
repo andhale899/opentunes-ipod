@@ -27,17 +27,35 @@ export interface Candidate {
 
 let counter = 0;
 
+/**
+ * What the converter cannot read, whatever the iPod needs. The planner only knows the iPod, so
+ * this turns a "convert" it cannot carry out into a plain "not supported" before anything runs.
+ * The ffmpeg inside the page has no AV1 decoder: it stops with "Missing Sequence Header".
+ */
+export function limitedByConverter(info: MediaInfo, decision: PlanDecision): PlanDecision {
+  if (decision.action === 'convert' && info.video?.codec === 'av1') {
+    return {
+      ...decision,
+      action: 'unsupported',
+      conversion: null,
+      outputExtension: '',
+      reasons: ['This video is AV1, which the converter inside this page cannot decode yet. Convert it to H.264 with another tool first, or use a copy in H.264, HEVC or VP9.'],
+    };
+  }
+  return decision;
+}
+
 /** Reads a picked file's tags and streams and decides, for one model, what to do with it. */
 export async function inspectFile(file: File, device: DeviceModel, userKind?: ContentKind, folder = ''): Promise<Candidate> {
   const info = await probeMedia(fileSourceFromBlob(file.name, file));
-  const decision = decideForDevice(info, device, { userKind });
+  const decision = limitedByConverter(info, decideForDevice(info, device, { userKind }));
   counter += 1;
   return { id: `file-${counter}`, file, info, decision, userKind, estimatedBytes: estimateOutputBytes(info, decision), folder };
 }
 
 /** Decides again, for another model or after the person named the kind. Does not read the file again. */
 export function redecide(candidate: Candidate, device: DeviceModel, userKind: ContentKind | undefined): Candidate {
-  const decision = decideForDevice(candidate.info, device, { userKind });
+  const decision = limitedByConverter(candidate.info, decideForDevice(candidate.info, device, { userKind }));
   return { ...candidate, decision, userKind, estimatedBytes: estimateOutputBytes(candidate.info, decision) };
 }
 

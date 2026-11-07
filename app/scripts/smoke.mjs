@@ -16,7 +16,7 @@
 // for the built-in WebSocket (CI uses 22 and 24).
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +61,21 @@ const COVER = join(toneFolder, 'cover.jpg');
 writeFileSync(COVER, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 writeTone(TONE_COPY, { rate: 44100, bits: 16, seconds: 2 });
 writeTone(TONE_CONVERT, { rate: 96000, bits: 24, seconds: 1 });
+
+/**
+ * Not part of the normal run. With SMOKE_REAL_MEDIA=/path/to/folder it adds every file in that
+ * folder (and its subfolders) to a practice iPod through the page, converts what needs it with the
+ * real ffmpeg.wasm, and prints what the page says. For trying real files without an iPod.
+ */
+function listMedia(folder) {
+  return readdirSync(folder, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(folder, entry.name);
+    if (entry.isDirectory()) return entry.name.startsWith('.') ? [] : listMedia(path);
+    return /\.(jpe?g|png|md|txt|log|ds_store)$/i.test(entry.name) || entry.name.startsWith('.') ? [] : [path];
+  });
+}
+
+const REAL_MEDIA = process.env.SMOKE_REAL_MEDIA ? listMedia(process.env.SMOKE_REAL_MEDIA) : null;
 
 const SCENARIOS = [
   {
@@ -205,6 +220,41 @@ const SCENARIOS = [
     forbidden: ['smoke tone copy', 'did not finish', 'could not be put back'],
     alert: false,
   },
+  ...(REAL_MEDIA
+    ? [
+        {
+          name: `real media from ${process.env.SMOKE_REAL_MEDIA} (${REAL_MEDIA.length} files)`,
+          url: `http://localhost:${port}/?demo=practice`,
+          devtools: {
+            doneSelector: 'body',
+            timeoutMs: 5_000,
+            async drive(page) {
+              await page.waitFor('Choose another iPod');
+              await page.click('Backup');
+              await page.waitFor('Back up the database files');
+              await page.click('Choose where to keep the backup');
+              await page.waitFor('Every file was read back and matched');
+              await page.click('Add music');
+              await page.chooseFiles(REAL_MEDIA);
+              await page.waitFor(' can be added', 120_000);
+              await page.click('Convert and check');
+              const until = Date.now() + 900_000;
+              for (;;) {
+                const text = String(await page.evaluate('document.body.innerText'));
+                if (/Ready to copy|Nothing would be copied|Nothing could be prepared/.test(text)) break;
+                if (Date.now() > until) throw new Error('Timed out converting. ' + text.slice(-800));
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+              }
+              const text = String(await page.evaluate('document.body.innerText'));
+              console.log(text.slice(text.indexOf('Add music, podcasts')).replace(/\n(Music|Audiobook|Podcast|Movie|TV show|Music video|Video podcast)(?=\n)/g, '').slice(0, 6000));
+            },
+          },
+          expected: [],
+          forbidden: [],
+          alert: false,
+        },
+      ]
+    : []),
 ];
 
 /**
