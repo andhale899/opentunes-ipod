@@ -22,7 +22,7 @@ type Stage =
   | { phase: 'idle' }
   | { phase: 'reading'; message: string }
   | { phase: 'converting'; message: string; fraction: number }
-  | { phase: 'planned'; plan: SyncPlan; items: SyncItem[] }
+  | { phase: 'planned'; plan: SyncPlan; items: SyncItem[]; failed: string[] }
   | { phase: 'syncing'; progress: SyncProgress | null }
   | { phase: 'done'; report: SyncReport }
   | { phase: 'error'; message: string };
@@ -179,16 +179,27 @@ export function AddPanel({
     const controller = new AbortController();
     abort.current = controller;
     const items: SyncItem[] = [];
+    const failed: string[] = [];
     try {
       for (const [index, candidate] of addable.entries()) {
         const label = `${index + 1} of ${addable.length}: ${candidate.file.name}`;
         setStage({ phase: 'converting', message: label, fraction: 0 });
-        const item = await prepareItem(candidate, {
-          playlist: playlist.trim() || undefined,
-          signal: controller.signal,
-          onProgress: (fraction) => setStage({ phase: 'converting', message: label, fraction }),
-        });
-        if (item) items.push(item);
+        try {
+          const item = await prepareItem(candidate, {
+            playlist: playlist.trim() || undefined,
+            signal: controller.signal,
+            onProgress: (fraction) => setStage({ phase: 'converting', message: label, fraction }),
+          });
+          if (item) items.push(item);
+        } catch (error) {
+          if (controller.signal.aborted) throw error;
+          // One file that cannot be converted must not stop the rest of a folder.
+          failed.push(`${candidate.file.name}: ${describeError(error)}`);
+        }
+      }
+      if (!items.length) {
+        setStage({ phase: 'error', message: failed.length ? `Nothing could be prepared.\n${failed.join('\n')}` : 'Nothing could be prepared.' });
+        return;
       }
       setStage({ phase: 'reading', message: 'Checking the iPod and planning...' });
       const plan = await planSync(root as unknown as IpodRoot, newEngine, items, {
@@ -196,7 +207,7 @@ export function AddPanel({
         duplicates: allowDuplicates ? 'allow' : 'skip',
         onProgress: (message) => setStage({ phase: 'reading', message }),
       });
-      setStage({ phase: 'planned', plan, items });
+      setStage({ phase: 'planned', plan, items, failed });
     } catch (error) {
       setStage({ phase: 'error', message: controller.signal.aborted ? 'Stopped. Nothing was written to the iPod.' : describeError(error) });
     } finally {
@@ -407,11 +418,11 @@ export function AddPanel({
       ) : null}
       {stage.phase === 'error' ? (
         <div class="result no" role="alert">
-          <p>{stage.message}</p>
+          <p style="white-space: pre-wrap">{stage.message}</p>
         </div>
       ) : null}
 
-      {stage.phase === 'planned' ? <Planned plan={stage.plan} ready={ready} onSync={() => void sync(stage.plan)} onNeedBackup={onNeedBackup} /> : null}
+      {stage.phase === 'planned' ? <Planned plan={stage.plan} failed={stage.failed} ready={ready} onSync={() => void sync(stage.plan)} onNeedBackup={onNeedBackup} /> : null}
 
       {stage.phase === 'syncing' ? (
         <>
@@ -433,7 +444,7 @@ export function AddPanel({
   );
 }
 
-function Planned({ plan, ready, onSync, onNeedBackup }: { plan: SyncPlan; ready: boolean; onSync: () => void; onNeedBackup?: () => void }) {
+function Planned({ plan, failed, ready, onSync, onNeedBackup }: { plan: SyncPlan; failed: string[]; ready: boolean; onSync: () => void; onNeedBackup?: () => void }) {
   const fits = plan.space.fits;
   return (
     <>
@@ -445,6 +456,18 @@ function Planned({ plan, ready, onSync, onNeedBackup }: { plan: SyncPlan; ready:
           {fits === false ? ' They do not fit on the iPod.' : ''}
         </p>
       </div>
+      {failed.length ? (
+        <div class="callout no" role="note">
+          <p>
+            <strong>{failed.length === 1 ? '1 file could not be converted and is left out:' : `${failed.length} files could not be converted and are left out:`}</strong>
+          </p>
+          {failed.map((line) => (
+            <p key={line} style="white-space: pre-wrap">
+              {line}
+            </p>
+          ))}
+        </div>
+      ) : null}
       {plan.skipped.length || plan.duplicates.length || plan.warnings.length ? (
         <ul class="files">
           {plan.skipped.map((skipped) => (
