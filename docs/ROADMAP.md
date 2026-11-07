@@ -64,3 +64,4 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 - Smart playlists are now written back untouched. Does libgpod write a real nano 7G's smart playlists without error? Untested until hardware.
 - Does libgpod, which does not know the nano 7G model number, cope everywhere else? Checksum and capabilities work. Artwork does not yet.
 - Does Chrome for Android expose the folder picker for an iPod volume? Phase 0 checks this.
+- Small known difference, left alone until the nano has been tried: iTunes leaves `Genius.itdb` at library version 2 and libgpod writes 0. The file is empty either way. The fix is one line in libgpod's `mk_Genius` (`PRAGMA user_version = 2` when the file is made), as a fifth patch. Library.itdb's version already matches: the iPod holds 26 and the patched rewrite writes 26.
