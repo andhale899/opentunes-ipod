@@ -188,7 +188,10 @@ export function AddPanel({
           const item = await prepareItem(candidate, {
             playlist: playlist.trim() || undefined,
             signal: controller.signal,
-            onProgress: (fraction) => setStage({ phase: 'converting', message: label, fraction }),
+            onProgress: (fraction) => {
+              activity.update('', { fraction: (index + fraction) / addable.length });
+              setStage({ phase: 'converting', message: label, fraction });
+            },
           });
           if (item) items.push(item);
         } catch (error) {
