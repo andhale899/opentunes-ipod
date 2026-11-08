@@ -263,8 +263,8 @@ function Library({ tracks }: { tracks: TrackInfo[] }) {
     );
   }
   return (
-    <div class="table-wrap">
-      <table class="library">
+    <div class="table-wrap stack-wrap">
+      <table class="library stack">
         <thead>
           <tr>
             <th>Title</th>
@@ -279,11 +279,11 @@ function Library({ tracks }: { tracks: TrackInfo[] }) {
           {tracks.slice(0, MAX_ROWS).map((track) => (
             <tr key={track.handle} title={track.ipod_path ?? ''}>
               <td class="cell-title">{track.title ?? '(no title)'}</td>
-              <td>{track.artist ?? ''}</td>
-              <td>{track.album ?? ''}</td>
-              <td>{kindLabel(track.kind)}</td>
-              <td class="num">{formatDuration(track.tracklen)}</td>
-              <td class="num">{formatBytes(track.size)}</td>
+              <td class="cell-artist">{track.artist ?? ''}</td>
+              <td class="cell-album">{track.album ?? ''}</td>
+              <td class="cell-meta">{kindLabel(track.kind)}</td>
+              <td class="num cell-meta">{formatDuration(track.tracklen)}</td>
+              <td class="num cell-meta">{formatBytes(track.size)}</td>
             </tr>
           ))}
         </tbody>
@@ -587,7 +587,7 @@ export function IpodViewer({
       {current === 'library' ? (
         writable ? (
           <PanelBoundary name="Library">
-            <ManagePanel root={snapshot.root} tracks={tracks} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
+            <ManagePanel root={snapshot.root} tracks={tracks} playlists={playlists} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
           </PanelBoundary>
         ) : (
           <section class="card">
@@ -596,7 +596,7 @@ export function IpodViewer({
           </section>
         )
       ) : null}
-      {current === 'library' ? (
+      {current === 'library' && !writable ? (
         <section class="card">
           <h3>Playlists</h3>
           <ul class="playlists">

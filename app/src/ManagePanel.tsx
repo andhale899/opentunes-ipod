@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks';
-import { formatBytes, formatDuration, kindLabel } from '@opentunes/core';
+import { formatBytes } from '@opentunes/core';
 import {
   applyRemoval,
   editTracks,
@@ -11,15 +11,19 @@ import {
   type DirectoryEntry,
   type IpodRoot,
   type OrphanReport,
+  type PlaylistInfo,
   type RemovalPlan,
+  type TrackEdit,
   type TrackInfo,
 } from '@opentunes/engine';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 import { BackupGate } from './BackupGate';
 import { allowWriting } from './WriteBackPanel';
-
-const MAX_ROWS = 200;
+import { BulkEdit } from './library/BulkEdit';
+import { rowsOf, selectedRows } from './library/organise';
+import { PlaylistManager } from './library/PlaylistManager';
+import { TrackBrowser } from './library/TrackBrowser';
 
 type Stage =
   | { phase: 'idle' }
@@ -40,48 +44,49 @@ type EditField = (typeof EDIT_FIELDS)[number][0];
 
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;
 
+type LibraryView = 'tracks' | 'playlists';
+
 /**
- * The library of a real iPod, with the ways to change it: search, remove tracks and their files,
- * fix the title, artist, album and genre of one track, and delete files no track uses. Everything
- * that writes needs the backup, and goes through a plan that changes nothing first.
+ * The library of a real iPod, with the ways to change it: filter, sort, group and select tracks,
+ * remove them and their files, fix the details of one track or of many at once, manage playlists,
+ * and delete files no track uses. Everything that writes needs the backup, and removals and
+ * playlist changes go through a plan that changes nothing first.
  */
 export function ManagePanel({
   root,
   tracks,
+  playlists = [],
   backup,
   onChanged,
   onNeedBackup,
 }: {
   root: DirectoryEntry;
   tracks: TrackInfo[];
+  playlists?: PlaylistInfo[];
   backup: BackupReport | null;
   onChanged: () => void;
   /** Takes the person to the backup step. */
   onNeedBackup?: () => void;
 }) {
-  const [search, setSearch] = useState('');
+  const [view, setView] = useState<LibraryView>('tracks');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [stage, setStage] = useState<Stage>({ phase: 'idle' });
   const [draft, setDraft] = useState<Partial<Record<EditField, string>>>({});
 
   const ready = backup !== null && backup.complete;
   const busy = stage.phase === 'working';
-  const rows = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    const all = tracks.map((track) => ({ track, key: trackKey(track) }));
-    return needle ? all.filter(({ track }) => [track.title, track.artist, track.album].some((text) => text?.toLowerCase().includes(needle))) : all;
-  }, [tracks, search]);
+  const rows = useMemo(() => rowsOf(tracks), [tracks]);
+  const chosen = useMemo(() => selectedRows(rows, selected), [rows, selected]);
+  const only = chosen.length === 1 ? chosen[0]?.track : undefined;
 
-  const only = selected.size === 1 ? tracks.find((track) => selected.has(trackKey(track))) : undefined;
-
-  function toggle(key: string) {
-    setSelected((previous) => {
-      const next = new Set(previous);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  function select(next: Set<string>) {
+    setSelected(next);
     setDraft({});
+    setStage({ phase: 'idle' });
+  }
+
+  function show(next: LibraryView) {
+    setView(next);
     setStage({ phase: 'idle' });
   }
 
@@ -154,6 +159,29 @@ export function ManagePanel({
     }
   }
 
+  /** Changes artist, album, album artist, genre and kind of many tracks, one edit per track, in one write. */
+  async function applyBulk(edits: TrackEdit[]): Promise<boolean> {
+    if (!edits.length) return false;
+    if (!(await allowWriting(root))) {
+      setStage({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was changed.' });
+      return false;
+    }
+    setStage({ phase: 'working', message: `Saving changes to ${plural(edits.length, 'track')}...` });
+    try {
+      const { report } = await editTracks(root as unknown as IpodRoot, newEngine, edits, {
+        backup,
+        onProgress: (progress: string | { message: string }) => setStage({ phase: 'working', message: typeof progress === 'string' ? progress : progress.message }),
+      });
+      const ok = report.verified && !report.rolledBack && !report.failures.length;
+      setStage({ phase: 'done', ok, message: ok ? `Changed ${plural(edits.length, 'track')} in one write. The iPod was read back and matches.` : 'The change did not finish.', details: report.failures });
+      if (ok) onChanged();
+      return ok;
+    } catch (error) {
+      setStage({ phase: 'error', message: describeError(error) });
+      return false;
+    }
+  }
+
   async function look() {
     setStage({ phase: 'working', message: 'Looking for files no track uses...' });
     try {
@@ -185,7 +213,7 @@ export function ManagePanel({
   return (
     <section class="card">
       <h3>Your library</h3>
-      <p class="card-lead">Select tracks to remove them, or select one to edit its details.</p>
+      <p class="card-lead">Find tracks, select them, then remove them, change their details together or put them in a playlist.</p>
       <BackupGate ready={ready} onGo={onNeedBackup} />
       {tracks.length === 0 ? (
         <div class="empty">
@@ -194,80 +222,56 @@ export function ManagePanel({
         </div>
       ) : (
         <>
-          <div class="toolbar">
-            <label class="field">
-              Search
-              <input type="search" value={search} onInput={(event) => setSearch((event.target as HTMLInputElement).value)} placeholder="Title, artist or album" />
-            </label>
-            <div class="spacer" />
-            <button type="button" class="secondary" disabled={busy} onClick={() => void look()}>
-              Look for leftover files
+          <div class="subtabs" role="tablist" aria-label="Library views">
+            <button type="button" role="tab" class="subtab" aria-selected={view === 'tracks'} onClick={() => show('tracks')}>
+              Tracks <span class="badge">{tracks.length}</span>
+            </button>
+            <button type="button" role="tab" class="subtab" aria-selected={view === 'playlists'} onClick={() => show('playlists')}>
+              Playlists <span class="badge">{playlists.length}</span>
             </button>
           </div>
-          <div class="table-wrap">
-            <table class="library">
-              <thead>
-                <tr>
-                  <th />
-                  <th>Title</th>
-                  <th>Artist</th>
-                  <th>Album</th>
-                  <th>Kind</th>
-                  <th class="num">Length</th>
-                  <th class="num">Size</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.slice(0, MAX_ROWS).map(({ track, key }) => (
-                  <tr key={track.handle} title={track.ipod_path ?? ''} class={selected.has(key) ? 'selected' : ''}>
-                    <td>
-                      <input type="checkbox" checked={selected.has(key)} onChange={() => toggle(key)} aria-label={`Select ${track.title ?? 'track'}`} disabled={busy} />
-                    </td>
-                    <td class="cell-title">{track.title ?? '(no title)'}</td>
-                    <td>{track.artist ?? ''}</td>
-                    <td>{track.album ?? ''}</td>
-                    <td>{kindLabel(track.kind)}</td>
-                    <td class="num">{formatDuration(track.tracklen)}</td>
-                    <td class="num">{formatBytes(track.size)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {rows.length > MAX_ROWS ? (
-              <p class="muted">
-                Showing the first {MAX_ROWS} of {rows.length}. Search to narrow the list.
-              </p>
-            ) : null}
-          </div>
+
+          {view === 'tracks' ? (
+            <>
+              <div class="actions">
+                <button type="button" class="secondary" disabled={busy} onClick={() => void look()}>
+                  Look for leftover files
+                </button>
+              </div>
+              <TrackBrowser
+                rows={rows}
+                selected={selected}
+                onSelect={select}
+                disabled={busy}
+                actions={
+                  <button type="button" class="secondary" disabled={busy || !ready} onClick={() => void planRemove()}>
+                    Remove selected
+                  </button>
+                }
+              />
+
+              {only ? (
+                <div>
+                  <h4>Edit this track</h4>
+                  {EDIT_FIELDS.map(([name, label]) => (
+                    <label class="field" key={name}>
+                      {label}{' '}
+                      <input type="text" value={draft[name] ?? only[name] ?? ''} disabled={busy} onInput={(event) => setDraft({ ...draft, [name]: (event.target as HTMLInputElement).value })} />
+                    </label>
+                  ))}
+                  <button type="button" disabled={busy || !ready} onClick={() => void save(only)}>
+                    Save changes to the iPod
+                  </button>
+                </div>
+              ) : null}
+
+              {chosen.length ? <BulkEdit selected={chosen} busy={busy} ready={ready} onApply={applyBulk} /> : null}
+            </>
+          ) : (
+            <PlaylistManager root={root} rows={rows} playlists={playlists} selected={selected} onSelect={select} backup={backup} onChanged={onChanged} />
+          )}
         </>
       )}
-
-      {selected.size ? (
-        <div class="actions">
-          <span class="note">{plural(selected.size, 'track')} selected</span>
-          <button type="button" class="secondary" disabled={busy || !ready} onClick={() => void planRemove()}>
-            Remove selected
-          </button>
-          <button type="button" class="ghost" disabled={busy} onClick={() => { setSelected(new Set()); setDraft({}); }}>
-            Clear selection
-          </button>
-        </div>
-      ) : null}
-
-      {only ? (
-        <div>
-          <h4>Edit this track</h4>
-          {EDIT_FIELDS.map(([name, label]) => (
-            <label class="field" key={name}>
-              {label}{' '}
-              <input type="text" value={draft[name] ?? only[name] ?? ''} disabled={busy} onInput={(event) => setDraft({ ...draft, [name]: (event.target as HTMLInputElement).value })} />
-            </label>
-          ))}
-          <button type="button" disabled={busy || !ready} onClick={() => void save(only)}>
-            Save changes to the iPod
-          </button>
-        </div>
-      ) : null}
 
       {stage.phase === 'working' ? (
         <p class="callout info" role="status">
