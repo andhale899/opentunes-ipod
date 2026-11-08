@@ -127,7 +127,7 @@ describe('rendering a thumbnail', () => {
 });
 
 const offsets = (base) => new Map(COVER_FORMATS.map((format) => [format.id, base * format.slotBytes]));
-const SONG = 0x6f968ae6413996c7n;
+const SONG = 0x1122334455667788n;
 
 describe('the ArtworkDB', () => {
   it('has the layout of the owner\'s file: sizes, counts, the four formats in order, names and slots', () => {

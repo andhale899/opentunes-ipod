@@ -148,7 +148,18 @@ Every one of those differs from the file a nano 7G has (section 2, `ArtworkDB` l
 - iOpenPod's `photosdb-format.md` says the Photo Database has the same record layout as the `ArtworkDB`, and that its photo album record (`mhba`) type is 6 on the nano 6 and 7 where other iPods use 2. It gives no layout for the 1007 and 1005 formats beyond "centred on a black raster, with padding" (the full-size 480 x 864 raster is 829,440 bytes per photo). **CONFIRMED** (their text); I have no file to compare it with.
 - I have no photo database or `Photos` folder from a nano 7G. The owner's backups do not hold one: the backup code copies `iTunes`, `Device` and `Artwork` only, so I cannot tell if the unit has a `Photos` folder at all. Nothing the app writes today would be backed up if it wrote there, so it could not be restored.
 
-## 5. Decisions
+## 5. What the build checked (added after Stage B)
+
+Run in this branch, with the commands in the changelog. None of this is a test on an iPod.
+
+- **The writer reproduces the owner's ArtworkDB byte for byte.** A test (`engine/test/artwork.test.mjs`, run when `OPENTUNES_REAL_ARTWORKDB` names a file) reads the owner's 2,120 byte file, rebuilds it from the fields it read (image id, track id, source size, offsets, and the unexplained `mhfd` ids) and compares: identical. It also adds an image to the real file and checks the old image's record, the ids and the format list are unchanged. This confirms the field layout and sizes in section 2 against one real file, nothing about how the device treats a file that has more images.
+- **Thumbnail bytes and the ArtworkDB fields** are checked with a reader written separately from the writer, and the pixel packing against an unpacker written separately, including the zero bytes widening each 57 pixel row.
+- **The library link.** After a sync with a cover, the SQLite library written in memory (and read back from the scratch iPod) holds `item.artwork_status` 1 and `item.artwork_cache_id` = the image id for that track's pid, and `album.artwork_item_pid` points at it. Tracks that already have a link keep it through a later sync (this fails if the engine's `ot_open` does not copy `mhii_link` into the id: checked by turning that line off and rebuilding). That the iPod reads these columns the way libgpod's source and ipodsync suggest is **not** tested.
+- **Failure paths:** a refused or corrupted write of a thumbnail file, of the ArtworkDB and of the database each leave the scratch iPod byte for byte as it was, an ArtworkDB that changed after the plan stops the write, and an ArtworkDB or thumbnail files this code does not understand leave art off with a warning while the music goes on.
+- **The old engine build** (the one in the main checkout) still works with the new code: a sync with a cover picture leaves the art off with "this engine build predates album art" and verifies.
+- **The app side** has unit tests (folder cover rules, the lookup with a fake `fetch`) and a headless Chrome scenario on a practice iPod: a cover.png from a folder, a looked-up cover through a fake `fetch`, the plan, the write and the read-back.
+
+## 6. Decisions
 
 ### Album art: **GO**, for tracks with a cover, behind a first test by the owner
 

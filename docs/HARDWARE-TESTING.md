@@ -41,6 +41,20 @@ These cases are written ahead of the feature and will be revised when it exists.
 7. Delete one track. It disappears and its file is removed.
 8. Restore the backup. The iPod returns to its earlier state.
 
+## Album art, first test (one track)
+
+Written before the test. The art writer has run only against in-memory iPods and the shape of this unit's own ArtworkDB.
+
+1. In the app, make a complete backup. It includes the `Artwork` folder.
+2. Add one MP3 or M4A that has a cover picture inside it, alone, so no other track shares its cover. Leave "Put cover pictures on the iPod" ticked. The plan should say "Add album art to 1 track: 1 picture" and, if the unit has its ArtworkDB, no warning about a new one.
+3. Put it on the iPod. The page should end with "Album art was written for 1 track (1 picture) and read back".
+4. Eject, then on the iPod open Now Playing for that song (the 240 pixel cover) and look for it in the song list and the album list (the small ones).
+5. Check the other songs still play, show no wrong covers, and the song count in Settings, About is unchanged plus one.
+6. To undo: restore the backup from the app (it puts back `iTunes`, `Device` and `Artwork` and deletes nothing), then delete the new song's file. If the iPod misbehaves in a way the app cannot reach, restore it in iTunes or Finder.
+7. Record what the iPod showed, and whether the page's read-back passed, here.
+
+Only after that: an album of several tracks with one cover (they share one image), then an album with a cover found online.
+
 ## Recording a result
 
 Copy this block for each run.
