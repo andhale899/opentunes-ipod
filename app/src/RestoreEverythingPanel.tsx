@@ -1,8 +1,9 @@
-import { useRef, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
 import { describeOffload, type BackupReport, type DirectoryEntry, type IpodRoot, type OffloadProgress, type OffloadSource, type OffloadSummary, type RestoreOffloadReport } from '@opentunes/engine';
 import { restoreOffload } from './tracked';
 import { BackupGate } from './BackupGate';
+import { ConfirmBox, Notice, useOnce } from './controls';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 import { timeLeftText } from './timeLeft';
@@ -23,11 +24,12 @@ const SHOWN = 100;
 /**
  * Puts everything in an offload folder back on the iPod: the media files it lacks first, then the
  * saved library. The library on the iPod is replaced, so this needs a complete backup of the
- * iPod as it is now. Stop works at any point before the library is put back.
+ * iPod as it is now. It is a long write job, so Stop and Pause are in the activity bar (the page's
+ * controls are off while it runs). Stop works until the library is put back, and not after.
  */
 export function RestoreEverythingPanel({ root, backup, onNeedBackup, onChanged }: { root: DirectoryEntry; backup: BackupReport | null; onNeedBackup?: () => void; onChanged?: () => void }) {
   const [state, setState] = useState<State>({ phase: 'idle' });
-  const abort = useRef<AbortController | null>(null);
+  const once = useOnce();
   const ready = backup !== null && backup.complete;
 
   async function choose() {
@@ -36,45 +38,46 @@ export function RestoreEverythingPanel({ root, backup, onNeedBackup, onChanged }
       setState({ phase: 'error', message: 'This browser has no folder picker. Use Chrome or Edge on a computer.' });
       return;
     }
-    let handle: unknown;
-    try {
-      handle = await picker.call(window, { mode: 'read' });
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setState({ phase: 'error', message: describeError(error) });
-      return;
-    }
-    setState({ phase: 'reading' });
-    try {
-      const folder = handle as OffloadSource;
-      setState({ phase: 'chosen', folder, summary: await describeOffload(folder, root as unknown as IpodRoot) });
-    } catch (error) {
-      const message = describeError(error);
-      setState({ phase: 'error', message: /no opentunes-offload\.json/.test(message) ? `${message} If it is a backup folder (opentunes-backup-...), use "Restore from a backup" above instead.` : message });
-    }
+    // Chrome shows its picker for a moment before it answers, long enough to click twice.
+    await once(async () => {
+      let handle: unknown;
+      try {
+        handle = await picker.call(window, { mode: 'read' });
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) setState({ phase: 'error', message: describeError(error) });
+        return;
+      }
+      setState({ phase: 'reading' });
+      try {
+        const folder = handle as OffloadSource;
+        setState({ phase: 'chosen', folder, summary: await describeOffload(folder, root as unknown as IpodRoot) });
+      } catch (error) {
+        const message = describeError(error);
+        setState({ phase: 'error', message: /no opentunes-offload\.json/.test(message) ? `${message} If it is a backup folder (opentunes-backup-...), use "Restore from a backup" above instead.` : message });
+      }
+    });
   }
 
   async function restore(folder: OffloadSource) {
-    try {
-      // First thing in the click, so Chrome can still show its permission prompt.
-      if (!(await allowWriting(root))) {
-        setState({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was put back.' });
-        return;
+    await once(async () => {
+      try {
+        // First thing in the click, so Chrome can still show its permission prompt.
+        if (!(await allowWriting(root))) {
+          setState({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was put back.' });
+          return;
+        }
+        setState({ phase: 'working', progress: null });
+        // Stop and Pause come from the wrapper in tracked.ts, which makes the signal and the pause gate and shows both in the bar.
+        const report = await restoreOffload(root as unknown as IpodRoot, folder, {
+          newEngine,
+          onProgress: (progress) => setState({ phase: 'working', progress }),
+        });
+        setState({ phase: 'done', report });
+        onChanged?.();
+      } catch (error) {
+        setState({ phase: 'error', message: describeError(error, { writing: true }) });
       }
-      const controller = new AbortController();
-      abort.current = controller;
-      setState({ phase: 'working', progress: null });
-      const report = await restoreOffload(root as unknown as IpodRoot, folder, {
-        newEngine,
-        signal: controller.signal,
-        onProgress: (progress) => setState({ phase: 'working', progress }),
-      });
-      setState({ phase: 'done', report });
-      onChanged?.();
-    } catch (error) {
-      setState({ phase: 'error', message: describeError(error) });
-    } finally {
-      abort.current = null;
-    }
+    });
   }
 
   const working = state.phase === 'working';
@@ -98,9 +101,9 @@ export function RestoreEverythingPanel({ root, backup, onNeedBackup, onChanged }
       ) : null}
 
       {state.phase === 'error' ? (
-        <div class="result no" role="alert">
+        <Notice tone="no">
           <p>{state.message}</p>
-        </div>
+        </Notice>
       ) : null}
 
       {state.phase === 'chosen' ? <Chosen folder={state.folder} summary={state.summary} ready={ready} onNeedBackup={onNeedBackup} onRestore={() => void restore(state.folder)} /> : null}
@@ -119,12 +122,9 @@ export function RestoreEverythingPanel({ root, backup, onNeedBackup, onChanged }
               </p>
             </>
           ) : null}
-          <div class="actions">
-            <button type="button" class="secondary" onClick={() => abort.current?.abort()} disabled={progress?.phase === 'restoring'}>
-              Stop
-            </button>
-          </div>
-          <p class="muted">Stopping leaves the iPod's library as it was. Run this again later to carry on: files already copied back are skipped.</p>
+          <p class="muted">
+            Stop and Pause are in the bar at the top. Stopping leaves the iPod's library as it was, and cannot be done once the library is being put back. Run this again later to carry on: files already copied back are skipped.
+          </p>
         </div>
       ) : null}
 
@@ -135,6 +135,7 @@ export function RestoreEverythingPanel({ root, backup, onNeedBackup, onChanged }
 
 function Chosen({ folder, summary, ready, onNeedBackup, onRestore }: { folder: OffloadSource; summary: OffloadSummary; ready: boolean; onNeedBackup?: () => void; onRestore: () => void }) {
   const onIpod = summary.onIpod;
+  const [asking, setAsking] = useState(false);
   return (
     <>
       <p>
@@ -154,9 +155,30 @@ function Chosen({ folder, summary, ready, onNeedBackup, onRestore }: { folder: O
         </div>
       )}
       <BackupGate ready={ready} onGo={onNeedBackup} />
-      <button type="button" onClick={onRestore} disabled={!ready || !summary.complete}>
-        Restore everything to the iPod
-      </button>
+      {asking ? (
+        <ConfirmBox
+          title="Put everything back on the iPod?"
+          confirmLabel="Restore everything to the iPod"
+          cancelLabel="Do not restore"
+          danger
+          onConfirm={() => {
+            setAsking(false);
+            onRestore();
+          }}
+          onCancel={() => setAsking(false)}
+        >
+          <p>
+            {onIpod && onIpod.toCopy > 0 ? `${onIpod.toCopy} music and video files (${formatBytes(onIpod.bytesToCopy)}) are copied back first, then ` : ''}the iPod's library is replaced by the one saved in "{folder.name}". Anything added since, and any change to playlists, ratings or play counts, is lost from the library.
+          </p>
+          <p>
+            It can be undone with the backup you just made: restore it from "Restore from a backup" above. Files copied back stay on the iPod. You can pause between files, or stop until the library starts to be put back (the bar at the top has both).
+          </p>
+        </ConfirmBox>
+      ) : (
+        <button type="button" onClick={() => setAsking(true)} disabled={!ready || !summary.complete}>
+          Restore everything to the iPod...
+        </button>
+      )}
     </>
   );
 }
@@ -165,7 +187,7 @@ function Done({ report }: { report: RestoreOffloadReport }) {
   const seconds = Math.max(1, Math.round(report.elapsedMs / 1000));
   return (
     <>
-      <div class={`result ${report.complete ? 'ok' : 'no'}`} role={report.complete ? 'status' : 'alert'}>
+      <Notice tone={report.complete ? 'ok' : report.stopped && !report.failures.length ? 'info' : 'no'}>
         <p>{report.summary}</p>
         {report.complete ? <p>The iPod can now be ejected. Eject it from your computer before you unplug it, then check it.</p> : null}
         {report.complete && report.bytes.copied > 0 ? (
@@ -173,7 +195,7 @@ function Done({ report }: { report: RestoreOffloadReport }) {
             Copied {formatBytes(report.bytes.copied)} in {seconds} s{report.bytesPerSecond > 0 ? ` (${formatBytes(report.bytesPerSecond)}/s)` : ''}.
           </p>
         ) : null}
-      </div>
+      </Notice>
       {report.stopped ? <p class="muted">Run "Restore everything" again with the same folder to carry on.</p> : null}
       {report.failures.length ? (
         <>

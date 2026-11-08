@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { checkRewrite, findFireWireId, loadIpodFolder, type DirectoryEntry, type RewriteReport, type SignatureStatus } from '@opentunes/engine';
-import { describeError } from './describeError';
+import { startActivity } from './activity';
+import { Notice, useOnce } from './controls';
+import { describeError, isStopped } from './describeError';
 import { newEngine } from './engineLoader';
 
 const MOUNT = '/ipod';
@@ -32,13 +34,32 @@ function reportJson(folderName: string, report: RewriteReport): string {
 export function RewritePanel({ source, autoStart = false }: { source: DirectoryEntry; autoStart?: boolean }) {
   const [state, setState] = useState<State>({ phase: 'idle' });
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const abort = useRef<AbortController | null>(null);
+  const once = useOnce();
 
   async function run() {
+    await once(go);
+  }
+
+  async function go() {
     setCopied('idle');
     setState({ phase: 'working', message: 'Loading the engine...' });
+    const controller = new AbortController();
+    abort.current = controller;
+    // This test reads the iPod and works in memory, so stopping it changes nothing. It is shown in the bar like every other job.
+    const activity = startActivity('Testing the library rewrite', { stop: { label: 'Stop (nothing is written)', stopping: 'Stopping...', run: () => controller.abort() } });
+    let stopped = false;
+    let failure: string | undefined;
     try {
       const engine = await newEngine();
-      const load = await loadIpodFolder(source, engine, { mount: MOUNT, onProgress: (message) => setState({ phase: 'working', message }) });
+      const load = await loadIpodFolder(source, engine, {
+        mount: MOUNT,
+        signal: controller.signal,
+        onProgress: (message) => {
+          activity.update(message);
+          setState({ phase: 'working', message });
+        },
+      });
       engine.open(load.mount);
       let fireWireId: string | null = null;
       try {
@@ -46,11 +67,20 @@ export function RewritePanel({ source, autoStart = false }: { source: DirectoryE
       } catch {
         fireWireId = null;
       }
-      setState({ phase: 'working', message: 'Writing the database in memory and comparing...' });
+      controller.signal.throwIfAborted();
+      // The comparison itself runs in one go and cannot be interrupted. It takes a few seconds.
+      activity.setBlocked('This part cannot be stopped. It takes a few seconds.');
+      activity.update('Writing the library in memory and comparing...');
+      setState({ phase: 'working', message: 'Writing the library in memory and comparing...' });
       const report = await checkRewrite(engine, load.mount, fireWireId ?? findFireWireId(engine, load.mount));
       setState({ phase: 'done', report });
     } catch (error) {
-      setState({ phase: 'error', message: describeError(error) });
+      stopped = isStopped(error);
+      if (!stopped) failure = describeError(error);
+      setState({ phase: 'error', message: stopped ? 'Stopped. Nothing was written to the iPod.' : describeError(error) });
+    } finally {
+      activity.end(failure === undefined, failure, stopped);
+      abort.current = null;
     }
   }
 
@@ -71,13 +101,20 @@ export function RewritePanel({ source, autoStart = false }: { source: DirectoryE
 
   return (
     <section class="card">
-      <h3>Rewrite check</h3>
+      <h3>Library test: would a rewrite lose anything?</h3>
       <p class="card-lead">
-        Writes the database the way a sync would, but only inside the engine's own memory, and compares the result with what is on the iPod: the library, every file, and the SQLite files a nano 6th or 7th generation keeps. Nothing is written to the iPod. Track titles are left out of the report.
+        Makes a trial copy of the iPod's library in memory, the way adding music would write it, and compares it with what is on the iPod: the song list, every file, and the extra library files a nano 6th or 7th generation keeps. Nothing is written to the iPod. Track titles are left out of the report.
       </p>
-      <button type="button" onClick={() => void run()} disabled={working}>
-        Check what a rewrite would change
-      </button>
+      <div class="actions">
+        <button type="button" onClick={() => void run()} disabled={working}>
+          Run the test (nothing is written)
+        </button>
+        {working ? (
+          <button type="button" class="secondary" onClick={() => abort.current?.abort()}>
+            Stop (nothing is written)
+          </button>
+        ) : null}
+      </div>
 
       {state.phase === 'working' ? (
         <p class="note" role="status">
@@ -85,9 +122,9 @@ export function RewritePanel({ source, autoStart = false }: { source: DirectoryE
         </p>
       ) : null}
       {state.phase === 'error' ? (
-        <div class="result no" role="alert">
+        <Notice tone="no">
           <p>{state.message}</p>
-        </div>
+        </Notice>
       ) : null}
       {state.phase === 'done' ? <Result folderName={source.name} report={state.report} copied={copied} onCopy={copy} /> : null}
     </section>
@@ -114,15 +151,15 @@ function Result({ folderName, report, copied, onCopy }: { folderName: string; re
   return (
     <>
       {problems.length === 0 ? (
-        <div class="result ok" role="status">
-          <p>No differences found. Rewriting the database would keep everything this check could compare.</p>
-        </div>
+        <Notice tone="ok">
+          <p>No differences found. Rewriting the library would keep everything this test could compare.</p>
+        </Notice>
       ) : (
-        <div class="result no" role="alert">
+        <Notice tone="no">
           <p>
-            {problems.length} {problems.length === 1 ? 'difference' : 'differences'} found. A sync that rewrote the database now would change what is on the iPod.
+            {problems.length} {problems.length === 1 ? 'difference' : 'differences'} found. Adding music now would rewrite the library and change these things on the iPod.
           </p>
-        </div>
+        </Notice>
       )}
       {problems.length ? (
         <ul class="files">
@@ -194,8 +231,9 @@ function Result({ folderName, report, copied, onCopy }: { folderName: string; re
       <button type="button" onClick={() => void onCopy(reportJson(folderName, report))}>
         Copy rewrite report
       </button>
-      {copied === 'copied' ? <span class="note"> Copied.</span> : null}
-      {copied === 'failed' ? <span class="note"> Copy failed.</span> : null}
+      <span class="note" role="status" aria-live="polite">
+        {copied === 'copied' ? ' Copied.' : copied === 'failed' ? ' Copy failed.' : ''}
+      </span>
       <p class="muted">File sizes are in bytes. In the SQLite list, the numbers after a column name are how many rows hold a value that is not empty or zero.</p>
     </>
   );

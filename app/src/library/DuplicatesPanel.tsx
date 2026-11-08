@@ -3,6 +3,7 @@ import { formatBytes, formatDuration } from '@opentunes/core';
 import { type BackupReport, type DirectoryEntry, type IpodRoot, type PlaylistInfo, type RemovalPlan, type TrackInfo } from '@opentunes/engine';
 import { applyRemoval, changePlaylists, planRemoval } from '../tracked';
 import { startActivity } from '../activity';
+import { ConfirmBox, Notice, useOnce } from '../controls';
 import { describeError } from '../describeError';
 import { newEngine } from '../engineLoader';
 import { allowWriting } from '../WriteBackPanel';
@@ -87,7 +88,10 @@ export function DuplicatesPanel({
   const [intoPlaylists, setIntoPlaylists] = useState(true);
   const [shown, setShown] = useState(PAGE);
   const [asking, setAsking] = useState(false);
+  /** Set once the ticked duplicates are planned and shown, while "Remove from the iPod" asks first. */
+  const [confirming, setConfirming] = useState(false);
   const controller = useRef<AbortController | null>(null);
+  const once = useOnce();
   useEffect(() => () => controller.current?.abort(), []);
 
   const ready = backup !== null && backup.complete;
@@ -106,6 +110,7 @@ export function DuplicatesPanel({
   function change(next: Choices) {
     update({ choices: next });
     setStage({ phase: 'idle' });
+    setConfirming(false);
   }
   function setChoice(group: DupGroup<TrackInfo>, choice: ReturnType<typeof choiceOf>) {
     change(new Map(now.choices).set(group.id, choice));
@@ -115,6 +120,7 @@ export function DuplicatesPanel({
 
   async function plan() {
     if (!ticked.keys.length) return;
+    setConfirming(false);
     setStage({ phase: 'working', message: 'Planning the removal...' });
     try {
       const steps = intoPlaylists ? buildPlaylistSteps(visible, now.choices, playlists) : { steps: [], lines: [], skipped: [] };
@@ -127,8 +133,18 @@ export function DuplicatesPanel({
 
   /** Runs from the button. Chrome's permission prompt must come first, straight from the click. */
   async function remove(chosen: Extract<Stage, { phase: 'plan' }>) {
-    if (!(await allowWriting(root))) {
-      setStage({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was changed.' });
+    setConfirming(false);
+    await once(() => removeNow(chosen));
+  }
+
+  async function removeNow(chosen: Extract<Stage, { phase: 'plan' }>) {
+    try {
+      if (!(await allowWriting(root))) {
+        setStage({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was changed.' });
+        return;
+      }
+    } catch (error) {
+      setStage({ phase: 'error', message: describeError(error, { writing: true }) });
       return;
     }
     if (!ready) return;
@@ -164,7 +180,7 @@ export function DuplicatesPanel({
         details: [...result.failures, ...result.orphans.map((orphan) => `${orphan.path}: ${orphan.reason}`), ...(ok ? chosen.steps.skipped : [])],
       });
     } catch (error) {
-      setStage({ phase: 'error', message: `${lines.length ? 'The songs you keep were put into their playlists, but ' : ''}${describeError(error)}` });
+      setStage({ phase: 'error', message: `${lines.length ? 'The songs you keep were put into their playlists, but ' : ''}${describeError(error, { writing: true })}` });
     }
     if (changed) onChanged();
   }
@@ -430,9 +446,9 @@ export function DuplicatesPanel({
         </p>
       ) : null}
       {stage.phase === 'error' ? (
-        <div class="result no" role="alert">
+        <Notice tone="no">
           <p>{stage.message}</p>
-        </div>
+        </Notice>
       ) : null}
       {stage.phase === 'plan' ? (
         <>
@@ -469,9 +485,28 @@ export function DuplicatesPanel({
               ))}
             </ul>
           ) : null}
-          <button type="button" class="danger" disabled={!ready || busy} onClick={() => void remove(stage)}>
-            Remove from the iPod
-          </button>
+          {confirming ? (
+            <ConfirmBox
+              title={`Remove ${plural(stage.plan.tracks.length, 'track')} from the iPod?`}
+              confirmLabel="Remove from the iPod"
+              cancelLabel="Do not remove"
+              danger
+              disabled={!ready || busy}
+              onConfirm={() => void remove(stage)}
+              onCancel={() => setConfirming(false)}
+            >
+              <p>
+                {plural(stage.plan.tracks.length, 'duplicate track')} and {plural(stage.plan.files.length, 'song file')} are removed from the iPod. The copy you chose to keep in each group stays.
+              </p>
+              <p>
+                The song files are deleted from the iPod. <strong>This cannot be undone from the backup</strong>, because the backup holds the library but no music. To keep a copy of the songs first, use the Offload tab.
+              </p>
+            </ConfirmBox>
+          ) : (
+            <button type="button" class="danger" disabled={!ready || busy} onClick={() => setConfirming(true)}>
+              Remove from the iPod...
+            </button>
+          )}
         </>
       ) : null}
       {stage.phase === 'done' ? <Done stage={stage} /> : null}
@@ -482,9 +517,9 @@ export function DuplicatesPanel({
 function Done({ stage }: { stage: Extract<Stage, { phase: 'done' }> }) {
   return (
     <>
-      <div class={`result ${stage.ok ? 'ok' : 'no'}`} role={stage.ok ? 'status' : 'alert'}>
+      <Notice tone={stage.ok ? 'ok' : 'no'}>
         <p>{stage.message}</p>
-      </div>
+      </Notice>
       {stage.details.length ? (
         <ul class="files">
           {stage.details.map((line) => (

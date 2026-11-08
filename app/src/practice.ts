@@ -69,7 +69,7 @@ export function exposePracticeForTests(ipod: ScratchFolder): void {
       const key = trackKey(first);
       const plan = await planRemoval(ipod as unknown as IpodRoot, newEngine, [key]);
       const report = await applyRemoval(plan, ipod as unknown as IpodRoot, newEngine, {
-        backup: { folder: 'test', files: 1, bytes: 1, verified: 1, failures: [], left: [], complete: true },
+        backup: { folder: 'test', files: 1, bytes: 1, verified: 1, failures: [], left: [], complete: true, stopped: false },
       });
       return report.verified ? 1 : 0;
     },

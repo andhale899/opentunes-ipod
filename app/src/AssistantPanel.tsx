@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { type BackupReport, type DirectoryEntry, type IpodRoot, type LibraryReport, type PlaylistInfo, type TrackInfo } from '@opentunes/engine';
 import { changePlaylists, editTracks, planEdits, planPlaylistChanges } from './tracked';
 import { BackupGate } from './BackupGate';
+import { ConfirmBox, useOnce } from './controls';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 import { allowWriting } from './WriteBackPanel';
@@ -68,6 +69,9 @@ export function AssistantPanel({
   const [partIndex, setPartIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  /** The answer whose Apply button was pressed and is waiting for a yes. */
+  const [confirming, setConfirming] = useState<number | null>(null);
+  const once = useOnce();
   const controller = useRef<AbortController | null>(null);
 
   const { settings } = state;
@@ -207,6 +211,11 @@ export function AssistantPanel({
 
   /** Runs from the Apply button. Chrome's permission prompt must come first, straight from the click. */
   async function apply(turn: Turn) {
+    setConfirming(null);
+    await once(() => applyNow(turn));
+  }
+
+  async function applyNow(turn: Turn) {
     if (busy) return;
     try {
       if (!(await allowWriting(root))) {
@@ -298,7 +307,7 @@ export function AssistantPanel({
         }}
         host={host}
         storageFailed={storageFailed}
-        onLoadModels={() => listModels({ provider, apiKey, baseUrl: settings.baseUrl })}
+        onLoadModels={(signal) => listModels({ provider, apiKey, baseUrl: settings.baseUrl }, { signal })}
       />
 
       {tracks.length === 0 ? (
@@ -394,7 +403,30 @@ export function AssistantPanel({
                   onToggleEdit={(editId) => toggle(turn.id, 'edit', editId)}
                   onTogglePlaylist={(name) => toggle(turn.id, 'playlist', name)}
                   onAll={(on) => tickAll(turn.id, on)}
-                  onApply={() => void apply(turn)}
+                  onApply={() => setConfirming(turn.id)}
+                  confirm={
+                    confirming === turn.id && turn.result ? (
+                      <ConfirmBox
+                        title="Apply these changes to the iPod?"
+                        confirmLabel="Apply to the iPod"
+                        cancelLabel="Not yet"
+                        disabled={busy}
+                        onConfirm={() => void apply(turn)}
+                        onCancel={() => setConfirming(null)}
+                      >
+                        <p>
+                          {[
+                            turn.selectedEdits.length ? plural(turn.selectedEdits.length, 'edit') : '',
+                            turn.selectedPlaylists.length ? plural(turn.selectedPlaylists.length, 'new playlist') : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' and ')}{' '}
+                          will be written to the iPod. Each write is read back and checked, and put back if it does not match. No music files are touched.
+                        </p>
+                        <p>To undo it afterwards, edit the tracks back, or restore this session's backup on the Backup tab (that also reverses anything else changed since the backup).</p>
+                      </ConfirmBox>
+                    ) : null
+                  }
                 />
               ) : null}
               {turn.status === 'done' && turn.result && !turn.result.answer && !turn.result.edits.length && !turn.result.playlists.length ? <p class="muted">The assistant proposed nothing.</p> : null}

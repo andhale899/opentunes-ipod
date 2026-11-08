@@ -73,7 +73,7 @@ describe('tracking an engine function', () => {
 import { estimateRemaining, formatRemaining, type Activity } from '../src/activity';
 import { progressOf } from '../src/tracked';
 
-const base: Activity = { id: 1, label: 'x', message: '', writes: false, startedAt: 0, fraction: null, etaSeconds: null, progressSince: null, progressFrom: 0 };
+const base: Activity = { id: 1, label: 'x', message: '', writes: false, startedAt: 0, fraction: null, etaSeconds: null, progressSince: null, progressFrom: 0, stop: null, pause: null };
 
 describe('time left', () => {
   it('says nothing until it has a few seconds of real progress to go on', () => {

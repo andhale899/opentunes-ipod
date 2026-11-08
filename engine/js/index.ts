@@ -12,3 +12,4 @@ export * from './sysinfo.ts';
 export * from './sync.ts';
 export * from './offload.ts';
 export * from './artwork.ts';
+export * from './pause.ts';

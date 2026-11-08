@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import type { Turn } from './session';
 
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;
@@ -20,6 +21,7 @@ export function ProposalPreview({
   onTogglePlaylist,
   onAll,
   onApply,
+  confirm,
 }: {
   turn: Turn;
   /** True when the library changed after this answer was made. */
@@ -30,6 +32,8 @@ export function ProposalPreview({
   onTogglePlaylist: (name: string) => void;
   onAll: (on: boolean) => void;
   onApply: () => void;
+  /** When set, shown in place of the Apply button: the confirm step. */
+  confirm?: ComponentChildren;
 }) {
   const result = turn.result;
   if (!result) return null;
@@ -117,12 +121,13 @@ export function ProposalPreview({
           ) : null}
 
           {stale && !done ? <p class="callout warn">The library changed after this was proposed, so it cannot be applied. Ask again.</p> : null}
-          {!done && !stale ? (
+          {!done && !stale && confirm ? confirm : null}
+          {!done && !stale && !confirm ? (
             <div class="actions">
               <button type="button" disabled={!canApply || busy || chosen === 0} onClick={onApply}>
                 Apply selected
               </button>
-              {!canApply ? <span class="note">Make a backup first (Backup tab).</span> : null}
+              {!canApply ? <span class="note">Make a backup first (Backup tab).</span> : chosen === 0 ? <span class="note">Tick at least one change.</span> : null}
             </div>
           ) : null}
         </>
