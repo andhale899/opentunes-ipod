@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { formatBytes, formatDuration, isValidFireWireId, kindLabel } from '@opentunes/core';
 import {
   IpodFolderError,
@@ -28,7 +28,11 @@ import { newEngine } from './engineLoader';
 import { ManagePanel } from './ManagePanel';
 import { OffloadPanel } from './OffloadPanel';
 import { PanelBoundary } from './PanelBoundary';
-import { startActivity } from './activity';
+import { startActivity, useActivity } from './activity';
+import { ConfirmBox, Notice, reveal, useOnce } from './controls';
+import { explainWrongFolder } from './wrongFolder';
+import { isStopped } from './stopped';
+import { watchOtherTabs, type TabWatcher } from './otherTab';
 import { buildPracticeIpod } from './practice';
 import { RestorePanel } from './RestorePanel';
 import { RewritePanel } from './RewritePanel';
@@ -317,6 +321,31 @@ export function IpodViewer({
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
   /** The backup made on this page, which the write-back needs before it will start. */
   const [backup, setBackup] = useState<BackupReport | null>(null);
+  /** Stops the read that is running, if there is one. */
+  const reading = useRef<AbortController | null>(null);
+  /** A plain line about what just happened on the start page, such as a stopped read. */
+  const [notice, setNotice] = useState('');
+  /** True while "Choose another iPod" is asking first. */
+  const [leaving, setLeaving] = useState(false);
+  /** True while another tab of OpenTunes has an iPod open. */
+  const [otherTab, setOtherTab] = useState(false);
+  const watcher = useRef<TabWatcher | null>(null);
+  const once = useOnce();
+  const { active: jobs } = useActivity();
+  /** The tabs that have been opened, so each keeps its list, results and progress when you look at another one. */
+  const opened = useRef<{ root: unknown; tabs: Set<Tab> }>({ root: null, tabs: new Set() });
+  const panel = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const tabWatcher = watchOtherTabs(setOtherTab);
+    watcher.current = tabWatcher;
+    const leave = (): void => tabWatcher.close();
+    window.addEventListener('pagehide', leave);
+    return () => {
+      window.removeEventListener('pagehide', leave);
+      tabWatcher.close();
+    };
+  }, []);
 
   async function chooseFolder() {
     const picker = (window as unknown as { showDirectoryPicker?: Picker }).showDirectoryPicker;
@@ -324,24 +353,38 @@ export function IpodViewer({
       setView({ phase: 'error', message: 'This browser has no folder picker. Use Chrome or Edge on a computer.' });
       return;
     }
-    let handle: unknown;
-    try {
-      handle = await picker.call(window, { mode: 'read' });
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        setView({ phase: 'error', message: describeError(error) });
+    setNotice('');
+    // Chrome shows its picker for a moment before it answers, long enough to click the button twice.
+    await once(async () => {
+      let handle: unknown;
+      try {
+        handle = await picker.call(window, { mode: 'read' });
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setView({ phase: 'error', message: describeError(error) });
+        }
+        return;
       }
-      return;
-    }
-
-    await readIpod(handle as DirectoryEntry, 'folder');
+      const wrong = await explainWrongFolder(handle as DirectoryEntry);
+      if (wrong) {
+        setView({ phase: 'error', message: wrong });
+        return;
+      }
+      await readIpod(handle as DirectoryEntry, 'folder');
+    });
   }
 
   /** The one path every iPod takes, real or demo: copy its database files in, open, read. */
   async function readIpod(directory: DirectoryEntry, source: Snapshot['source'], refresh = false) {
     // A refresh after a change made here keeps the panels on screen, so their results stay readable,
     // and keeps the backup, which is still the restore point.
-    const activity = startActivity(refresh ? 'Reading the iPod again' : 'Reading the iPod', { message: 'Loading the engine...' });
+    // Reading changes nothing, so it can always be stopped. The read after a change is the exception: stopping it would leave the page showing the library from before the change.
+    const controller = new AbortController();
+    if (!refresh) reading.current = controller;
+    const activity = startActivity(refresh ? 'Reading the iPod again' : 'Reading the iPod', {
+      message: 'Loading the engine...',
+      stop: refresh ? undefined : { label: 'Stop reading (nothing is changed)', stopping: 'Stopping...', run: () => controller.abort() },
+    });
     const progress = (message: string) => {
       activity.update(message);
       if (!refresh) setView({ phase: 'working', message });
@@ -355,6 +398,7 @@ export function IpodViewer({
       load = await loadIpodFolder(directory, engine, {
         mount: MOUNT,
         onProgress: progress,
+        signal: refresh ? undefined : controller.signal,
       });
       if (!load.hasDatabaseFolder) {
         throw new IpodFolderError(`"${directory.name}" has an iPod_Control folder but no iTunes folder inside it, so this iPod has no database yet. There is nothing to read.`);
@@ -365,11 +409,19 @@ export function IpodViewer({
       engine.close();
       activity.end(true);
     } catch (error) {
+      if (isStopped(error)) {
+        activity.end(true, undefined, true);
+        setView({ phase: 'idle' });
+        setNotice('Stopped reading the iPod. Nothing on it was changed.');
+        return;
+      }
       activity.end(false, describeError(error));
       const message = describeError(error);
       // When the database would not open, the signatures can still say whether the files are intact.
       const signatures = engine && load?.hasDatabaseFolder ? await checkSignatures(engine, load.mount) : null;
       setView({ phase: 'error', message, diagnostics: load ? { folderName: directory.name, load, error: message, signatures } : undefined });
+    } finally {
+      if (reading.current === controller) reading.current = null;
     }
   }
 
@@ -412,13 +464,44 @@ export function IpodViewer({
     : [['library', 'Library'], ['diagnostics', 'Diagnostics']];
   const current: Tab = tabs.some(([id]) => id === tab) ? tab : 'library';
   const refreshed = () => (ready ? readIpod(ready.root, ready.source, true) : undefined);
-  const goToBackup = () => setTab('backup');
+  /** Moves to a tab. A button that took you there has left the screen, so focus follows to the new tab. */
+  const goTo = (next: Tab, moveFocus = false) => {
+    setTab(next);
+    setLeaving(false);
+    if (moveFocus) window.setTimeout(() => reveal(document.getElementById(`pane-${next}`) as HTMLElement | null), 0);
+  };
+  const goToBackup = () => goTo('backup', true);
+  const onTabKey = (event: KeyboardEvent) => {
+    const keys = ['ArrowRight', 'ArrowLeft', 'Home', 'End'];
+    if (!keys.includes(event.key)) return;
+    event.preventDefault();
+    const at = tabs.findIndex(([id]) => id === current);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (at + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    const target = tabs[next]?.[0];
+    if (!target) return;
+    goTo(target);
+    window.setTimeout(() => document.getElementById(`tab-${target}`)?.focus(), 0);
+  };
+
+  // Tell other tabs of OpenTunes whether this one has an iPod open, and hear whether they do.
+  const hasIpod = ready !== null && ready.source !== 'demo' && ready.source !== 'practice';
+  useEffect(() => {
+    watcher.current?.announce(hasIpod);
+    if (!hasIpod) setOtherTab(false);
+  }, [hasIpod]);
 
   const loadingNote =
     view.phase === 'working' ? (
-      <p class="callout info" role="status">
-        {view.message}
-      </p>
+      <div class="callout info" role="status">
+        <p>{view.message}</p>
+        {reading.current ? (
+          <div class="actions">
+            <button type="button" class="secondary small" onClick={() => reading.current?.abort()}>
+              Stop reading (nothing is changed)
+            </button>
+          </div>
+        ) : null}
+      </div>
     ) : null;
 
   if (!ready) {
@@ -454,6 +537,7 @@ export function IpodViewer({
               </div>
             ) : null}
             {loadingNote}
+            {notice && view.phase === 'idle' ? <Notice tone="info">{notice}</Notice> : null}
             {view.phase === 'error' ? (
               <>
                 <div class="callout no" role="alert">
@@ -537,6 +621,17 @@ export function IpodViewer({
   const backedUp = backup !== null && backup.complete;
   const model = device?.device_recognized ? [device.model_name, device.generation_name].filter(Boolean).join(', ') : device?.model_num_str ? `Model ${device.model_num_str}` : 'iPod';
 
+  // Every tab keeps what it holds once it has been opened. Without this, a trip to the Backup tab
+  // would throw away the files picked in Add music, and a running copy would lose its Stop button.
+  if (opened.current.root !== snapshot.root) opened.current = { root: snapshot.root, tabs: new Set() };
+  opened.current.tabs.add(current);
+  const pane = (id: Tab, content: () => ComponentChildren) =>
+    opened.current.tabs.has(id) ? (
+      <div key={id} id={`pane-${id}`} role="tabpanel" aria-labelledby={`tab-${id}`} tabIndex={-1} class="pane" hidden={current !== id} ref={current === id ? panel : undefined}>
+        {content()}
+      </div>
+    ) : null;
+
   return (
     <>
       <section class="card">
@@ -567,9 +662,20 @@ export function IpodViewer({
             </div>
           </div>
           <div class="actions">
-            <button type="button" class="secondary small" onClick={() => setView({ phase: 'idle' })}>
+            <button
+              type="button"
+              class="secondary small"
+              disabled={jobs.length > 0}
+              aria-describedby={jobs.length > 0 ? 'leave-why' : undefined}
+              onClick={() => (writable ? setLeaving(true) : setView({ phase: 'idle' }))}
+            >
               Choose another iPod
             </button>
+            {jobs.length > 0 ? (
+              <span class="note" id="leave-why">
+                Off while the job in the bar above is running. Wait for it, or stop it.
+              </span>
+            ) : null}
           </div>
           {capacityBytes > 0 ? (
             <div class="storage">
@@ -585,90 +691,129 @@ export function IpodViewer({
         </div>
       </section>
 
-      <div class="tabs" role="tablist">
+      {leaving ? (
+        <ConfirmBox title="Choose another iPod?" confirmLabel="Choose another iPod" cancelLabel="Stay with this iPod" onConfirm={() => { setLeaving(false); setView({ phase: 'idle' }); }} onCancel={() => setLeaving(false)}>
+          <p>
+            Nothing on this iPod changes. What is on screen for it goes away: the files you picked in Add music, the Assistant chat and the results of earlier steps.
+            {backedUp ? ' The backup you made stays in its folder on your computer, but this page forgets it, so you need a new backup before changing an iPod again.' : ''}
+            {snapshot.source === 'practice' ? ' The practice iPod lives only in memory, so what you did to it is gone for good.' : ''}
+          </p>
+        </ConfirmBox>
+      ) : null}
+
+      {otherTab && writable ? (
+        <div class="callout warn" role="alert">
+          <p>
+            <strong>OpenTunes is open with an iPod in another tab or window.</strong> Two tabs changing an iPod at the same time can damage its library. Close the other tab before you change anything here.
+          </p>
+        </div>
+      ) : null}
+
+      <div class="tabs" role="tablist" aria-label="iPod sections" onKeyDown={onTabKey}>
         {tabs.map(([id, label]) => (
-          <button key={id} type="button" role="tab" class="tab" aria-selected={current === id} onClick={() => setTab(id)}>
+          <button
+            key={id}
+            id={`tab-${id}`}
+            type="button"
+            role="tab"
+            class="tab"
+            aria-selected={current === id}
+            aria-controls={`pane-${id}`}
+            tabIndex={current === id ? 0 : -1}
+            onClick={() => goTo(id)}
+          >
             {label}
             {id === 'library' ? <span class="badge">{tracks.length}</span> : null}
           </button>
         ))}
       </div>
 
-      {current === 'library' ? (
-        writable ? (
-          <PanelBoundary name="Library">
-            <ManagePanel root={snapshot.root} tracks={tracks} playlists={playlists} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
-          </PanelBoundary>
-        ) : (
-          <section class="card">
-            <h3>Library</h3>
-            <Library tracks={tracks} />
-          </section>
-        )
-      ) : null}
-      {current === 'library' && !writable ? (
-        <section class="card">
-          <h3>Playlists</h3>
-          <ul class="playlists">
-            {playlists.map((playlist) => (
-              <li key={playlist.handle}>
-                <span>{playlist.name ?? '(no name)'}</span>
-                <span class="muted">
-                  {plural(playlist.tracks.length, 'track')}
-                  {playlist.master ? ', holds everything' : ''}
-                  {playlist.podcasts ? ', podcasts' : ''}
-                  {playlist.smart ? ', smart' : ''}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {current === 'add' && writable ? (
-        <PanelBoundary name="Add to the iPod">
-          <AddPanel root={snapshot.root} device={device} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
-        </PanelBoundary>
-      ) : null}
-
-      {current === 'assistant' && writable ? (
-        <PanelBoundary name="Assistant">
-          <AssistantPanel root={snapshot.root} tracks={tracks} playlists={playlists} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
-        </PanelBoundary>
-      ) : null}
-
-      {current === 'backup' && writable ? (
+      {pane('library', () => (
         <>
-          <PanelBoundary name="Backup">
-            <BackupPanel source={snapshot.root} onDone={setBackup} inMemory={snapshot.source === 'practice'} />
-          </PanelBoundary>
-          {snapshot.source === 'folder' ? (
-            <PanelBoundary name="Restore">
-              <RestorePanel root={snapshot.root} />
+          {writable ? (
+            <PanelBoundary name="Library">
+              <ManagePanel root={snapshot.root} tracks={tracks} playlists={playlists} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
             </PanelBoundary>
+          ) : (
+            <section class="card">
+              <h3>Library</h3>
+              <Library tracks={tracks} />
+            </section>
+          )}
+          {!writable ? (
+            <section class="card">
+              <h3>Playlists</h3>
+              <ul class="playlists">
+                {playlists.map((playlist) => (
+                  <li key={playlist.handle}>
+                    <span>{playlist.name ?? '(no name)'}</span>
+                    <span class="muted">
+                      {plural(playlist.tracks.length, 'track')}
+                      {playlist.master ? ', holds everything' : ''}
+                      {playlist.podcasts ? ', podcasts' : ''}
+                      {playlist.smart ? ', smart' : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ) : null}
         </>
-      ) : null}
+      ))}
 
-      {current === 'offload' && writable ? (
-        <PanelBoundary name="Offload">
-          <OffloadPanel source={snapshot.root} inMemory={snapshot.source === 'practice'} />
-        </PanelBoundary>
-      ) : null}
+      {writable
+        ? pane('add', () => (
+            <PanelBoundary name="Add to the iPod">
+              <AddPanel root={snapshot.root} device={device} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
+            </PanelBoundary>
+          ))
+        : null}
 
-      {current === 'diagnostics' ? (
+      {writable
+        ? pane('assistant', () => (
+            <PanelBoundary name="Assistant">
+              <AssistantPanel root={snapshot.root} tracks={tracks} playlists={playlists} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
+            </PanelBoundary>
+          ))
+        : null}
+
+      {writable
+        ? pane('backup', () => (
+            <>
+              <PanelBoundary name="Backup">
+                <BackupPanel source={snapshot.root} onDone={setBackup} inMemory={snapshot.source === 'practice'} />
+              </PanelBoundary>
+              {snapshot.source === 'folder' ? (
+                <PanelBoundary name="Restore">
+                  <RestorePanel root={snapshot.root} />
+                </PanelBoundary>
+              ) : null}
+            </>
+          ))
+        : null}
+
+      {writable
+        ? pane('offload', () => (
+            <PanelBoundary name="Offload">
+              <OffloadPanel source={snapshot.root} inMemory={snapshot.source === 'practice'} />
+            </PanelBoundary>
+          ))
+        : null}
+
+      {pane('diagnostics', () => (
         <>
+          <p class="callout info">These are technical checks, for finding out what is wrong when something does not work. You do not need them to add music.</p>
           <Facts snapshot={snapshot} />
           {snapshot.load ? (
             <section class="card">
               <FileList load={snapshot.load} />
             </section>
           ) : null}
-          <PanelBoundary name="Rewrite check">
+          <PanelBoundary name="Library test">
             <RewritePanel source={snapshot.root} autoStart={new URLSearchParams(window.location.search).get('rewrite') === '1'} />
           </PanelBoundary>
           {writable ? (
-            <PanelBoundary name="Write back">
+            <PanelBoundary name="Write-back test">
               <WriteBackPanel root={snapshot.root} backup={backup} />
             </PanelBoundary>
           ) : null}
@@ -678,15 +823,16 @@ export function IpodViewer({
             <button type="button" class="secondary" onClick={() => void copyReport(reportOf(snapshot))}>
               Copy iPod report
             </button>
-            {copied === 'copied' ? <span class="note"> Copied.</span> : null}
-            {copied === 'failed' ? <span class="note"> Copy failed.</span> : null}
+            <span class="note" role="status" aria-live="polite">
+              {copied === 'copied' ? ' Copied.' : copied === 'failed' ? ' Copy failed.' : ''}
+            </span>
           </section>
           <details class="card">
             <summary>Browser and USB checks</summary>
             {environment}
           </details>
         </>
-      ) : null}
+      ))}
     </>
   );
 }

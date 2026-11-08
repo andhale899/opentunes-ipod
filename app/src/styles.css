@@ -1916,3 +1916,89 @@ button.plist[aria-pressed='true'] {
   flex: 1 1 14rem;
   min-width: 0;
 }
+
+/* ==== controls and clarity: stop, pause, confirm steps, kept tabs (audit section, keep at the end) ==== */
+
+/* The muted-text colour used for small print was 3:1 on white. This is 5:1. Dark mode already passed. */
+:root {
+  --faint: #667080;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --faint: #7a8494;
+  }
+}
+
+.activity-controls {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.activity-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.activity-live {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.activity.paused {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.activity.stopped {
+  background: var(--info-bg);
+  color: var(--info);
+}
+
+.pause-mark {
+  flex: none;
+  margin-top: 0.1rem;
+  font-size: 0.8rem;
+  letter-spacing: -0.1em;
+}
+
+.pane[hidden] {
+  display: none;
+}
+
+.pane:focus,
+.result:focus,
+.confirm:focus {
+  outline: none;
+}
+
+.confirm {
+  margin: 0.75rem 0;
+  padding: 0.85rem 1rem;
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.confirm h4 {
+  margin: 0 0 0.4rem;
+}
+
+.confirm-body p {
+  margin: 0.3rem 0;
+}
+
+.confirm .actions {
+  margin-bottom: 0;
+}
+
+/* Phones: the small buttons in the activity bar and confirm steps are easy to hit. */
+@media (max-width: 40rem), (pointer: coarse) {
+  .activity-buttons button,
+  .confirm .actions button,
+  .callout .actions button.small {
+    min-height: 2.75rem;
+  }
+}

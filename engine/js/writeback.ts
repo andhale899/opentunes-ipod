@@ -67,6 +67,8 @@ export interface WriteBackPlan {
 export interface PlanOptions {
   mount?: string;
   onProgress?: (message: string) => void;
+  /** Stops planning with an AbortError. Planning writes nothing to the iPod. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -76,7 +78,8 @@ export interface PlanOptions {
 export async function planWriteBack(root: IpodRoot, newEngine: () => Promise<Engine>, options: PlanOptions = {}): Promise<WriteBackPlan> {
   const mount = options.mount ?? DEFAULT_MOUNT;
   const engine = await newEngine();
-  const load = await loadIpodFolder(root, engine, { mount, onProgress: options.onProgress });
+  const load = await loadIpodFolder(root, engine, { mount, onProgress: options.onProgress, signal: options.signal });
+  options.signal?.throwIfAborted();
   if (!load.hasDatabaseFolder) throw new IpodFolderError(`"${root.name}" has no iTunes folder in iPod_Control, so there is no database to write back.`);
   engine.open(load.mount);
   const fireWireId = fireWireIdOf(engine, mount);
@@ -234,11 +237,20 @@ export interface RestoreReport {
   signatures: SignatureCheck[];
 }
 
+/** Where a restore is: `checking` the backup (nothing written, can be stopped), `writing` files to the iPod, or `verifying` them. */
+export type RestorePhase = 'checking' | 'writing' | 'verifying';
+
 export interface RestoreOptions {
   /** To read the iPod back after restoring and check its signatures. */
   newEngine?: () => Promise<Engine>;
   mount?: string;
-  onProgress?: (message: string) => void;
+  onProgress?: (message: string, phase?: RestorePhase) => void;
+  /**
+   * Stops the restore with an AbortError while the backup is still being checked, before the first
+   * file is written. Once files are being written it is ignored, because stopping halfway would
+   * leave the iPod with a mix of old and restored files.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -250,9 +262,10 @@ export async function restoreBackup(root: IpodRoot, backup: BackupSource, option
   const mount = options.mount ?? DEFAULT_MOUNT;
   const manifest = await readManifest(backup);
 
-  options.onProgress?.('Checking the backup...');
+  options.onProgress?.('Checking the backup...', 'checking');
   const contents = new Map<string, Uint8Array>();
   for (const file of manifest.files) {
+    options.signal?.throwIfAborted();
     const bytes = await readFromBackup(backup, file.path);
     if (!bytes) throw new WriteBackError(`${file.path} is listed in the backup but is not in the folder, so nothing was restored.`);
     if (bytes.length !== file.size) throw new WriteBackError(`${file.path} is ${bytes.length} bytes in the backup and should be ${file.size}, so nothing was restored.`);
@@ -260,9 +273,10 @@ export async function restoreBackup(root: IpodRoot, backup: BackupSource, option
     contents.set(file.path, bytes);
   }
 
+  options.signal?.throwIfAborted();
   const report: RestoreReport = { restored: 0, bytes: 0, failures: [], verified: false, signatures: [] };
   for (const [path, bytes] of contents) {
-    options.onProgress?.(`Restoring ${path}`);
+    options.onProgress?.(`Restoring ${path}`, 'writing');
     try {
       await writeTo(root, path, bytes);
       const back = await readFrom(root, path);
@@ -278,6 +292,7 @@ export async function restoreBackup(root: IpodRoot, backup: BackupSource, option
   }
 
   if (!report.failures.length && options.newEngine) {
+    options.onProgress?.('Reading the iPod back to check it...', 'verifying');
     try {
       const engine = await options.newEngine();
       const load = await loadIpodFolder(root, engine, { mount });

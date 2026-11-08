@@ -17,6 +17,7 @@ import type { Engine, PlaylistInfo, TrackInfo } from './engine.ts';
 import { IpodFolderError, isClutter, loadIpodFolder, type DirectoryEntry } from './folder.ts';
 import type { WritableDirectory } from './backup.ts';
 import { mediaPathOf } from './sync.ts';
+import type { PauseGate } from './pause.ts';
 
 export class OffloadError extends Error {}
 
@@ -174,7 +175,7 @@ interface MusicFile {
   size: number;
 }
 
-async function listMusic(source: DirectoryEntry): Promise<{ files: MusicFile[]; folders: string[] }> {
+async function listMusic(source: DirectoryEntry, signal?: AbortSignal): Promise<{ files: MusicFile[]; folders: string[] }> {
   const control = await source.getDirectoryHandle('iPod_Control').catch(() => null);
   if (!control) {
     throw new IpodFolderError(`"${source.name}" has no iPod_Control folder. Choose the top folder of the iPod itself, the one that contains iPod_Control.`);
@@ -187,6 +188,7 @@ async function listMusic(source: DirectoryEntry): Promise<{ files: MusicFile[]; 
     if (folder.kind !== 'directory' || !/^F\d\d$/i.test(folderName)) continue;
     folders.push(folderName);
     for await (const [name, entry] of folder.entries()) {
+      signal?.throwIfAborted();
       if (entry.kind !== 'file' || isClutter(name)) continue;
       const file = await entry.getFile();
       files.push({ path: `${folderName}/${name}`, folder: folderName, name, entry: entry as MusicFile['entry'], size: file.size });
@@ -239,6 +241,8 @@ export interface OffloadOptions {
   /** Resume: copy into this existing folder of the destination, instead of making a new one. Files already there with the same size are skipped. */
   folder?: string;
   signal?: AbortSignal;
+  /** Lets the person pause between files. Files already being copied are finished first. */
+  pause?: PauseGate;
   onProgress?: (progress: OffloadProgress) => void;
   /** Files at once. Defaults to 3. */
   concurrency?: number;
@@ -336,9 +340,11 @@ export async function offloadIpod(source: DirectoryEntry, destination: WritableD
   const emptyProgress: OffloadProgress = { phase: 'reading', message: '', filesDone: 0, filesTotal: 0, bytesDone: 0, bytesTotal: 0, bytesPerSecond: 0, current: [], failures: 0 };
   send({ ...emptyProgress, message: 'Reading the iPod...' });
 
-  const { files, folders } = await listMusic(source);
+  // A stop before the first file is copied ends the run with an AbortError: nothing was made on the computer yet.
+  const { files, folders } = await listMusic(source, signal);
   send({ ...emptyProgress, message: 'Reading the library...' });
   const library = await readLibrary(source, newEngine, mount);
+  signal?.throwIfAborted();
 
   const folder = options.folder
     ? await destination.getDirectoryHandle(options.folder, { create: true })
@@ -430,22 +436,29 @@ export async function offloadIpod(source: DirectoryEntry, destination: WritableD
 
   const queue = [...files];
   async function worker(): Promise<void> {
-    for (;;) {
-      if (signal?.aborted) return;
-      const file = queue.shift();
-      if (!file) return;
-      inFlight.add(file.path);
-      report(`Copying ${file.path}`);
-      try {
-        await copyOne(file);
-      } catch (error) {
-        state.set(file.path, 'failed');
-        failures.push({ path: file.path, reason: messageOf(error) });
-      } finally {
-        inFlight.delete(file.path);
-        if (state.get(file.path) !== 'stopped') filesDone += 1;
+    options.pause?.join();
+    try {
+      for (;;) {
+        if (signal?.aborted) return;
+        await options.pause?.checkpoint(signal);
+        if (signal?.aborted) return;
+        const file = queue.shift();
+        if (!file) return;
+        inFlight.add(file.path);
         report(`Copying ${file.path}`);
+        try {
+          await copyOne(file);
+        } catch (error) {
+          state.set(file.path, 'failed');
+          failures.push({ path: file.path, reason: messageOf(error) });
+        } finally {
+          inFlight.delete(file.path);
+          if (state.get(file.path) !== 'stopped') filesDone += 1;
+          report(`Copying ${file.path}`);
+        }
       }
+    } finally {
+      options.pause?.leave();
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, files.length)) }, () => worker()));

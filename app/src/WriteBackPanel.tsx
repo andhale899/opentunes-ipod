@@ -1,8 +1,9 @@
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
 import { type BackupReport, type DirectoryEntry, type IpodRoot, type WriteBackPlan, type WriteBackReport } from '@opentunes/engine';
 import { applyWriteBack, planWriteBack } from './tracked';
-import { describeError } from './describeError';
+import { Notice, useOnce } from './controls';
+import { describeError, isStopped } from './describeError';
 import { newEngine } from './engineLoader';
 
 type State =
@@ -29,19 +30,31 @@ export function WriteBackPanel({ root, backup }: { root: DirectoryEntry; backup:
   const [state, setState] = useState<State>({ phase: 'idle' });
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
   const ready = backup !== null && backup.complete;
+  const once = useOnce();
+  const stopper = useRef<AbortController | null>(null);
 
   async function prepare() {
-    setCopied('idle');
-    setState({ phase: 'working', message: 'Loading the engine...' });
-    try {
-      const plan = await planWriteBack(root as unknown as IpodRoot, newEngine, { onProgress: (message) => setState({ phase: 'working', message }) });
-      setState({ phase: 'planned', plan });
-    } catch (error) {
-      setState({ phase: 'error', message: describeError(error) });
-    }
+    await once(async () => {
+      setCopied('idle');
+      const controller = new AbortController();
+      stopper.current = controller;
+      setState({ phase: 'working', message: 'Loading the engine...' });
+      try {
+        const plan = await planWriteBack(root as unknown as IpodRoot, newEngine, { signal: controller.signal, onProgress: (message) => setState({ phase: 'working', message }) });
+        setState({ phase: 'planned', plan });
+      } catch (error) {
+        setState({ phase: 'error', message: isStopped(error) ? 'Stopped. Nothing was written to the iPod.' : describeError(error) });
+      } finally {
+        stopper.current = null;
+      }
+    });
   }
 
-  async function write(plan: WriteBackPlan) {
+  function write(plan: WriteBackPlan): Promise<void> {
+    return once(() => writeNow(plan)) as Promise<void>;
+  }
+
+  async function writeNow(plan: WriteBackPlan) {
     try {
       if (!(await allowWriting(root))) {
         setState({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was written.' });
@@ -68,24 +81,32 @@ export function WriteBackPanel({ root, backup }: { root: DirectoryEntry; backup:
 
   return (
     <section class="card">
-      <h3>Write the rebuilt database back (test)</h3>
+      <h3>Test: write the library back to the iPod</h3>
       <p class="card-lead">
-        Writes the database libgpod rebuilds, with no new songs, back to the iPod, to see whether the iPod accepts it. Only files in iPod_Control/iTunes are written, never music. It needs the backup from the Backup tab first. If anything fails while writing, the original files are put back. The only file removed is Play Counts, which libgpod folds into the library and keeps as Play Counts.bak.
+        Writes the library back to the iPod, rebuilt but with no new songs, to see whether the iPod accepts it. Only files in iPod_Control/iTunes are written, never music. It needs the backup from the Backup tab first. If anything fails while writing, the original files are put back. The only file removed is Play Counts, which libgpod folds into the library and keeps as Play Counts.bak.
       </p>
-      <button type="button" onClick={() => void prepare()} disabled={working || !ready}>
-        Prepare the write
-      </button>
+      <div class="actions">
+        <button type="button" onClick={() => void prepare()} disabled={working || !ready}>
+          Check what would be written
+        </button>
+        {working && stopper.current ? (
+          <button type="button" class="secondary" onClick={() => stopper.current?.abort()}>
+            Stop (nothing is written)
+          </button>
+        ) : null}
+      </div>
       {!ready ? <p class="muted">Make the backup in the Backup tab first. Nothing can be written until a complete backup has been made on this page.</p> : null}
 
       {state.phase === 'working' ? (
         <p class="note" role="status">
           {state.message}
+          {state.message === 'Writing to the iPod...' ? ' This cannot be stopped safely. It takes a few seconds.' : ''}
         </p>
       ) : null}
       {state.phase === 'error' ? (
-        <div class="result no" role="alert">
+        <Notice tone="no">
           <p>{state.message}</p>
-        </div>
+        </Notice>
       ) : null}
 
       {state.phase === 'planned' ? (
@@ -108,7 +129,7 @@ export function WriteBackPanel({ root, backup }: { root: DirectoryEntry; backup:
             ))}
           </ul>
           {state.plan.report.problems.length ? (
-            <p class="muted">The rewrite check found {state.plan.report.problems.length} differences from what iTunes wrote, listed above. This is the test of whether the iPod accepts them.</p>
+            <p class="muted">The library test found {state.plan.report.problems.length} differences from what iTunes wrote, listed above. This is the test of whether the iPod accepts them.</p>
           ) : null}
           {state.plan.changes.length ? (
             <button type="button" onClick={() => void write(state.plan)} disabled={working}>
@@ -120,15 +141,15 @@ export function WriteBackPanel({ root, backup }: { root: DirectoryEntry; backup:
 
       {state.phase === 'done' ? (
         <>
-          <div class={`result ${state.report.verified ? 'ok' : 'no'}`} role={state.report.verified ? 'status' : 'alert'}>
+          <Notice tone={state.report.verified ? 'ok' : 'no'}>
             <p>
               {state.report.verified
                 ? `Wrote ${state.report.written.length} files and removed ${state.report.removed.length}. The iPod reads back with the same library and valid signatures. Eject it, then look at it: do the songs, playlists and menus look as before?`
                 : state.report.rolledBack && state.report.rollbackFailures.length === 0
                   ? 'The write did not work, and every file it had changed was put back. The iPod is as it was.'
-                  : 'The write did not work, and some files could not be put back. Use "Restore from a backup" below now.'}
+                  : 'The write did not work, and some files could not be put back. Use "Restore from a backup" on the Backup tab now.'}
             </p>
-          </div>
+          </Notice>
           {state.report.failures.length || state.report.rollbackFailures.length ? (
             <ul class="files">
               {[...state.report.failures, ...state.report.rollbackFailures].map((line) => (
@@ -139,8 +160,9 @@ export function WriteBackPanel({ root, backup }: { root: DirectoryEntry; backup:
           <button type="button" onClick={() => void copy(JSON.stringify({ app: 'opentunes', view: 'write-back', generatedAt: new Date().toISOString(), ...state.report }, null, 2))}>
             Copy write report
           </button>
-          {copied === 'copied' ? <span class="note"> Copied.</span> : null}
-          {copied === 'failed' ? <span class="note"> Copy failed.</span> : null}
+          <span class="note" role="status" aria-live="polite">
+            {copied === 'copied' ? ' Copied.' : copied === 'failed' ? ' Copy failed.' : ''}
+          </span>
         </>
       ) : null}
     </section>

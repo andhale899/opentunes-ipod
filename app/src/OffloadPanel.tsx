@@ -1,8 +1,9 @@
 import { useRef, useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
-import { ScratchFolder, type DirectoryEntry, type OffloadProgress, type OffloadReport, type WritableDirectory } from '@opentunes/engine';
+import { PauseGate, ScratchFolder, type DirectoryEntry, type OffloadProgress, type OffloadReport, type WritableDirectory } from '@opentunes/engine';
 import { offloadIpod } from './tracked';
-import { describeError } from './describeError';
+import { Notice, useOnce, usePauseState } from './controls';
+import { describeError, isStopped } from './describeError';
 import { newEngine } from './engineLoader';
 
 type State =
@@ -23,25 +24,33 @@ const SHOWN = 200;
 export function OffloadPanel({ source, inMemory = false }: { source: DirectoryEntry; /** Offer to copy into memory, for the practice iPod. */ inMemory?: boolean }) {
   const [state, setState] = useState<State>({ phase: 'idle' });
   const abort = useRef<AbortController | null>(null);
+  /** Lets the person pause between files. A new one for each run. */
+  const [gate, setGate] = useState<PauseGate | null>(null);
+  const pause = usePauseState(gate);
+  const once = useOnce();
   /** The destination of the last run, kept so the rest can be copied into the same folder. */
   const last = useRef<WritableDirectory | null>(null);
 
   async function start(destination: WritableDirectory, resumeInto?: string) {
     const controller = new AbortController();
+    const pauseGate = new PauseGate();
     abort.current = controller;
     last.current = destination;
+    setGate(pauseGate);
     setState({ phase: 'working', progress: null });
     try {
       const report = await offloadIpod(source, destination, newEngine, {
         folder: resumeInto,
         signal: controller.signal,
+        pause: pauseGate,
         onProgress: (progress) => setState({ phase: 'working', progress }),
       });
       setState({ phase: 'done', report, into: destination.name });
     } catch (error) {
-      setState({ phase: 'error', message: describeError(error) });
+      setState({ phase: 'error', message: isStopped(error) ? 'Stopped before the first file was copied. Nothing was written to your computer.' : describeError(error) });
     } finally {
       abort.current = null;
+      setGate(null);
     }
   }
 
@@ -51,14 +60,17 @@ export function OffloadPanel({ source, inMemory = false }: { source: DirectoryEn
       setState({ phase: 'error', message: 'This browser has no folder picker. Use Chrome or Edge on a computer.' });
       return;
     }
-    let destination: unknown;
-    try {
-      destination = await picker.call(window, { mode: 'readwrite' });
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setState({ phase: 'error', message: describeError(error) });
-      return;
-    }
-    await start(destination as WritableDirectory);
+    // Chrome shows its folder picker for a moment before it answers, long enough to click twice.
+    await once(async () => {
+      let destination: unknown;
+      try {
+        destination = await picker.call(window, { mode: 'readwrite' });
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) setState({ phase: 'error', message: describeError(error) });
+        return;
+      }
+      await start(destination as WritableDirectory);
+    });
   }
 
   const working = state.phase === 'working';
@@ -68,7 +80,7 @@ export function OffloadPanel({ source, inMemory = false }: { source: DirectoryEn
     <section class="card">
       <h3>Copy everything off the iPod</h3>
       <p class="card-lead">
-        Copies every music, podcast, audiobook and video file from the iPod to a folder on your computer, exactly as it is, and writes a library.csv with the real titles, artists and playlists, because the iPod gives its files random names. The iPod is only read: nothing is written to it and nothing is deleted from it. Chrome may refuse Desktop, Documents or Downloads themselves. If it does, make a folder inside one, for example "iPod copy".
+        Copies every music, podcast, audiobook and video file from the iPod to a folder on your computer, exactly as it is, and writes a library.csv with the real titles, artists and playlists, because the iPod gives its files random names. The iPod is only read: nothing is written to it and nothing is deleted from it. You can pause or stop at any time and finish later. Chrome may refuse Desktop, Documents or Downloads themselves. If it does, make a folder inside one, for example "iPod copy".
       </p>
       <div class="actions">
         <button type="button" onClick={() => void choose()} disabled={working}>
@@ -80,8 +92,13 @@ export function OffloadPanel({ source, inMemory = false }: { source: DirectoryEn
           </button>
         ) : null}
         {working ? (
+          <button type="button" class="secondary" onClick={() => gate?.[pause === 'running' ? 'request' : 'resume']()}>
+            {pause === 'running' ? 'Pause after this file' : pause === 'pausing' ? 'Cancel the pause' : 'Resume'}
+          </button>
+        ) : null}
+        {working ? (
           <button type="button" class="secondary" onClick={() => abort.current?.abort()}>
-            Stop
+            Stop (you can resume later)
           </button>
         ) : null}
       </div>
@@ -91,7 +108,13 @@ export function OffloadPanel({ source, inMemory = false }: { source: DirectoryEn
 
       {state.phase === 'working' ? (
         <div class="callout info" role="status">
-          <p>{progress?.message ?? 'Starting...'}</p>
+          <p>
+            {pause === 'paused'
+              ? 'Paused after the last file. Nothing more is copied until you press Resume.'
+              : pause === 'pausing'
+                ? 'Pausing after the files being copied now...'
+                : (progress?.message ?? 'Starting...')}
+          </p>
           {progress && progress.filesTotal > 0 ? (
             <>
               <progress max={progress.bytesTotal || 1} value={progress.bytesDone} style="width: 100%" />
@@ -106,9 +129,9 @@ export function OffloadPanel({ source, inMemory = false }: { source: DirectoryEn
       ) : null}
 
       {state.phase === 'error' ? (
-        <div class="result no" role="alert">
+        <Notice tone="no">
           <p>{state.message}</p>
-        </div>
+        </Notice>
       ) : null}
 
       {state.phase === 'done' ? (
@@ -128,7 +151,7 @@ function Done({ report, into, onResume }: { report: OffloadReport; into: string;
   const seconds = Math.max(1, Math.round(report.elapsedMs / 1000));
   return (
     <>
-      <div class={`result ${report.complete ? 'ok' : 'no'}`} role={report.complete ? 'status' : 'alert'}>
+      <Notice tone={report.complete ? 'ok' : 'no'}>
         <p>
           {report.complete
             ? `Copied ${here} file${here === 1 ? '' : 's'} (${formatBytes(report.bytes.copied + report.bytes.skipped)}) into the folder "${report.folder}" in "${into}", and checked each by reading it back.`
@@ -141,7 +164,7 @@ function Done({ report, into, onResume }: { report: OffloadReport; into: string;
           {report.bytes.copied > 0 ? `Copied ${formatBytes(report.bytes.copied)} in ${seconds} s${report.bytesPerSecond > 0 ? ` (${formatBytes(report.bytesPerSecond)}/s)` : ''}. ` : ''}
           {report.libraryError ? '' : `The library lists ${report.tracks} track${report.tracks === 1 ? '' : 's'} and ${report.playlists} playlist${report.playlists === 1 ? '' : 's'}.`}
         </p>
-      </div>
+      </Notice>
 
       {onResume && unfinished ? (
         <div class="actions">

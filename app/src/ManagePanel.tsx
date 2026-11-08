@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useMemo, useRef, useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
 import { trackKey, type BackupReport, type DirectoryEntry, type IpodRoot, type OrphanReport, type PlaylistInfo, type RemovalPlan, type TrackEdit, type TrackInfo } from '@opentunes/engine';
 import { applyRemoval, editTracks, findOrphans, planRemoval, removeOrphans } from './tracked';
-import { describeError } from './describeError';
+import { describeError, isStopped } from './describeError';
+import { ConfirmBox, Notice, useOnce } from './controls';
 import { newEngine } from './engineLoader';
 import { BackupGate } from './BackupGate';
 import { allowWriting } from './WriteBackPanel';
@@ -58,6 +59,8 @@ export function ManagePanel({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [stage, setStage] = useState<Stage>({ phase: 'idle' });
   const [draft, setDraft] = useState<Partial<Record<EditField, string>>>({});
+  const once = useOnce();
+  const stopper = useRef<AbortController | null>(null);
 
   const ready = backup !== null && backup.complete;
   const busy = stage.phase === 'working';
@@ -79,16 +82,26 @@ export function ManagePanel({
   const planner = (message: string) => ({ onProgress: (text: string) => setStage({ phase: 'working', message: text || message }) });
 
   async function planRemove() {
-    setStage({ phase: 'working', message: 'Planning the removal...' });
-    try {
-      const plan = await planRemoval(root as unknown as IpodRoot, newEngine, [...selected], planner('Planning the removal...'));
-      setStage({ phase: 'removal', plan });
-    } catch (error) {
-      setStage({ phase: 'error', message: describeError(error) });
-    }
+    await once(async () => {
+      const controller = new AbortController();
+      stopper.current = controller;
+      setStage({ phase: 'working', message: 'Planning the removal...' });
+      try {
+        const plan = await planRemoval(root as unknown as IpodRoot, newEngine, [...selected], { ...planner('Planning the removal...'), signal: controller.signal });
+        setStage({ phase: 'removal', plan });
+      } catch (error) {
+        setStage({ phase: 'error', message: isStopped(error) ? 'Stopped. Nothing was changed on the iPod.' : describeError(error) });
+      } finally {
+        stopper.current = null;
+      }
+    });
   }
 
   async function remove(plan: RemovalPlan) {
+    await once(() => removeNow(plan));
+  }
+
+  async function removeNow(plan: RemovalPlan) {
     if (!(await allowWriting(root))) {
       setStage({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was changed.' });
       return;
@@ -112,7 +125,11 @@ export function ManagePanel({
     }
   }
 
-  async function save(track: TrackInfo) {
+  function save(track: TrackInfo): Promise<void> {
+    return once(() => saveNow(track)) as Promise<void>;
+  }
+
+  async function saveNow(track: TrackInfo) {
     const fields: Partial<Record<EditField, string>> = {};
     for (const [name] of EDIT_FIELDS) {
       const value = draft[name];
@@ -147,6 +164,10 @@ export function ManagePanel({
 
   /** Changes artist, album, album artist, genre and kind of many tracks, one edit per track, in one write. */
   async function applyBulk(edits: TrackEdit[]): Promise<boolean> {
+    return (await once(() => applyBulkNow(edits))) ?? false;
+  }
+
+  async function applyBulkNow(edits: TrackEdit[]): Promise<boolean> {
     if (!edits.length) return false;
     if (!(await allowWriting(root))) {
       setStage({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was changed.' });
@@ -169,15 +190,25 @@ export function ManagePanel({
   }
 
   async function look() {
-    setStage({ phase: 'working', message: 'Looking for files no track uses...' });
-    try {
-      setStage({ phase: 'orphans', report: await findOrphans(root as unknown as IpodRoot, newEngine) });
-    } catch (error) {
-      setStage({ phase: 'error', message: describeError(error) });
-    }
+    await once(async () => {
+      const controller = new AbortController();
+      stopper.current = controller;
+      setStage({ phase: 'working', message: 'Looking for files no track uses...' });
+      try {
+        setStage({ phase: 'orphans', report: await findOrphans(root as unknown as IpodRoot, newEngine, { signal: controller.signal, onProgress: (message) => setStage({ phase: 'working', message }) }) });
+      } catch (error) {
+        setStage({ phase: 'error', message: isStopped(error) ? 'Stopped. Nothing was changed on the iPod.' : describeError(error) });
+      } finally {
+        stopper.current = null;
+      }
+    });
   }
 
   async function clean(report: OrphanReport) {
+    await once(() => cleanNow(report));
+  }
+
+  async function cleanNow(report: OrphanReport) {
     if (!(await allowWriting(root))) {
       setStage({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was deleted.' });
       return;
@@ -260,22 +291,47 @@ export function ManagePanel({
       )}
 
       {stage.phase === 'working' ? (
-        <p class="callout info" role="status">
-          {stage.message}
-        </p>
-      ) : null}
-      {stage.phase === 'error' ? (
-        <div class="result no" role="alert">
+        <div class="callout info" role="status">
           <p>{stage.message}</p>
+          {stopper.current ? (
+            <div class="actions">
+              <button type="button" class="secondary small" onClick={() => stopper.current?.abort()}>
+                Stop (the iPod is not changed)
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
+      {stage.phase === 'error' ? (
+        <Notice tone="no">
+          <p>{stage.message}</p>
+        </Notice>
+      ) : null}
       {stage.phase === 'removal' ? (
-        <>
-          <div class="result ok" role="status">
-            <p>
-              Ready to remove {plural(stage.plan.tracks.length, 'track')} and delete {plural(stage.plan.files.length, 'file')}.
-            </p>
-          </div>
+        <ConfirmBox
+          title={`Remove ${plural(stage.plan.tracks.length, 'track')} from the iPod?`}
+          confirmLabel="Remove from the iPod"
+          cancelLabel="Do not remove"
+          danger
+          disabled={!ready}
+          onConfirm={() => void remove(stage.plan)}
+          onCancel={() => setStage({ phase: 'idle' })}
+        >
+          <p>
+            Ready to remove {plural(stage.plan.tracks.length, 'track')} and delete {plural(stage.plan.files.length, 'file')}.
+          </p>
+          <ul class="files">
+            {stage.plan.tracks.slice(0, 5).map((one) => (
+              <li key={one.key}>
+                {one.title ?? '(no title)'}
+                {one.artist ? `, ${one.artist}` : ''}
+              </li>
+            ))}
+            {stage.plan.tracks.length > 5 ? <li class="muted">and {stage.plan.tracks.length - 5} more</li> : null}
+          </ul>
+          <p>
+            The song files are deleted from the iPod. <strong>This cannot be undone from the backup</strong>, because the backup holds the library but no music. To keep a copy of the songs first, use the Offload tab.
+          </p>
           {stage.plan.kept.length ? (
             <ul class="files">
               {stage.plan.kept.map((kept) => (
@@ -285,10 +341,7 @@ export function ManagePanel({
               ))}
             </ul>
           ) : null}
-          <button type="button" class="danger" disabled={!ready} onClick={() => void remove(stage.plan)}>
-            Remove from the iPod
-          </button>
-        </>
+        </ConfirmBox>
       ) : null}
       {stage.phase === 'orphans' ? (
         stage.report.orphans.length ? (
@@ -297,27 +350,37 @@ export function ManagePanel({
               {plural(stage.report.orphans.length, 'file')} in the music folders that no track uses ({formatBytes(stage.report.orphans.reduce((total, file) => total + (file.size ?? 0), 0))}).
             </p>
             <ul class="files">
-              {stage.report.orphans.map((file) => (
+              {stage.report.orphans.slice(0, 200).map((file) => (
                 <li key={file.path}>
                   {file.path} <span class="muted">{file.size === null ? '' : formatBytes(file.size)}{file.madeByLibgpod ? ', named like a file this app copies' : ''}</span>
                 </li>
               ))}
+              {stage.report.orphans.length > 200 ? <li class="muted">and {stage.report.orphans.length - 200} more, all deleted if you go ahead</li> : null}
             </ul>
-            <button type="button" class="danger" onClick={() => void clean(stage.report)}>
-              Delete these files
-            </button>
+            <ConfirmBox
+              title={`Delete ${plural(stage.report.orphans.length, 'leftover file')} from the iPod?`}
+              confirmLabel={`Delete ${plural(stage.report.orphans.length, 'file')}`}
+              cancelLabel="Keep them"
+              danger
+              onConfirm={() => void clean(stage.report)}
+              onCancel={() => setStage({ phase: 'idle' })}
+            >
+              <p>
+                These files are in the music folders but no song in the library uses them, so no track disappears. They are deleted from the iPod for good. <strong>This cannot be undone from the backup</strong>, because the backup holds no music. The library is checked again just before deleting, and a file that has changed since this list was made is kept.
+              </p>
+            </ConfirmBox>
           </>
         ) : (
-          <div class="result ok" role="status">
+          <Notice tone="ok">
             <p>No leftover files. {plural(stage.report.referenced, 'file')} in the music folders, all used by the library.{stage.report.missingFiles.length ? ` ${plural(stage.report.missingFiles.length, 'track')} point at a file that is not there.` : ''}</p>
-          </div>
+          </Notice>
         )
       ) : null}
       {stage.phase === 'done' ? (
         <>
-          <div class={`result ${stage.ok ? 'ok' : 'no'}`} role={stage.ok ? 'status' : 'alert'}>
+          <Notice tone={stage.ok ? 'ok' : 'no'}>
             <p>{stage.message}</p>
-          </div>
+          </Notice>
           {stage.details.length ? (
             <ul class="files">
               {stage.details.map((line) => (

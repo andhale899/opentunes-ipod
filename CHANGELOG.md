@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Added
+- Controls and clarity pass (branch `hardening/controls-and-ux`, details in `docs/audit/controls-and-ux.md`):
+  - Stop, with what it does written on the button, for backup, restore (until files start being written), looking for leftover files, deleting them, reading the iPod, planning every change, the library test and loading the AI model list. A Pause between files for offload and for copying to the iPod (the engine side; the Add music button is still to be wired). The bar at the top now carries Stop and Pause, so they stay in reach after a tab change, and a paused write job keeps the do-not-unplug warning.
+  - Stop is switched off, with the reason shown, for the parts that cannot be stopped safely: the library write of a sync, edit or playlist change, and a restore while it writes files.
+  - In-page confirm steps that say what happens and how to undo it: removing tracks, deleting leftover files, restoring a backup, applying AI changes, choosing another iPod.
+  - Every tab keeps what it holds when you look at another one (the files picked in Add music no longer vanish on a trip to Backup). The tabs are a proper tab list (one tab stop, arrow keys, named panels).
+  - A backup folder or an offload folder picked as an iPod is explained instead of opening as one. A warning when another tab has an iPod open.
+  - The bar no longer says "Done" for a sync that was rolled back, and says "Stopped" when you stop a job.
+  - Results scroll into view and are announced. Small-print grey text now passes contrast in the light theme.
+  - Plainer wording for the library test and the write-back test.
 - Environment check page with USB and folder probes.
 - Device registry with a verification status per model, and a generated `docs/DEVICE-SUPPORT.md`.
 - Browser capability detection and song identity matching in `core/`, with tests.

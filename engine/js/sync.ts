@@ -36,6 +36,7 @@
 import { NUMBER_FIELDS, TEXT_FIELDS, type Engine, type Kind, type PlaylistInfo, type TrackFields, type TrackInfo } from './engine.ts';
 import { isClutter, isNotNeeded, loadIpodFolder, type DirectoryEntry, type FileLike } from './folder.ts';
 import type { BackupReport } from './backup.ts';
+import type { PauseGate } from './pause.ts';
 import { compareLibraries } from './rewrite.ts';
 import { verifySignatures, type SignatureCheck } from './signature.ts';
 import {
@@ -341,7 +342,7 @@ async function findDirectory(parent: DirectoryEntry, name: string): Promise<Dire
 }
 
 /** Every file directly inside the iPod's Music/Fxx folders. Sizes only when asked, each costs a look at the file. */
-async function listMusicFiles(root: DirectoryEntry, withSizes: boolean): Promise<{ folders: string[]; files: MusicFile[] }> {
+async function listMusicFiles(root: DirectoryEntry, withSizes: boolean, signal?: AbortSignal): Promise<{ folders: string[]; files: MusicFile[] }> {
   const folders: string[] = [];
   const files: MusicFile[] = [];
   const control = await findDirectory(root, 'iPod_Control');
@@ -351,6 +352,7 @@ async function listMusicFiles(root: DirectoryEntry, withSizes: boolean): Promise
     if (folder.kind !== 'directory' || !/^F\d\d$/i.test(folderName)) continue;
     folders.push(folderName);
     for await (const [name, entry] of folder.entries()) {
+      signal?.throwIfAborted();
       if (entry.kind !== 'file') continue;
       let size: number | null = null;
       if (withSizes) {
@@ -422,6 +424,7 @@ interface Session {
   originals: Map<string, Uint8Array>;
   tracksBefore: TrackInfo[];
   playlistsBefore: PlaylistInfo[];
+  signal?: AbortSignal;
 }
 
 /** What every plan carries: the database files that change, and the library they should read back as. */
@@ -447,12 +450,15 @@ export interface LibraryPlan {
 export interface LibraryPlanOptions {
   mount?: string;
   onProgress?: (message: string) => void;
+  /** Stops planning. It throws an AbortError. Planning writes nothing to the iPod, so nothing is left to undo. */
+  signal?: AbortSignal;
 }
 
 async function openSession(root: IpodRoot, newEngine: () => Promise<Engine>, options: LibraryPlanOptions): Promise<Session> {
   const mount = options.mount ?? DEFAULT_MOUNT;
   const engine = await newEngine();
-  const load = await loadIpodFolder(root, engine, { mount, onProgress: options.onProgress });
+  const load = await loadIpodFolder(root, engine, { mount, onProgress: options.onProgress, signal: options.signal });
+  options.signal?.throwIfAborted();
   if (!load.hasDatabaseFolder) throw new SyncError(`"${root.name}" has no iTunes folder in iPod_Control, so there is no library to change.`);
   try {
     engine.open(load.mount);
@@ -460,7 +466,7 @@ async function openSession(root: IpodRoot, newEngine: () => Promise<Engine>, opt
     throw new SyncError(`The iPod's library could not be read, so nothing was planned: ${messageOf(error)}`);
   }
   const originals = readTree(engine, mount, isMusicPath);
-  return { engine, mount, fireWireId: fireWireIdOf(engine, mount), originals, tracksBefore: engine.tracks(), playlistsBefore: engine.playlists() };
+  return { engine, mount, fireWireId: fireWireIdOf(engine, mount), originals, tracksBefore: engine.tracks(), playlistsBefore: engine.playlists(), signal: options.signal };
 }
 
 /**
@@ -469,6 +475,7 @@ async function openSession(root: IpodRoot, newEngine: () => Promise<Engine>, opt
  */
 async function finishSession(session: Session, summary: string[], onProgress?: (message: string) => void): Promise<LibraryPlan> {
   const { engine, mount } = session;
+  session.signal?.throwIfAborted();
   onProgress?.('Writing the library in memory...');
   try {
     engine.write();
@@ -690,7 +697,7 @@ export async function planSync(root: IpodRoot, newEngine: () => Promise<Engine>,
   // Give the engine a stand-in for every file already in the music folders, so libgpod's own
   // clash check sees them. The real listing is also kept and checked against every name picked.
   options.onProgress?.('Listing the files in the music folders...');
-  const listing = await listMusicFiles(root, false);
+  const listing = await listMusicFiles(root, false, options.signal);
   if (!listing.folders.length) {
     throw new SyncError(`"${root.name}" has no Music/Fxx folders in iPod_Control. An iPod set up by iTunes or Finder has them, so it may need restoring first.`);
   }
@@ -716,6 +723,7 @@ export async function planSync(root: IpodRoot, newEngine: () => Promise<Engine>,
   const accepted: { item: SyncItem; fields: TrackFields; identity: Identity | null }[] = [];
 
   for (const item of items) {
+    options.signal?.throwIfAborted();
     const extension = extensionOf(item.extension);
     if (!KINDS.includes(item.kind)) {
       skipped.push({ itemId: item.id, reason: `"${item.kind}" is not a kind of track the iPod knows.` });
@@ -902,6 +910,8 @@ export interface ApplyLibraryOptions {
 }
 
 export interface ApplySyncOptions extends ApplyLibraryOptions {
+  /** Lets the person pause between files. The database is not written while paused. */
+  pause?: PauseGate;
   /** Files copied at once. Three was fastest on the owner's nano 7G. */
   concurrency?: number;
   /** Bytes read and written at a time. */
@@ -1047,7 +1057,7 @@ async function copyOne(file: PlannedFile, source: SyncData, context: CopyContext
 }
 
 /** Copies every planned file, `concurrency` at a time. Returns the first problem, or null. */
-async function copyAll(plan: SyncPlan, report: SyncReport, context: CopyContext, concurrency: number): Promise<{ message: string; aborted: boolean } | null> {
+async function copyAll(plan: SyncPlan, report: SyncReport, context: CopyContext, concurrency: number, pause?: PauseGate, signal?: AbortSignal): Promise<{ message: string; aborted: boolean } | null> {
   const queue = [...plan.files];
   let failure: { message: string; aborted: boolean } | null = null;
   const stopNow = context.shouldStop;
@@ -1055,17 +1065,26 @@ async function copyAll(plan: SyncPlan, report: SyncReport, context: CopyContext,
   const inner: CopyContext = { ...context, shouldStop };
 
   const worker = async (): Promise<void> => {
-    while (queue.length && !shouldStop()) {
-      const file = queue.shift() as PlannedFile;
-      const source = plan.sources.get(file.itemId);
-      try {
-        if (!source) throw new Error('the plan has no file to read it from');
-        await copyOne(file, source, inner);
-        report.copied.push({ itemId: file.itemId, path: file.path, size: file.size });
-      } catch (error) {
-        if (error instanceof Stopped) failure ??= { message: STOPPED, aborted: true };
-        else failure ??= { message: `${file.path} could not be copied: ${messageOf(error)}`, aborted: false };
+    pause?.join();
+    try {
+      while (queue.length && !shouldStop()) {
+        // A pause waits between files, never inside one.
+        if (pause) await pause.checkpoint(signal);
+        // Another worker may have taken the last file while this one waited.
+        const file = shouldStop() ? undefined : queue.shift();
+        if (!file) break;
+        const source = plan.sources.get(file.itemId);
+        try {
+          if (!source) throw new Error('the plan has no file to read it from');
+          await copyOne(file, source, inner);
+          report.copied.push({ itemId: file.itemId, path: file.path, size: file.size });
+        } catch (error) {
+          if (error instanceof Stopped) failure ??= { message: STOPPED, aborted: true };
+          else failure ??= { message: `${file.path} could not be copied: ${messageOf(error)}`, aborted: false };
+        }
       }
+    } finally {
+      pause?.leave();
     }
   };
   context.meter.start();
@@ -1200,7 +1219,7 @@ export async function applySync(plan: SyncPlan, root: IpodRoot, newEngine: () =>
       return clash ? `${clash.path} is already on the iPod, so nothing was written and nothing was overwritten. Plan again.` : null;
     },
     // Media, a few at a time, each read back, before the database names any of it.
-    beforeDatabase: (state) => copyAll(plan, report, { root, state, meter, chunkBytes, shouldStop: stopped }, concurrency),
+    beforeDatabase: (state) => copyAll(plan, report, { root, state, meter, chunkBytes, shouldStop: stopped }, concurrency, options.pause, options.signal),
     check: async (back) => {
       const byPath = new Map(back.tracks.map((track) => [(track.ipod_path ?? '').toLowerCase(), track]));
       for (const file of plan.files) {
@@ -1518,9 +1537,9 @@ export interface OrphanReport {
   missingFiles: string[];
 }
 
-async function referencedPaths(root: IpodRoot, newEngine: () => Promise<Engine>, mount: string): Promise<{ referenced: Set<string>; tracks: TrackInfo[] }> {
+async function referencedPaths(root: IpodRoot, newEngine: () => Promise<Engine>, mount: string, signal?: AbortSignal): Promise<{ referenced: Set<string>; tracks: TrackInfo[] }> {
   const engine = await newEngine();
-  const load = await loadIpodFolder(root, engine, { mount });
+  const load = await loadIpodFolder(root, engine, { mount, signal });
   if (!load.hasDatabaseFolder) throw new SyncError(`"${root.name}" has no iTunes folder in iPod_Control, so it cannot be told which files the library uses.`);
   try {
     engine.open(load.mount);
@@ -1533,9 +1552,11 @@ async function referencedPaths(root: IpodRoot, newEngine: () => Promise<Engine>,
 }
 
 /** Lists files in iPod_Control/Music/Fxx that the library does not list. Reads only. */
-export async function findOrphans(root: IpodRoot, newEngine: () => Promise<Engine>, options: { mount?: string } = {}): Promise<OrphanReport> {
-  const { referenced, tracks } = await referencedPaths(root, newEngine, options.mount ?? DEFAULT_MOUNT);
-  const listing = await listMusicFiles(root, true);
+export async function findOrphans(root: IpodRoot, newEngine: () => Promise<Engine>, options: { mount?: string; signal?: AbortSignal; onProgress?: (message: string) => void } = {}): Promise<OrphanReport> {
+  options.onProgress?.('Reading the iPod\'s library...');
+  const { referenced, tracks } = await referencedPaths(root, newEngine, options.mount ?? DEFAULT_MOUNT, options.signal);
+  options.onProgress?.('Listing the files in the music folders...');
+  const listing = await listMusicFiles(root, true, options.signal);
   const orphans: OrphanFile[] = [];
   let used = 0;
   const present = new Set<string>();
@@ -1569,7 +1590,7 @@ export interface OrphanRemoval {
  */
 export async function removeOrphans(root: IpodRoot, newEngine: () => Promise<Engine>, orphans: OrphanFile[], options: { mount?: string; signal?: AbortSignal } = {}): Promise<OrphanRemoval> {
   const result: OrphanRemoval = { removed: [], kept: [] };
-  const { referenced } = await referencedPaths(root, newEngine, options.mount ?? DEFAULT_MOUNT);
+  const { referenced } = await referencedPaths(root, newEngine, options.mount ?? DEFAULT_MOUNT, options.signal);
   for (const orphan of orphans) {
     const { path } = orphan;
     const name = path.split('/').pop() ?? '';

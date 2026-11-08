@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import { checkBaseUrl, type ModelChoice, type ProviderId } from './providers';
 import type { Settings } from './settings';
 
@@ -31,11 +31,12 @@ export function AssistantSettings({
   host: string | null;
   storageFailed: boolean;
   /** Asks the service for the models this key can use. Rejects with a plain message. */
-  onLoadModels?: () => Promise<ModelChoice[]>;
+  onLoadModels?: (signal: AbortSignal) => Promise<ModelChoice[]>;
 }) {
   const [choices, setChoices] = useState<ModelChoice[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const loading_ = useRef<AbortController | null>(null);
   const { provider } = settings;
   const address = provider === 'openai' ? checkBaseUrl(settings.baseUrl) : null;
 
@@ -86,19 +87,29 @@ export function AssistantSettings({
               disabled={!keyIsSet || loading || !onLoadModels}
               onClick={() => {
                 if (!onLoadModels) return;
+                const controller = new AbortController();
+                loading_.current = controller;
                 setLoading(true);
                 setLoadError('');
-                onLoadModels()
+                onLoadModels(controller.signal)
                   .then((list) => setChoices(list))
-                  .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : 'Could not load the list.'))
-                  .finally(() => setLoading(false));
+                  .catch((error: unknown) => setLoadError(controller.signal.aborted ? 'Stopped. The list was not loaded.' : error instanceof Error ? error.message : 'Could not load the list.'))
+                  .finally(() => {
+                    setLoading(false);
+                    loading_.current = null;
+                  });
               }}
             >
               {loading ? 'Loading...' : choices.length ? 'Reload the list' : 'Load the list from the service'}
             </button>
+            {loading ? (
+              <button type="button" class="ghost small" onClick={() => loading_.current?.abort()}>
+                Stop
+              </button>
+            ) : null}
           </div>
           <input type="text" aria-label="Model name" value={settings.models[provider]} spellcheck={false} autocomplete="off" placeholder={provider === 'openai' ? 'Or type the model name your endpoint uses' : 'Or type a model name, for example claude-sonnet-5-5'} onInput={(event) => onSettings({ models: { ...settings.models, [provider]: (event.target as HTMLInputElement).value } })} />
-          {loadError ? <span class="ai-problem">{loadError}</span> : null}
+          {loadError ? <span class="ai-problem" role="alert">{loadError}</span> : null}
           <span class="note">
             {keyIsSet ? 'The list is read from the service with your key. It costs nothing and sends no library data.' : 'Paste a key first, then the list can be loaded.'}
             {provider === 'anthropic' ? ' A Haiku model is cheaper for simple tidy-ups.' : ''}
