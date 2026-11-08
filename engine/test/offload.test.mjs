@@ -309,10 +309,16 @@ describe('stopping and resuming', () => {
     const watched = instrument(destination, { write: (path, index) => { if (path.includes('/F') && index === 1) controller.abort(); } });
     const report = await run(ipod, watched, { concurrency: 1, signal: controller.signal });
     assert.equal(report.stopped, true);
-    assert.equal(report.files.copied, 0);
-    assert.equal(report.files.notCopied, files.size);
+    // The order the files are visited in depends on libgpod's random folder names, and a file with
+    // no bytes has no write to stop at, so one such file may be done before the stop. What must hold
+    // is that the stop was noticed, something was left, and no file is half written.
+    assert.ok(report.files.notCopied > 0, 'something was left');
+    assert.equal(report.files.copied + report.files.notCopied, files.size);
     for (const [path, bytes] of destination.listFiles()) {
-      if (/\/F\d\d\//.test(path)) assert.equal(bytes.length, 0, `${path} holds nothing`);
+      const match = /\/(F\d\d\/.+)$/.exec(path);
+      if (!match) continue;
+      const original = files.get(match[1]);
+      assert.ok(bytes.length === 0 || (original && Buffer.compare(Buffer.from(bytes), Buffer.from(original)) === 0), `${path} is whole or empty, never half written`);
     }
   });
 
