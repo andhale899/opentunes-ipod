@@ -30,6 +30,7 @@ import { OffloadPanel } from './OffloadPanel';
 import { PanelBoundary } from './PanelBoundary';
 import { startActivity } from './activity';
 import { buildPracticeIpod } from './practice';
+import { RestoreEverythingPanel } from './RestoreEverythingPanel';
 import { RestorePanel } from './RestorePanel';
 import { RewritePanel } from './RewritePanel';
 import { WriteBackPanel } from './WriteBackPanel';
@@ -647,6 +648,9 @@ export function IpodViewer({
               <RestorePanel root={snapshot.root} />
             </PanelBoundary>
           ) : null}
+          <PanelBoundary name="Restore everything">
+            <RestoreEverythingPanel root={snapshot.root} backup={backup} onChanged={() => void refreshed()} />
+          </PanelBoundary>
         </>
       ) : null}
 

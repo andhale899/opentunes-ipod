@@ -57,3 +57,4 @@ export const findOrphans = track('Looking for leftover files', false, engine.fin
 export const removeOrphans = track('Deleting leftover files from the iPod', true, engine.removeOrphans);
 export const backupIpod = track('Backing up the iPod', false, engine.backupIpod);
 export const offloadIpod = track('Copying files off the iPod', false, engine.offloadIpod);
+export const restoreOffload = track('Putting everything back on the iPod', true, engine.restoreOffload);

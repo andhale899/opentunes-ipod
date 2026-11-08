@@ -31,6 +31,8 @@ export interface BackupOptions {
   now?: Date;
   /** A file bigger than this is not copied and the backup is reported as incomplete. */
   maxFileBytes?: number;
+  /** Write into a folder of this exact name inside the destination (made if it is not there), instead of a new dated one. The offload uses it for its database folder. */
+  folderName?: string;
   onProgress?: (message: string) => void;
 }
 
@@ -188,7 +190,7 @@ export async function backupIpod(source: DirectoryEntry, destination: WritableDi
   const { plan, left } = await planBackup(control, maxFileBytes);
   if (plan.length === 0) throw new BackupError(`There are no database files on "${source.name}" to back up.`);
 
-  const folder = await uniqueFolder(destination, now);
+  const folder = options.folderName ? await destination.getDirectoryHandle(options.folderName, { create: true }) : await uniqueFolder(destination, now);
   const failures: string[] = [];
   const manifest: { path: string; size: number; sha256: string | null }[] = [];
   let bytes = 0;

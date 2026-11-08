@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
-import { describeBackup, type BackupSource, type BackupSummary, type DirectoryEntry, type IpodRoot, type RestoreReport } from '@opentunes/engine';
+import { describeBackup, isOffloadFolder, type BackupSource, type BackupSummary, type DirectoryEntry, type IpodRoot, type RestoreReport } from '@opentunes/engine';
 import { restoreBackup } from './tracked';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
@@ -38,6 +38,10 @@ export function RestorePanel({ root }: { root: DirectoryEntry }) {
     setState({ phase: 'working', message: 'Reading the backup...' });
     try {
       const folder = handle as BackupSource;
+      if (await isOffloadFolder(folder)) {
+        setState({ phase: 'error', message: `"${folder.name}" is an offload folder, not a backup folder. An offload folder holds everything (music, video, spreadsheets and the library files), and a backup holds only the database files. To put an offload folder back, use "Restore everything from an offload folder" below.` });
+        return;
+      }
       setState({ phase: 'chosen', folder, summary: await describeBackup(folder) });
     } catch (error) {
       setState({ phase: 'error', message: describeError(error) });

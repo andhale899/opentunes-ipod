@@ -14,7 +14,7 @@ Not affiliated with or endorsed by Apple. iPod and iTunes are trademarks of Appl
 - **Backs up** the database files to a folder you choose, with every copy read back and checksummed. Nothing writes until a complete backup exists.
 - **Adds** music, podcasts, audiobooks and video, one file or a whole folder with subfolders. Files the iPod cannot play (FLAC, Ogg, Opus, high-resolution WAV, HEVC, VP9 and others) are converted in the page with ffmpeg compiled to WebAssembly. Folder names such as `Audiobooks` or `TV Shows` set what each file is. There is a short guide in the app for how to arrange your files.
 - **Organises**: filter, sort, group, select, bulk-edit tags, and manage playlists.
-- **Offloads**: copies everything off the iPod to your computer as it sits on the iPod, with a CSV that says which title is which file.
+- **Offloads**: copies everything off the iPod to your computer as it sits on the iPod, with a CSV that says which title is which file and the iPod's library files, so one folder can put everything back ("Restore everything").
 - **Restores** a backup, after checking its checksums.
 - **AI assistant (optional, off by default)**: with your own Claude or OpenAI-style API key, ask in plain words to tidy tags, group audiobook chapters or build playlists. It only proposes changes. You see a preview and approve, and every change goes through the same backup and read-back as everything else. Turning it on sends your tracks' titles, artists, albums and genres (no audio, no file paths) to the provider you choose. See [docs/AI-ORGANISER.md](docs/AI-ORGANISER.md).
 
