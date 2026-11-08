@@ -274,8 +274,11 @@ export function fileTypeFor(item: Pick<SyncItem, 'extension' | 'info'>): string 
   return null;
 }
 
+/** What `trackFieldsFor` reads from an item, so a file that has not been prepared yet can be asked about too. */
+export type FieldSource = Pick<SyncItem, 'kind' | 'extension' | 'info' | 'name' | 'fields'> & { data: Pick<SyncData, 'size'> };
+
 /** Every track field the probed facts give, then the item's own fields over them. */
-export function trackFieldsFor(item: SyncItem): TrackFields {
+export function trackFieldsFor(item: FieldSource): TrackFields {
   const { tags, audio, video } = item.info;
   const fields: TrackFields = {};
   const text = (field: keyof TrackFields, value: string | undefined): void => {
@@ -345,6 +348,117 @@ function identityOf(kind: string, fields: Pick<TrackInfo, 'title' | 'artist' | '
 function sameItem(a: Identity, b: Identity): boolean {
   if (a.kind !== b.kind || a.text !== b.text) return false;
   return !a.tracklen || !b.tracklen || Math.abs(a.tracklen - b.tracklen) <= 2000;
+}
+
+/**
+ * Why an item could never be added, in plain words, or null when it can. The first thing `planSync`
+ * asks of every item, and the Add music list asks it before converting anything, so both agree.
+ * `data.size` is the size of the file that would be written.
+ */
+export function itemProblem(item: Pick<SyncItem, 'kind' | 'extension'> & { data: Pick<SyncData, 'size'> }): string | null {
+  const extension = extensionOf(item.extension);
+  if (!KINDS.includes(item.kind)) return `"${item.kind}" is not a kind of track the iPod knows.`;
+  if (extension === 'aa' || extension === 'aax') return 'Audible files are not put on the iPod by this app yet.';
+  if (!PLAYABLE_EXTENSIONS.includes(extension)) return `The iPod does not play .${extension || '(none)'} files as they are. Convert it first.`;
+  if (!(item.data.size > 0)) return 'The file is empty.';
+  if (item.data.size > MAX_FILE_BYTES) return `The file is ${formatBytes(item.data.size)}, more than the 4 GB an iPod file can be.`;
+  return null;
+}
+
+/** What the duplicate check found out about one item. */
+export type DuplicateVerdict =
+  /** Nothing on the iPod or earlier in the list matches. */
+  | { status: 'new' }
+  /** The item has no usable title, so it cannot be compared and is let through. */
+  | { status: 'cannot-tell' }
+  /** The same kind, artist, album, title and length as a track already on the iPod. */
+  | { status: 'on-ipod'; track: TrackInfo; trackKey: string }
+  /** The same as an earlier item that would be added. */
+  | { status: 'in-batch'; otherItemId: string };
+
+/** The item as the duplicate check needs it. */
+export type DuplicateInput = FieldSource & { id: string };
+
+export interface DuplicateJudge {
+  /** Compares an item with the iPod's tracks and the items accepted so far. Does not accept it. */
+  judge(item: DuplicateInput): DuplicateVerdict;
+  /** Remembers that the item will be added, so items after it are compared with it. */
+  accept(item: DuplicateInput): void;
+}
+
+/**
+ * The one place that decides whether an item is already there. `planSync` uses it for the real
+ * plan and `checkDuplicates` for the check before converting, so the two cannot disagree.
+ * `library` is the tracks on the iPod now.
+ */
+export function createDuplicateJudge(library: TrackInfo[]): DuplicateJudge {
+  // Only items with the same kind and text can match, so each list is kept by that pair. A long
+  // library and a long list then cost one lookup each, and the first match is still the earliest.
+  type Entry<T> = { value: T; identity: Identity };
+  const bucketOf = <T>(index: Map<string, Entry<T>[]>, identity: Identity): Entry<T>[] => {
+    const key = `${identity.kind}\u0000${identity.text}`;
+    let bucket = index.get(key);
+    if (!bucket) index.set(key, (bucket = []));
+    return bucket;
+  };
+  const onIpodIndex = new Map<string, Entry<TrackInfo>[]>();
+  for (const track of library) {
+    const identity = identityOf(track.kind, track);
+    if (identity) bucketOf(onIpodIndex, identity).push({ value: track, identity });
+  }
+  const acceptedIndex = new Map<string, Entry<string>[]>();
+  const identityFor = (item: DuplicateInput): Identity | null => identityOf(item.kind, trackFieldsFor(item));
+  return {
+    judge(item) {
+      const identity = identityFor(item);
+      if (!identity) return { status: 'cannot-tell' };
+      const onIpod = bucketOf(onIpodIndex, identity).find((other) => sameItem(identity, other.identity));
+      if (onIpod) return { status: 'on-ipod', track: onIpod.value, trackKey: trackKey(onIpod.value) };
+      const inBatch = bucketOf(acceptedIndex, identity).find((other) => sameItem(identity, other.identity));
+      return inBatch ? { status: 'in-batch', otherItemId: inBatch.value } : { status: 'new' };
+    },
+    accept(item) {
+      const identity = identityFor(item);
+      if (identity) bucketOf(acceptedIndex, identity).push({ value: item.id, identity });
+    },
+  };
+}
+
+/** What `checkDuplicates` says about one item. */
+export interface DuplicateCheck {
+  itemId: string;
+  /** Why the item could not be added at all (see `itemProblem`), or null. Such an item is not compared. */
+  problem: string | null;
+  verdict: DuplicateVerdict;
+  /** True when the item would be left out of the sync as a duplicate. */
+  skipped: boolean;
+}
+
+export interface DuplicateCheckOptions {
+  /** Add duplicates anyway, as `planSync` with `duplicates: 'allow'`. */
+  allow?: boolean;
+  /** Item ids to add even when they are duplicates, without allowing it for the others. */
+  allowIds?: Iterable<string>;
+}
+
+/**
+ * Asks, for a whole list in order, what `planSync` would say about each item's duplicates, without
+ * preparing any of them. Same rules and same code as the plan: an item that cannot be added is not
+ * compared and not remembered, one that is skipped as a duplicate is not remembered, and one that
+ * is added anyway is. The result has one entry per item, in the same order.
+ */
+export function checkDuplicates(items: DuplicateInput[], library: TrackInfo[], options: DuplicateCheckOptions = {}): DuplicateCheck[] {
+  const judge = createDuplicateJudge(library);
+  const allowIds = new Set(options.allowIds ?? []);
+  return items.map((item) => {
+    const problem = itemProblem(item);
+    if (problem) return { itemId: item.id, problem, verdict: { status: 'new' }, skipped: false };
+    const verdict = judge.judge(item);
+    const duplicate = verdict.status === 'on-ipod' || verdict.status === 'in-batch';
+    const skipped = duplicate && !options.allow && !allowIds.has(item.id);
+    if (!skipped) judge.accept(item);
+    return { itemId: item.id, problem: null, verdict, skipped };
+  });
 }
 
 // --------------------------------------------------------------- iPod listing
@@ -694,6 +808,8 @@ export interface SyncPlanOptions extends LibraryPlanOptions {
   capacityBytes?: number;
   /** What to do with an item that is already on the iPod. Skipped unless told otherwise. */
   duplicates?: 'skip' | 'allow';
+  /** Item ids to add even when they are duplicates, while the rest are still skipped. */
+  allowDuplicateIds?: string[];
   /** Album art. Covers are written only when this is given. */
   artwork?: SyncArtworkOptions;
 }
@@ -852,46 +968,30 @@ export async function planSync(root: IpodRoot, newEngine: () => Promise<Engine>,
   const warnings: string[] = [];
   const allowDuplicates = options.duplicates === 'allow';
 
-  const existing = session.tracksBefore.map((track) => ({ track, identity: identityOf(track.kind, track) }));
-  const accepted: { item: SyncItem; fields: TrackFields; identity: Identity | null }[] = [];
+  const judge = createDuplicateJudge(session.tracksBefore);
+  const allowIds = new Set(options.allowDuplicateIds ?? []);
+  const accepted: { item: SyncItem; fields: TrackFields }[] = [];
 
   for (const item of items) {
     options.signal?.throwIfAborted();
-    const extension = extensionOf(item.extension);
-    if (!KINDS.includes(item.kind)) {
-      skipped.push({ itemId: item.id, reason: `"${item.kind}" is not a kind of track the iPod knows.` });
-      continue;
-    }
-    if (extension === 'aa' || extension === 'aax') {
-      skipped.push({ itemId: item.id, reason: 'Audible files are not put on the iPod by this app yet.' });
-      continue;
-    }
-    if (!PLAYABLE_EXTENSIONS.includes(extension)) {
-      skipped.push({ itemId: item.id, reason: `The iPod does not play .${extension || '(none)'} files as they are. Convert it first.` });
-      continue;
-    }
-    if (!(item.data.size > 0)) {
-      skipped.push({ itemId: item.id, reason: 'The file is empty.' });
-      continue;
-    }
-    if (item.data.size > MAX_FILE_BYTES) {
-      skipped.push({ itemId: item.id, reason: `The file is ${formatBytes(item.data.size)}, more than the 4 GB an iPod file can be.` });
+    const problem = itemProblem(item);
+    if (problem) {
+      skipped.push({ itemId: item.id, reason: problem });
       continue;
     }
     const fields = trackFieldsFor(item);
-    const identity = identityOf(item.kind, fields);
-    if (identity) {
-      const onIpod = existing.find((other) => other.identity && sameItem(identity, other.identity));
-      const inBatch = onIpod ? undefined : accepted.find((other) => other.identity && sameItem(identity, other.identity));
-      if (onIpod || inBatch) {
-        duplicates.push({ itemId: item.id, trackKey: onIpod ? trackKey(onIpod.track) : null, otherItemId: inBatch ? inBatch.item.id : null, skipped: !allowDuplicates });
-        if (!allowDuplicates) {
-          skipped.push({ itemId: item.id, reason: onIpod ? 'It is already on the iPod (same kind, artist, album, title and length).' : `It is the same as "${labelOf(inBatch!.item)}" in this sync.` });
-          continue;
-        }
+    const verdict = judge.judge(item);
+    if (verdict.status === 'on-ipod' || verdict.status === 'in-batch') {
+      const leaveOut = !allowDuplicates && !allowIds.has(item.id);
+      const other = verdict.status === 'in-batch' ? items.find((candidate) => candidate.id === verdict.otherItemId) : undefined;
+      duplicates.push({ itemId: item.id, trackKey: verdict.status === 'on-ipod' ? verdict.trackKey : null, otherItemId: other ? other.id : null, skipped: leaveOut });
+      if (leaveOut) {
+        skipped.push({ itemId: item.id, reason: other ? `It is the same as "${labelOf(other)}" in this sync.` : 'It is already on the iPod (same kind, artist, album, title and length).' });
+        continue;
       }
     }
-    accepted.push({ item, fields, identity });
+    judge.accept(item);
+    accepted.push({ item, fields });
   }
 
   const usedBytes = session.tracksBefore.reduce((sum, track) => sum + (track.size || 0), 0);

@@ -146,9 +146,27 @@ export async function prepareItem(candidate: Candidate, options: PrepareOptions 
     artwork: candidate.info.artwork,
   });
   const after = await probeMedia(fileSourceFromBytes(converted.fileName, converted.bytes));
-  // The converter keeps the tags it was given, but a field it could not carry is filled from the original.
-  const merged: MediaInfo = { ...after, tags: { ...info.tags, ...after.tags }, artwork: after.artwork ?? info.artwork };
+  // A field the converter could not carry is filled from the original, and the fields that say which
+  // song this is always come from the original, so the duplicate check made before converting still holds.
+  const merged: MediaInfo = { ...after, tags: mergeConvertedTags(info.tags, after.tags), artwork: after.artwork ?? info.artwork };
   return { id: candidate.id, kind: decision.kind, data: syncDataFromBytes(converted.bytes), extension, info: merged, name: file.name, playlists };
+}
+
+/** The tags that decide whether a file is the same song, episode or title as another. */
+const IDENTITY_TAGS = ['title', 'artist', 'album', 'show', 'season', 'episode'] as const;
+
+/**
+ * The tags of a converted file: what the converter carried over, with the original's tags over them.
+ * The tags that make up a file's identity (title, artist, album, show, season, episode) are taken from
+ * the original alone, which is also what the check for duplicates before converting read. Converting
+ * can therefore never change whether a file counts as a duplicate through its tags.
+ */
+export function mergeConvertedTags(original: MediaInfo['tags'], converted: MediaInfo['tags']): MediaInfo['tags'] {
+  const merged: Record<string, unknown> = { ...converted, ...original };
+  for (const key of IDENTITY_TAGS) {
+    if (original[key] === undefined) delete merged[key];
+  }
+  return merged as MediaInfo['tags'];
 }
 
 /** Files that travel with music in a folder and are not media. */

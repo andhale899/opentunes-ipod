@@ -570,8 +570,10 @@ const SCENARIOS = [
             await page.click('Yes, clear the list');
           }
           await page.chooseFiles(paths);
-          await page.waitFor(expectedLine);
+          // Tick the box first: a file already on the iPod is skipped before converting unless it is ticked.
+          await page.waitFor('Add files even if');
           await page.evaluate(`(() => { const box = [...document.querySelectorAll('label.check')].find((l) => l.textContent.includes('Add files even if')).querySelector('input'); if (!box.checked) box.click(); })()`);
+          await page.waitFor(expectedLine);
           await page.click('Check and prepare');
           await page.waitFor(readyLine, 90_000);
           await page.click('Put on the iPod');
@@ -692,6 +694,168 @@ const SCENARIOS = [
     },
     expected: ['No duplicates found', 'Removed 1 track and deleted 1 file', '7 tracks'],
     forbidden: ['sk-test-0000', 'did not finish', 'could not be put back', 'did not finish'],
+    alert: false,
+  },
+  {
+    // Duplicates are found BEFORE anything is converted. A fake folder holds two files that are
+    // already on the practice iPod (Morning Light and Night Drive, as 24-bit audio that WOULD need
+    // converting), two that repeat each other, a file with no title and one new file. The rows are
+    // marked at once, 'Check and prepare' does not start the converter (window.Worker is wrapped to
+    // count workers), the box and a single row's own button bring the duplicates back, and the
+    // marks follow the iPod's library when a track is removed.
+    name: 'duplicates are marked before converting (skipped files are never converted; the box and one row can add them back)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        const clickTab = (name) => page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.trim().startsWith(${JSON.stringify(name)})).click()`);
+        const rows = async () =>
+          JSON.parse(
+            await page.evaluate(`JSON.stringify([...document.querySelectorAll('.pane:not([hidden]) .add-stack tbody tr')].map((tr) => ({
+              name: tr.querySelector('.cell-title').getAttribute('title'),
+              state: tr.dataset.duplicate || '',
+              label: (tr.querySelector('.dup-badge') || {}).textContent || '',
+              text: tr.querySelector('.cell-title').innerText,
+              happens: tr.querySelector('td[data-label="What happens"]').innerText,
+              size: tr.querySelector('td[data-label="On the iPod"]').innerText,
+            })))`),
+          );
+        const rowOf = async (name) => {
+          const found = (await rows()).find((row) => row.name === name);
+          check(found, 'No row for ' + name);
+          return found;
+        };
+        const workers = () => page.evaluate('window.__workers');
+        const tick = (on) =>
+          page.evaluate(`(() => { const box = [...document.querySelectorAll('label.check')].find((l) => l.textContent.includes('Add files even if')).querySelector('input'); if (box.checked !== ${on}) box.click(); })()`);
+        const pressOnRow = (name, label) =>
+          page.evaluate(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.getAttribute('aria-label') === ${JSON.stringify(label + ': ' + name)}); if (!b) return false; b.click(); return true; })()`);
+
+        await page.waitFor('Practice iPod, held in memory');
+        // A fake folder picker with silent WAV files, and a count of the workers the page starts.
+        await page.evaluate(`(() => {
+          const wav = (rate, bits, seconds) => {
+            const per = bits / 8;
+            const data = Math.round(rate * seconds) * per;
+            const b = new Uint8Array(44 + data);
+            const v = new DataView(b.buffer);
+            const t = (o, x) => [...x].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+            t(0, 'RIFF'); v.setUint32(4, 36 + data, true); t(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+            v.setUint32(24, rate, true); v.setUint32(28, rate * per, true); v.setUint16(32, per, true); v.setUint16(34, bits, true); t(36, 'data'); v.setUint32(40, data, true);
+            return b;
+          };
+          const file = (name, rate, bits, seconds) => ({ kind: 'file', name, getFile: async () => new File([wav(rate, bits, seconds)], name) });
+          const folder = (name, children) => ({ kind: 'directory', name, async *entries() { for (const [childName, child] of Object.entries(children)) yield [childName, child]; } });
+          window.showDirectoryPicker = async () => folder('Music', {
+            'The Demo Band': folder('The Demo Band', {
+              Samples: folder('Samples', {
+                'Morning Light.wav': file('Morning Light.wav', 8000, 24, 214),
+                'Night Drive.wav': file('Night Drive.wav', 8000, 24, 187),
+                'Brand New.wav': file('Brand New.wav', 8000, 16, 3),
+                '01 Brand New.wav': file('01 Brand New.wav', 8000, 16, 3),
+                '!!!.wav': file('!!!.wav', 8000, 16, 2),
+              }),
+            }),
+          });
+          window.__workers = 0;
+          const Real = window.Worker;
+          window.Worker = class extends Real { constructor(...args) { super(...args); window.__workers += 1; } };
+        })()`);
+        await page.click('Backup');
+        await page.waitFor("Back up the iPod's library");
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+
+        // 1. The rows are marked as soon as the files are read, before anything is converted.
+        await page.click('Add music');
+        await page.waitFor('No files chosen yet');
+        await page.click('Choose a folder');
+        await page.waitFor('2 of 5 can be added');
+        const first = await rows();
+        check(first.length === 5, 'Expected 5 rows, got ' + first.length);
+        const morning = await rowOf('Morning Light.wav');
+        check(morning.state === 'on-ipod' && morning.label === 'Skipped: already on the iPod', 'Morning Light is not marked as on the iPod: ' + JSON.stringify(morning));
+        check(morning.text.includes('"Morning Light" by The Demo Band'), 'The row does not name the matching track: ' + morning.text);
+        check(/Convert/.test(morning.happens) === false && morning.size === 'Not added', 'A skipped row still shows work or a size: ' + JSON.stringify(morning));
+        check((await rowOf('Night Drive.wav')).state === 'on-ipod', 'Night Drive is not marked as on the iPod.');
+        const repeat = await rowOf('Brand New.wav');
+        check(repeat.state === 'in-list' && repeat.label === 'Skipped: same as 01 Brand New.wav above', 'The repeat inside the list is not marked: ' + JSON.stringify(repeat));
+        check((await rowOf('01 Brand New.wav')).state === '', 'The first of two repeats must not be marked.');
+        const untitled = await rowOf('!!!.wav');
+        check(untitled.state === 'cannot-tell' && untitled.label === 'Could not tell if this is already on the iPod (no title)', 'A file with no title is not left unjudged: ' + JSON.stringify(untitled));
+        // The count is up front, and the size line leaves the skipped files out (two small files, not two 5 MB ones).
+        await page.waitFor('0 files will be converted, 2 copied as they are, 3 skipped as duplicates');
+        const sizeLine = String(await page.evaluate(`document.querySelector('.pane:not([hidden]) .dup-summary').innerText`));
+        check(/2 of 5 can be added, about [0-9.]+ KB\./.test(sizeLine) && sizeLine.includes('3 skipped as duplicates'), 'The size line counts skipped rows: ' + sizeLine);
+        check((await page.evaluate(`document.querySelector('.dup-summary').getAttribute('aria-live')`)) === 'polite', 'The counts are not in a live region.');
+        await page.waitFor('already on the iPod or repeat another file in this list');
+        // Phone: the notes sit inside the stacked cards, with no sideways scroll.
+        await page.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+        const phone = JSON.parse(String(await page.evaluate(`JSON.stringify({ overflow: document.documentElement.scrollWidth > window.innerWidth + 1, cells: [...document.querySelectorAll('.add-stack tbody tr:first-child td')].map((td) => getComputedStyle(td).display), note: Boolean(document.querySelector('.add-stack .dup-note')) })`)));
+        await page.send('Emulation.clearDeviceMetricsOverride');
+        check(!phone.overflow && phone.cells.every((display) => display === 'block') && phone.note, 'The marked rows are not cards on a phone: ' + JSON.stringify(phone));
+
+        // 2. Check and prepare never starts the converter for a skipped file, and the plan agrees.
+        check((await workers()) === 0, 'A worker was started before Check and prepare.');
+        await page.click('Check and prepare');
+        await page.waitFor('Ready to copy 2 files', 90_000);
+        await page.waitFor('3 files were skipped as duplicates before converting, so they were never converted');
+        check((await workers()) === 0, 'The converter was started for a file that was skipped as a duplicate (workers: ' + (await workers()) + ').');
+        check(!(await page.evaluate(`document.body.innerText.includes('the first check missed')`)), 'The plan found a duplicate the first check missed.');
+        await page.click('Put on the iPod');
+        await page.waitFor('Copied 2 files and checked the iPod by reading it back', 90_000);
+        await page.waitFor('7 tracks');
+
+        // 3. Offer the same folder again: now everything but the untitled file is on the iPod.
+        await clickTab('Add music');
+        await page.click('Choose a folder');
+        await page.waitFor('1 of 5 can be added');
+        check((await rowOf('01 Brand New.wav')).state === 'on-ipod', 'A file added through the app is not recognised when offered again.');
+        check((await rowOf('Brand New.wav')).state === 'on-ipod', 'The second repeat should match the iPod now, not the file above it.');
+        check((await rowOf('!!!.wav')).state === 'cannot-tell', 'The untitled file should still be let through.');
+        // The marks follow the iPod: remove that track in the Library tab and the row is no longer marked.
+        await clickTab('Library');
+        await page.waitFor('Your library');
+        await page.evaluate(`document.querySelector('input[aria-label="Select Brand New"]').click()`);
+        await page.waitFor('1 track selected');
+        await page.click('Remove selected');
+        await page.waitFor('Ready to remove 1 track and delete 1 file');
+        await page.click('Remove from the iPod');
+        await page.waitFor('Removed 1 track and deleted 1 file');
+        await clickTab('Add music');
+        await page.waitFor('2 of 5 can be added');
+        check((await rowOf('01 Brand New.wav')).state === '', 'The row is still marked after its track left the iPod.');
+        check((await rowOf('Brand New.wav')).state === 'in-list', 'The second repeat should match the file above it again.');
+
+        // 4. The box: every duplicate goes through, marked as added anyway, and the converter is needed again.
+        await tick(true);
+        await page.waitFor('2 files will be converted, 3 copied as they are');
+        const anyway = await rowOf('Morning Light.wav');
+        check(anyway.state === 'on-ipod' && anyway.label === 'Already on the iPod, added anyway', 'The ticked box is not shown on the row: ' + JSON.stringify(anyway));
+        check(/Convert/.test(anyway.happens), 'A duplicate that is added anyway should show its conversion: ' + anyway.happens);
+        await tick(false);
+        await page.waitFor('0 files will be converted, 2 copied as they are, 3 skipped as duplicates');
+
+        // 5. One row only: Add this one anyway on Night Drive. The others stay skipped.
+        check(await pressOnRow('Night Drive.wav', 'Add this one anyway'), 'No Add this one anyway button on Night Drive.');
+        await page.waitFor('1 file will be converted, 2 copied as they are, 2 skipped as duplicates');
+        check((await rowOf('Morning Light.wav')).state === 'on-ipod' && (await rowOf('Morning Light.wav')).label.startsWith('Skipped'), 'The other duplicate stopped being skipped.');
+        check((await rowOf('Night Drive.wav')).label === 'Already on the iPod, added anyway', 'Night Drive is not marked as added anyway.');
+        check((await workers()) === 0, 'Pressing Add this one anyway started the converter by itself.');
+        // The converter starts now, for that one file only (this is also the check that the worker count works).
+        await page.click('Check and prepare');
+        await page.waitFor('Ready to copy 3 files', 120_000);
+        check((await workers()) > 0, 'The converter never started for the file that was added anyway, so the worker count proves nothing.');
+        await page.waitFor('2 files were skipped as duplicates before converting');
+        await page.waitFor('Night Drive');
+      },
+    },
+    expected: ['Ready to copy 3 files', 'skipped as duplicates before converting'],
+    forbidden: ['did not finish', 'could not be put back', 'the first check missed'],
     alert: false,
   },
   {

@@ -14,6 +14,9 @@ probe (codec, bitrate, tags, art)  -->  plan per file: copy / remux / convert / 
    |                                            ^
    |                                            | limits come from the device registry
    v
+duplicate check (same judge as planSync): skip what is already on the iPod or repeated
+   |
+   v
 convert in a worker (ffmpeg.wasm, only when the plan says so)
    |
    v
@@ -74,6 +77,8 @@ Writing the database last means an interrupted sync leaves the iPod with its old
 | Database written last, with backup | A failed sync must not leave an iPod unusable. |
 
 **AI assistant (`app/src/ai/`, `app/src/AssistantPanel.tsx`).** The one place the page talks to another server, and only after an explicit opt-in. A pure digest (`digest.ts`) turns the library into short numbered lines with no paths; `providers.ts` posts it with `fetch` to Anthropic or an OpenAI-style endpoint with forced tool use; `schema.ts` defines the three tools and validates every answer, dropping what is not allowed. The model proposes only. The ticked proposals become `TrackEdit[]` and `PlaylistChange[]` (`apply.ts`) and go through the same planning, backup gate, read-back and rollback as the Library tab. What is sent and stored is in [AI-ORGANISER.md](AI-ORGANISER.md).
+
+**Duplicates before converting (`engine/js/sync.ts`, `app/src/duplicatePrecheck.ts`, `AddPanel.tsx`).** One judge decides whether a file is already on the iPod or repeats an earlier file in the same list: `createDuplicateJudge` in `sync.ts`, built on `trackFieldsFor`, `identityOf` and `sameItem` (same kind, same normalised artist, album and title, lengths within 2 seconds or one unknown; a file with no usable title is not compared and goes through). `planSync` takes every verdict from it, and `checkDuplicates` runs the same judge over a whole list without preparing anything, so the Add music list can mark each row as soon as the files are read. `itemProblem` is the other shared rule, for files that could never be added. The list is judged again whenever the files, the iPod's tracks (the page passes `snapshot.tracks`), the kind of a file, the "Add files even if..." box or a row's own "Add this one anyway" change, because the marks are worked out from those, not stored. A skipped row is not converted and not copied, and the counts ("9 files will be converted, 3 skipped as duplicates") and the size line leave it out. The order is: check duplicates, convert only what is needed, then `planSync`, which stays the safety net. Both read the same tags: the probe's tags with folder and file name fills, and after a conversion the tags that say which song a file is (title, artist, album, show, season, episode) come from the original only (`mergeConvertedTags` in `addFiles.ts`), so converting cannot change a verdict. The one input that can still differ is the length, which is read from the converted file; the tolerance covers an encoder's padding, and if `planSync` finds a duplicate the first check let through, the page says so. `planSync` also takes `allowDuplicateIds`, so one row can be added anyway while the others are still skipped.
 
 **Find duplicates (`app/src/library/duplicates.ts`, `DuplicatesPanel.tsx`, `app/src/ai/review.ts`).** Pure code groups the same song by the identity helpers in `core` with a length tolerance, keeps live and remix versions apart, recommends one copy to keep by a documented score, and builds the playlist steps that stop a playlist losing a song when its copy goes. Removal reuses `planRemoval` and `applyRemoval` behind the backup gate. An optional AI review sends only the candidate groups and can only change tick boxes.
 
