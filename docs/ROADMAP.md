@@ -76,3 +76,8 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 - Does a real nano 7G show the album art the app writes? Untested. The first hardware test is in [ARTWORK-RESEARCH.md](ARTWORK-RESEARCH.md) and [HARDWARE-TESTING.md](HARDWARE-TESTING.md).
 - Does Chrome for Android expose the folder picker for an iPod volume? Phase 0 checks this.
 - Small known difference, left alone until the nano has been tried: iTunes leaves `Genius.itdb` at library version 2 and libgpod writes 0. The file is empty either way. The fix is one line in libgpod's `mk_Genius` (`PRAGMA user_version = 2` when the file is made), as a fifth patch. Library.itdb's version already matches: the iPod holds 26 and the patched rewrite writes 26.
+
+## For the next big rebuild
+
+- [ ] **The activity bar with several jobs at once.** It shows only the newest job, so when a backup, an offload and an add are all running it flips between them as each one reports. Replace it with a stack: one row per running job, each with its own progress, time left and Stop or Pause, in a fixed order (the order they started), collapsible to a single line with a count, and never reordering while the person is reading it. Reported by the owner after running a backup, an offload and an add together.
+
