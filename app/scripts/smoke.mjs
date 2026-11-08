@@ -293,6 +293,11 @@ const SCENARIOS = [
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.click('Assistant');
+        // The default service is a free one, with a link to get a free key.
+        await page.waitFor('Groq (free tier)');
+        await page.waitFor('Get a free key');
+        // This scenario fakes Anthropic, so pick it.
+        await page.evaluate(`(() => { const box = document.querySelector('select option[value=anthropic]').parentElement; box.value = 'anthropic'; box.dispatchEvent(new Event('change', { bubbles: true })); })()`);
         await page.waitFor('Ask a language model');
         const optIn = await page.evaluate(`document.querySelector('.ai-optin span').textContent`);
         check(optIn === "Send my library's titles, artists, albums and genres (no audio, no file paths) to api.anthropic.com when I ask the assistant something.", 'The opt-in wording is wrong: ' + optIn);

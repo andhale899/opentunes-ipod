@@ -1,4 +1,5 @@
-import { DEFAULT_BASE_URL, DEFAULT_MODELS, type ProviderId } from './providers';
+import { DEFAULT_MODELS, type ProviderId } from './providers';
+import { DEFAULT_PRESET } from './presets';
 
 /**
  * What is kept in the browser between visits, and what is not.
@@ -27,7 +28,13 @@ const SETTINGS_NAME = 'opentunes.ai.settings';
 const PROVIDERS: ProviderId[] = ['anthropic', 'openai'];
 const keyName = (provider: ProviderId): string => `opentunes.ai.key.${provider}`;
 
-export const defaultSettings = (): Settings => ({ provider: 'anthropic', models: { ...DEFAULT_MODELS }, baseUrl: DEFAULT_BASE_URL, remember: false });
+/** Starts on the first free service, so the assistant costs nothing to try once a free key is pasted. */
+export const defaultSettings = (): Settings => ({
+  provider: DEFAULT_PRESET.provider,
+  models: { ...DEFAULT_MODELS, [DEFAULT_PRESET.provider]: DEFAULT_PRESET.model },
+  baseUrl: DEFAULT_PRESET.baseUrl,
+  remember: false,
+});
 
 /** The browser's storage, or null where it is blocked (a private window, cleared site data). */
 export function browserStorage(): StorageLike | null {

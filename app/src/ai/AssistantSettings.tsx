@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
-import { checkBaseUrl, type ModelChoice, type ProviderId } from './providers';
+import { checkBaseUrl, type ModelChoice } from './providers';
+import { PRESETS, presetFor } from './presets';
 import type { Settings } from './settings';
 
 /**
@@ -37,6 +38,7 @@ export function AssistantSettings({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const { provider } = settings;
+  const preset = presetFor(settings);
   const address = provider === 'openai' ? checkBaseUrl(settings.baseUrl) : null;
 
   return (
@@ -44,12 +46,42 @@ export function AssistantSettings({
       <div class="ai-settings-grid">
         <label class="field">
           Service
-          <select value={provider} onChange={(event) => onSettings({ provider: (event.target as HTMLSelectElement).value as ProviderId })}>
-            <option value="anthropic">Anthropic (Claude)</option>
-            <option value="openai">Any OpenAI-style endpoint</option>
+          <select
+            value={preset.id}
+            onChange={(event) => {
+              const picked = PRESETS.find((entry) => entry.id === (event.target as HTMLSelectElement).value);
+              if (!picked) return;
+              // A key belongs to one service, so a new service starts with an empty key box.
+              setChoices([]);
+              setLoadError('');
+              if (picked.provider === settings.provider) onKey('');
+              onSettings({
+                provider: picked.provider,
+                baseUrl: picked.id === 'custom' ? settings.baseUrl : picked.baseUrl,
+                models: { ...settings.models, [picked.provider]: picked.model },
+              });
+            }}
+          >
+            {PRESETS.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.label}
+              </option>
+            ))}
           </select>
+          <span class="note">
+            {preset.note}
+            {preset.keyUrl ? (
+              <>
+                {' '}
+                <a href={preset.keyUrl} target="_blank" rel="noreferrer noopener">
+                  {preset.id === 'ollama' ? 'Get Ollama' : preset.free ? 'Get a free key' : 'Get a key'}
+                </a>
+                .
+              </>
+            ) : null}
+          </span>
         </label>
-        {provider === 'openai' ? (
+        {preset.id === 'custom' ? (
           <label class="field">
             Base address
             <input type="text" value={settings.baseUrl} spellcheck={false} autocomplete="off" onInput={(event) => onSettings({ baseUrl: (event.target as HTMLInputElement).value })} />
@@ -89,7 +121,7 @@ export function AssistantSettings({
                 setLoading(true);
                 setLoadError('');
                 onLoadModels()
-                  .then((list) => setChoices(list))
+                  .then((list) => setChoices(preset.modelFilter ? list.filter((choice) => (preset.modelFilter as (id: string) => boolean)(choice.id)) : list))
                   .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : 'Could not load the list.'))
                   .finally(() => setLoading(false));
               }}
