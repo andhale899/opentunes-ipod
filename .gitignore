@@ -23,5 +23,8 @@ Thumbs.db
 opentunes-backup-*/
 ipod-backups/
 
+# Copies of everything on an iPod that the Offload tab makes. They hold the whole library and its music.
+opentunes-offload-*/
+
 # Checkouts the build tooling makes for parallel work
 .claude/

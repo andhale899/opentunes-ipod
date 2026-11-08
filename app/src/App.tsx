@@ -1,11 +1,17 @@
-import { useMemo } from 'preact/hooks';
+import { useMemo, useState } from 'preact/hooks';
 import { detectCapabilities, devices, type EnvLike } from '@opentunes/core';
+import { About, RiskNotice } from './About';
 import { Environment } from './Environment';
 import { IpodViewer } from './IpodViewer';
 
 export function App() {
   const report = useMemo(() => detectCapabilities(window as unknown as EnvLike), []);
   const browser = report.browser;
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const openAbout = () => {
+    setAboutOpen(true);
+    window.setTimeout(() => document.getElementById('about')?.scrollIntoView?.({ block: 'start' }), 0);
+  };
   const browserLabel = [browser.name, browser.major ? String(browser.major) : null].filter(Boolean).join(' ');
 
   return (
@@ -27,6 +33,8 @@ export function App() {
       </header>
 
       <main class="page">
+        <RiskNotice onRead={openAbout} />
+        {aboutOpen ? <About onClose={() => setAboutOpen(false)} /> : null}
         <IpodViewer
           canPickFolder={report.capabilities.find((capability) => capability.id === 'folderPicker')?.ok ?? false}
           syncReady={report.syncReady}
@@ -36,7 +44,10 @@ export function App() {
       </main>
 
       <footer class="site-footer">
-        OpenTunes runs entirely in this browser. Nothing is uploaded unless you turn the AI assistant on.{devices.length} iPod models are listed. Only the nano 7th generation has been tried on real hardware.
+        OpenTunes runs entirely in this browser. Nothing is uploaded unless you turn the AI assistant on. {devices.length} iPod models are listed. Only the nano 7th generation has been tried on real hardware.{' '}
+        <button type="button" class="ghost small footer-link" onClick={openAbout}>
+          About, credits and risk
+        </button>
       </footer>
     </>
   );

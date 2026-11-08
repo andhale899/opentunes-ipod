@@ -197,6 +197,21 @@ const SCENARIOS = [
         await page.waitFor('Album / Disc 2');
         const order = await page.evaluate(`[...document.querySelectorAll('td.cell-title')].map((cell) => cell.firstChild.textContent.trim()).join('|')`);
         if (order !== '01 First.wav|02 Second.wav|03 Third.wav') throw new Error('The folder files came in the wrong order: ' + order);
+        // A folder named for a kind: the kind is set from the folder name and missing tags are filled from the names.
+        await page.click('Clear the list');
+        await page.evaluate(`(() => {
+          const wav = () => { const b = new Uint8Array(44 + 400); const v = new DataView(b.buffer); const t = (o, x) => [...x].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+            t(0, 'RIFF'); v.setUint32(4, 36 + 400, true); t(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true); v.setUint32(24, 44100, true); v.setUint32(28, 176400, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); t(36, 'data'); v.setUint32(40, 400, true); return b; };
+          const file = (name) => ({ kind: 'file', name, getFile: async () => new File([wav()], name) });
+          const folder = (name, children) => ({ kind: 'directory', name, async *entries() { for (const [childName, child] of Object.entries(children)) yield [childName, child]; } });
+          window.showDirectoryPicker = async () => folder('Audiobooks', { 'Some Author': folder('Some Author', { 'Some Book': folder('Some Book', { '01 Opening.wav': file('01 Opening.wav') }) }) });
+        })()`);
+        await page.click('Choose a folder');
+        await page.waitFor('1 of 1 can be added');
+        await page.waitFor('from the folder name');
+        await page.waitFor('filled in from the folder and file names');
+        const detected = await page.evaluate(`(() => { const select = document.querySelector('select[aria-label="Kind of 01 Opening.wav"]'); return select ? select.value : 'no select'; })()`);
+        if (detected !== 'audiobook') throw new Error('The folder named Audiobooks should have set the kind to audiobook, but the kind is: ' + detected);
         await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
         // Remove the copied file and its media file, then fix a title.
         await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
@@ -383,6 +398,117 @@ const SCENARIOS = [
     },
     expected: ['Smoke mix', 'Done. The iPod was read back and matches.'],
     forbidden: ['did not finish', 'could not be put back'],
+    alert: false,
+  },
+  {
+    // Copies everything off the practice iPod into a folder the page hands back from a faked
+    // showDirectoryPicker, the same technique the folder step above uses. The iPod is only read.
+    name: 'offloading a practice iPod into a picked folder',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        await page.waitFor('Practice iPod, held in memory');
+        await page.click('Offload');
+        await page.waitFor('Copy everything off the iPod');
+        // A destination folder held in the page: it keeps what is written so the test can look at it.
+        await page.evaluate(`(() => {
+          const directory = (name) => ({
+            kind: 'directory', name, children: new Map(),
+            async *entries() { for (const entry of this.children) yield entry; },
+            async getDirectoryHandle(child, options = {}) {
+              const found = this.children.get(child);
+              if (found && found.kind === 'directory') return found;
+              if (found || !options.create) throw Object.assign(new Error(child + ' was not found.'), { name: 'NotFoundError' });
+              const made = directory(child); this.children.set(child, made); return made;
+            },
+            async getFileHandle(child, options = {}) {
+              const found = this.children.get(child);
+              if (found && found.kind === 'file') return found;
+              if (found || !options.create) throw Object.assign(new Error(child + ' was not found.'), { name: 'NotFoundError' });
+              const file = {
+                kind: 'file', name: child, bytes: new Uint8Array(0),
+                async getFile() { return new File([this.bytes], child); },
+                async createWritable() {
+                  const chunks = [];
+                  return {
+                    write: async (data) => { chunks.push(new Uint8Array(data)); },
+                    close: async () => { const all = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0)); let at = 0; for (const c of chunks) { all.set(c, at); at += c.length; } file.bytes = all; },
+                  };
+                },
+              };
+              this.children.set(child, file); return file;
+            },
+          });
+          window.__offloadDestination = directory('offload-destination');
+          window.showDirectoryPicker = async () => window.__offloadDestination;
+          window.__listOffload = () => { const out = {}; const walk = (dir, prefix) => { for (const [n, e] of dir.children) { if (e.kind === 'directory') walk(e, prefix + n + '/'); else out[prefix + n] = e.bytes; } }; walk(window.__offloadDestination, ''); return out; };
+        })()`);
+        await page.click('Choose where to copy everything');
+        await page.waitFor('and checked each by reading it back', 60_000);
+        const found = await page.evaluate(`(() => { try {
+          const files = window.__listOffload();
+          const text = (path) => new TextDecoder('utf-8', { ignoreBOM: true }).decode(files[path]);
+          const names = Object.keys(files);
+          const folder = names.find((n) => n.endsWith('/library.csv')).split('/')[0];
+          const media = names.filter((n) => n.split('/').length === 3 && /^F[0-9][0-9]$/.test(n.split('/')[1]));
+          const csv = text(folder + '/library.csv');
+          const row = csv.split(String.fromCharCode(13, 10)).find((line) => line.includes('Morning Light')) || '';
+          const copy = media.find((n) => n.endsWith(row.split(',')[0]));
+          return JSON.stringify({
+            folder,
+            media: media.length,
+            bom: files[folder + '/library.csv'][0] === 0xef && files[folder + '/library.csv'][1] === 0xbb && files[folder + '/library.csv'][2] === 0xbf,
+            hasPlaylists: names.includes(folder + '/playlists.csv') && text(folder + '/playlists.csv').includes('Road trip'),
+            hasReadme: text(folder + '/README.txt').includes('copy of everything on an iPod'),
+            csvRow: row,
+            copyText: copy ? new TextDecoder().decode(files[copy]) : null,
+          });
+        } catch (error) { return JSON.stringify({ error: String(error) }); } })()`);
+        const result = JSON.parse(String(found));
+        if (result.error) throw new Error('Reading the offload folder failed in the page: ' + result.error);
+        if (!/^opentunes-offload-\d{4}-\d{2}-\d{2}-\d{4}$/.test(result.folder)) throw new Error('The offload folder is not named opentunes-offload-YYYY-MM-DD-HHMM: ' + found);
+        if (result.media !== 5) throw new Error('Expected 5 media files copied, found ' + result.media + ': ' + found);
+        if (!result.bom) throw new Error('library.csv has no UTF-8 byte order mark.');
+        if (!result.hasPlaylists || !result.hasReadme) throw new Error('playlists.csv or README.txt is missing or wrong: ' + found);
+        if (!result.csvRow.includes('The Demo Band') || !result.csvRow.endsWith('copied')) throw new Error('library.csv row for Morning Light is wrong: ' + result.csvRow);
+        if (result.copyText !== 'stand-in for Morning Light') throw new Error('The copied file does not hold the iPod file\'s bytes: ' + result.copyText);
+      },
+    },
+    expected: ['Copied 5 files', 'in "offload-destination"', 'library.csv, playlists.csv and a README.txt'],
+    forbidden: ['could not be copied', 'is not complete'],
+    alert: false,
+  },
+  {
+    // A fresh browser profile: the landing shows the risk notice once, the footer link opens the
+    // About page with the credits read from THIRD_PARTY.md, and a reload does not show the notice again.
+    name: 'the landing risk notice (once) and the About, credits and risk page',
+    url: `http://localhost:${port}/`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        await page.waitFor('Choose iPod folder');
+        await page.waitFor('Use at your own risk.');
+        await page.click('Read the details');
+        await page.waitFor('Back up first.');
+        for (const text of ['not affiliated with, or endorsed by, Apple', 'iPod is a trademark of Apple Inc.', 'nano 7th generation', 'Nothing is downloaded from streaming services', 'LGPL, version 2 or later (source file headers)', 'GPL 2 or later (package.json)', 'The Unlicense (public domain)', 'MIT (package.json)']) {
+          await page.waitFor(text, 5_000);
+        }
+        await page.click('Close');
+        await page.click('About, credits and risk');
+        await page.waitFor('Credits');
+        await page.send('Page.reload');
+        await page.waitFor('Choose iPod folder');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const again = String(await page.evaluate('document.body.innerText'));
+        if (again.includes('Use at your own risk.')) throw new Error('The risk notice came back after a reload.');
+        if (!again.includes('About, credits and risk')) throw new Error('The footer link is missing after a reload.');
+      },
+    },
+    expected: ['About, credits and risk'],
+    forbidden: [],
     alert: false,
   },
   ...(REAL_MEDIA

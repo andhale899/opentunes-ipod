@@ -17,6 +17,7 @@ import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 import { BackupGate } from './BackupGate';
 import { allowWriting } from './WriteBackPanel';
+import { FolderGuide } from './FolderGuide';
 
 type Stage =
   | { phase: 'idle' }
@@ -89,7 +90,7 @@ export function AddPanel({
   const capacityBytes = device && device.capacity_gb > 0 ? Math.round(device.capacity_gb * 1e9 * USABLE_SHARE) : undefined;
 
   /** Reads each file, in order, and adds it to the list. `folder` is where it sat inside a chosen folder. */
-  async function addToList(list: { file: File; folder: string }[], alreadyLeftOut = 0) {
+  async function addToList(list: { file: File; folder: string; folders?: string[] }[], alreadyLeftOut = 0) {
     const media = list.filter(({ file }) => !isNotMedia(file.name));
     setIgnored((previous) => previous + alreadyLeftOut + (list.length - media.length));
     if (!media.length) {
@@ -99,10 +100,10 @@ export function AddPanel({
     }
     const added: Candidate[] = [];
     const failed: string[] = [];
-    for (const [index, { file, folder }] of media.entries()) {
+    for (const [index, { file, folder, folders }] of media.entries()) {
       setStage({ phase: 'reading', message: `Reading ${index + 1} of ${media.length}: ${file.name}` });
       try {
-        added.push(await inspectFile(file, model, undefined, folder));
+        added.push(await inspectFile(file, model, undefined, folder, folders));
       } catch (error) {
         failed.push(`${file.name}: ${describeError(error)}`);
       }
@@ -115,7 +116,13 @@ export function AddPanel({
   async function choose(files: FileList | null) {
     if (!files?.length) return;
     setStage({ phase: 'reading', message: 'Reading the files...' });
-    await addToList([...files].map((file) => ({ file, folder: '' })));
+    // The plain folder dialog gives each file's path from the chosen folder, such as "Audiobooks/Author/Book/01.mp3".
+    await addToList(
+      [...files].map((file) => {
+        const parts = (file as File & { webkitRelativePath?: string }).webkitRelativePath?.split('/').slice(0, -1) ?? [];
+        return { file, folder: parts.slice(1).join(' / '), folders: parts.length ? parts : undefined };
+      }),
+    );
   }
 
   /** Chrome's own folder picker, then every file inside the folder and its subfolders, in album order. */
@@ -134,20 +141,20 @@ export function AddPanel({
     }
     setStage({ phase: 'reading', message: `Listing "${top.name}" and its subfolders...` });
     try {
-      const found: { file: File; folder: string }[] = [];
+      const found: { file: File; folder: string; folders: string[] }[] = [];
       let leftOut = 0;
-      const walk = async (directory: FolderHandle, path: string): Promise<void> => {
+      const walk = async (directory: FolderHandle, parts: string[]): Promise<void> => {
         for await (const [name, entry] of directory.entries()) {
           if (entry.kind === 'directory') {
-            if (!name.startsWith('.')) await walk(entry as unknown as FolderHandle, path ? `${path} / ${name}` : name);
+            if (!name.startsWith('.')) await walk(entry as unknown as FolderHandle, [...parts, name]);
           } else if (isNotMedia(name)) {
             leftOut += 1;
           } else {
-            found.push({ file: await (entry as unknown as FileHandleLike).getFile(), folder: path });
+            found.push({ file: await (entry as unknown as FileHandleLike).getFile(), folder: parts.join(' / '), folders: [top.name, ...parts] });
           }
         }
       };
-      await walk(top, '');
+      await walk(top, []);
       found.sort((a, b) => a.folder.localeCompare(b.folder, undefined, { numeric: true }) || a.file.name.localeCompare(b.file.name, undefined, { numeric: true }));
       await addToList(found, leftOut);
     } catch (error) {
@@ -248,6 +255,7 @@ export function AddPanel({
       <p class="card-lead">
         Pick files and see what happens to each one. Files the iPod cannot play are converted in this page, and nothing is uploaded. The iPod is not touched until the last button.
       </p>
+      <FolderGuide />
       <BackupGate ready={ready} onGo={onNeedBackup} />
 
       <div class="toolbar">
@@ -336,6 +344,7 @@ export function AddPanel({
                     <td class="cell-title" title={candidate.file.name}>
                       {candidate.info.tags.title ?? candidate.file.name}
                       {candidate.folder ? <div class="path">{candidate.folder}</div> : null}
+                      {candidate.filledFromFolders?.length ? <div class="path">{candidate.filledFromFolders.join(', ')} filled in from the folder and file names</div> : null}
                     </td>
                     <td>
                       <select
@@ -351,6 +360,7 @@ export function AddPanel({
                           </option>
                         ))}
                       </select>
+                      {candidate.kindFromFolder ? <div class="path">from the folder name</div> : null}
                     </td>
                     <td class={unsupported ? 'wrap no-text' : 'wrap'}>
                       {describeDecision(candidate.decision, candidate.info)}

@@ -26,6 +26,7 @@ import { BackupPanel } from './BackupPanel';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 import { ManagePanel } from './ManagePanel';
+import { OffloadPanel } from './OffloadPanel';
 import { PanelBoundary } from './PanelBoundary';
 import { buildPracticeIpod } from './practice';
 import { RestorePanel } from './RestorePanel';
@@ -294,7 +295,7 @@ function Library({ tracks }: { tracks: TrackInfo[] }) {
   );
 }
 
-type Tab = 'library' | 'add' | 'assistant' | 'backup' | 'diagnostics';
+type Tab = 'library' | 'add' | 'assistant' | 'backup' | 'offload' | 'diagnostics';
 
 export function IpodViewer({
   canPickFolder,
@@ -309,7 +310,7 @@ export function IpodViewer({
 }) {
   const [tab, setTab] = useState<Tab>(() => {
     const asked = new URLSearchParams(window.location.search).get('tab');
-    return asked === 'add' || asked === 'backup' || asked === 'diagnostics' ? asked : 'library';
+    return asked === 'add' || asked === 'backup' || asked === 'offload' || asked === 'diagnostics' ? asked : 'library';
   });
   const [view, setView] = useState<View>({ phase: 'idle' });
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -402,7 +403,7 @@ export function IpodViewer({
   const ready = view.phase === 'ready' ? view.snapshot : null;
   const writable = ready !== null && ready.source !== 'demo';
   const tabs: [Tab, string][] = writable
-    ? [['library', 'Library'], ['add', 'Add music'], ['assistant', 'Assistant'], ['backup', 'Backup'], ['diagnostics', 'Diagnostics']]
+    ? [['library', 'Library'], ['add', 'Add music'], ['assistant', 'Assistant'], ['backup', 'Backup'], ['offload', 'Offload'], ['diagnostics', 'Diagnostics']]
     : [['library', 'Library'], ['diagnostics', 'Diagnostics']];
   const current: Tab = tabs.some(([id]) => id === tab) ? tab : 'library';
   const refreshed = () => (ready ? readIpod(ready.root, ready.source, true) : undefined);
@@ -639,6 +640,12 @@ export function IpodViewer({
             </PanelBoundary>
           ) : null}
         </>
+      ) : null}
+
+      {current === 'offload' && writable ? (
+        <PanelBoundary name="Offload">
+          <OffloadPanel source={snapshot.root} inMemory={snapshot.source === 'practice'} />
+        </PanelBoundary>
       ) : null}
 
       {current === 'diagnostics' ? (
