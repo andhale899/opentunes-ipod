@@ -301,3 +301,75 @@ export async function callModel(config: ProviderConfig, request: ModelRequest, o
     throw new ModelError('bad-reply', scrub(error instanceof Error ? error.message : 'Something went wrong.', config.apiKey));
   }
 }
+
+// ---------------------------------------------------------------- the list of models
+
+export interface ModelChoice {
+  id: string;
+  /** A friendlier name when the service gives one. */
+  label: string;
+}
+
+/** Ids on api.openai.com that are not chat models, which would only confuse the list. */
+const NOT_CHAT = /(embedding|whisper|tts|dall-e|moderation|image|realtime|audio|transcribe|search-preview|computer-use|davinci|babbage|instruct|sora)/i;
+
+/**
+ * Asks the service which models this key can use, so the person picks one instead of typing a
+ * name from memory. It is a read-only call that costs nothing. Throws a ModelError with a plain
+ * message, like callModel.
+ */
+export async function listModels(config: Pick<ProviderConfig, 'provider' | 'apiKey' | 'baseUrl'>, options: CallOptions = {}): Promise<ModelChoice[]> {
+  const problem = keyProblem(config.apiKey);
+  if (problem) throw new ModelError('setup', problem);
+  const key = cleanKey(config.apiKey);
+  let url: string;
+  let host: string;
+  let headers: Record<string, string>;
+  if (config.provider === 'anthropic') {
+    url = 'https://api.anthropic.com/v1/models?limit=1000';
+    host = 'api.anthropic.com';
+    headers = { 'x-api-key': key, 'anthropic-version': ANTHROPIC_VERSION, 'anthropic-dangerous-direct-browser-access': 'true' };
+  } else {
+    const checked = checkBaseUrl(config.baseUrl);
+    if (!checked.ok) throw new ModelError('setup', checked.error);
+    url = `${checked.base}/models`;
+    host = checked.host;
+    headers = { Authorization: `Bearer ${key}` };
+  }
+
+  const send: FetchLike = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
+  let response: Response;
+  try {
+    response = await send(url, { method: 'GET', headers, signal: options.signal });
+  } catch (error) {
+    if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw new ModelError('abort', 'Stopped.');
+    throw new ModelError('network', `Could not reach ${host} to ask for its models. Check the internet connection and the address. Some endpoints do not allow calls from a web page, so for those type the model name yourself.`);
+  }
+  if (!response.ok) {
+    let text = '';
+    try {
+      text = await response.text();
+    } catch {
+      // no body
+    }
+    throw httpError(response.status, text, host, key);
+  }
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw new ModelError('bad-reply', `${host} sent back something that is not a list of models. Type the model name yourself.`);
+  }
+  const rows = isObject(data) && Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : [];
+  const choices: ModelChoice[] = [];
+  for (const row of rows) {
+    if (!isObject(row) || typeof row.id !== 'string' || row.id === '') continue;
+    const label = typeof row.display_name === 'string' && row.display_name ? `${row.display_name} (${row.id})` : row.id;
+    choices.push({ id: row.id, label });
+  }
+  const official = host === 'api.openai.com';
+  const kept = official ? choices.filter((choice) => /^(gpt|o\d|chatgpt)/i.test(choice.id) && !NOT_CHAT.test(choice.id)) : choices;
+  if (!kept.length) throw new ModelError('bad-reply', `${host} did not list any models this app can use. Type the model name yourself.`);
+  // Anthropic lists the newest first. For the others, a descending name sort puts newer versions first more often than not.
+  return config.provider === 'anthropic' ? kept : kept.sort((a, b) => b.id.localeCompare(a.id, undefined, { numeric: true }));
+}

@@ -1,22 +1,13 @@
 import { useRef, useState } from 'preact/hooks';
 import { describeDecision, devices, formatBytes, kindLabel, type ContentKind, type DeviceModel } from '@opentunes/core';
-import {
-  applySync,
-  planSync,
-  type BackupReport,
-  type DeviceInfo,
-  type DirectoryEntry,
-  type IpodRoot,
-  type SyncItem,
-  type SyncPlan,
-  type SyncProgress,
-  type SyncReport,
-} from '@opentunes/engine';
+import { type BackupReport, type DeviceInfo, type DirectoryEntry, type IpodRoot, type SyncItem, type SyncPlan, type SyncProgress, type SyncReport } from '@opentunes/engine';
+import { applySync, planSync } from './tracked';
 import { inspectFile, isNotMedia, prepareItem, redecide, type Candidate } from './addFiles';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 import { BackupGate } from './BackupGate';
 import { allowWriting } from './WriteBackPanel';
+import { startActivity } from './activity';
 import { FolderGuide } from './FolderGuide';
 
 type Stage =
@@ -187,9 +178,11 @@ export function AddPanel({
     abort.current = controller;
     const items: SyncItem[] = [];
     const failed: string[] = [];
+    const activity = startActivity('Preparing files');
     try {
       for (const [index, candidate] of addable.entries()) {
         const label = `${index + 1} of ${addable.length}: ${candidate.file.name}`;
+        activity.update(`Converting or reading ${label}`);
         setStage({ phase: 'converting', message: label, fraction: 0 });
         try {
           const item = await prepareItem(candidate, {
@@ -218,6 +211,7 @@ export function AddPanel({
     } catch (error) {
       setStage({ phase: 'error', message: controller.signal.aborted ? 'Stopped. Nothing was written to the iPod.' : describeError(error) });
     } finally {
+      activity.end(items.length > 0 && !controller.signal.aborted);
       abort.current = null;
     }
   }
@@ -265,6 +259,7 @@ export function AddPanel({
             {PLANNABLE.map((entry) => (
               <option key={entry.id} value={entry.id}>
                 {entry.name}
+                {entry.verification === 'hardware-tested' ? ' (tested)' : ' (not tested)'}
               </option>
             ))}
           </select>

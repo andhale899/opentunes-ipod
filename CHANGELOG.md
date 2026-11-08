@@ -53,8 +53,12 @@
 - About, credits and risk: a footer link opens a page with plain use-at-your-own-risk text and a credits list read from `THIRD_PARTY.md` and `docs/ENGINE-BUILD.md`, so each licence is shown as those files state it. A short notice shows once on the first visit. `THIRD_PARTY.md` now also lists Preact, Vite, Vitest and TypeScript, with the licence field of their `package.json`.
 - Offload folders (`opentunes-offload-*`) are ignored by git.
 - `ScratchFolder` files can be read in pieces (`slice`), like the browser's.
+- An activity bar under the top bar for everything the page does: a spinner, what it is doing, the time taken, a note when it is slow, and during any write to the iPod a warning not to unplug, eject or close the tab. After a write it says to eject the iPod from the computer, or that it did not finish and the backup can restore it. The AI assistant shows how long it has waited for the model and stops after five minutes.
+- A model picker for the AI assistant: it loads the models a key can use from the service (a free read-only call) so no model name has to be typed. Typing one still works.
+- The model list in Add music marks which iPod models are tested (only the nano 7th generation) and which are not, and the landing page says so.
 
 ### Changed
+- The wording no longer calls the iPod "classic" (that is a different model). The stylesheet merge had cut a rule in half and left the organiser and phone styles nested inside it, which is repaired.
 - The landing text and the footer now say "Nothing is uploaded unless you turn the AI assistant on", because the assistant is the one feature that can send text off the computer.
 - libgpod now runs the lowest SQL command set a nano 6G or 7G offers, not the highest. The rewritten library gets the `is_home_video` column and library version 26, as the library iTunes wrote has. A fourth libgpod patch, found by the rewrite check on the owner's nano 7G.
 - The rewrite check keeps data it would lose apart from empty tables and columns that are merely missing, so the verdict is not padded with differences where nothing was held.

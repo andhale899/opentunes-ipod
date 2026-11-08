@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
-import { describeBackup, restoreBackup, type BackupSource, type BackupSummary, type DirectoryEntry, type IpodRoot, type RestoreReport } from '@opentunes/engine';
+import { describeBackup, type BackupSource, type BackupSummary, type DirectoryEntry, type IpodRoot, type RestoreReport } from '@opentunes/engine';
+import { restoreBackup } from './tracked';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 import { allowWriting } from './WriteBackPanel';

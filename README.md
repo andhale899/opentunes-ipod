@@ -1,7 +1,9 @@
 # OpenTunes for iPod
 
-Put music, podcasts, audiobooks and video on a classic iPod from a web page, without iTunes and without a server. It runs entirely in your browser: pick the iPod's folder, back it up, add files, and the page converts what the iPod cannot play and writes the iPod's library the way iTunes would.
+Put music, podcasts, audiobooks and video on an iPod from a web page, without iTunes and without a server. It runs entirely in your browser: pick the iPod's folder, back it up, add files, and the page converts what the iPod cannot play and writes the iPod's library the way iTunes would.
 
+> **Tested on the iPod nano 7th generation only.** Support for other iPods is built from published specifications and has never been tried on a real device.
+>
 > **Use it at your own risk.** OpenTunes writes to your iPod's database. A bad write can leave an iPod showing an empty or broken library until it is restored. It makes a backup before it writes, reads every write back, undoes itself if anything is off, and can restore the backup, but none of that is a guarantee. It has been tried on **one** device, an iPod nano 7th generation. Other models are listed from specifications and may not work. There is no warranty. Do not use it on an iPod holding the only copy of anything you care about.
 
 Not affiliated with or endorsed by Apple. iPod and iTunes are trademarks of Apple Inc.

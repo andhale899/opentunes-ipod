@@ -28,6 +28,7 @@ import { newEngine } from './engineLoader';
 import { ManagePanel } from './ManagePanel';
 import { OffloadPanel } from './OffloadPanel';
 import { PanelBoundary } from './PanelBoundary';
+import { startActivity } from './activity';
 import { buildPracticeIpod } from './practice';
 import { RestorePanel } from './RestorePanel';
 import { RewritePanel } from './RewritePanel';
@@ -340,7 +341,9 @@ export function IpodViewer({
   async function readIpod(directory: DirectoryEntry, source: Snapshot['source'], refresh = false) {
     // A refresh after a change made here keeps the panels on screen, so their results stay readable,
     // and keeps the backup, which is still the restore point.
+    const activity = startActivity(refresh ? 'Reading the iPod again' : 'Reading the iPod', { message: 'Loading the engine...' });
     const progress = (message: string) => {
+      activity.update(message);
       if (!refresh) setView({ phase: 'working', message });
     };
     progress('Loading the engine...');
@@ -360,7 +363,9 @@ export function IpodViewer({
       const signatures = await checkSignatures(engine, load.mount);
       setView({ phase: 'ready', snapshot: snapshotOf(engine, source, directory, load, signatures) });
       engine.close();
+      activity.end(true);
     } catch (error) {
+      activity.end(false, describeError(error));
       const message = describeError(error);
       // When the database would not open, the signatures can still say whether the files are intact.
       const signatures = engine && load?.hasDatabaseFolder ? await checkSignatures(engine, load.mount) : null;
@@ -421,9 +426,12 @@ export function IpodViewer({
       <>
         <section class="hero">
           <div>
-            <h1>Put your music on a classic iPod, without iTunes.</h1>
+            <h1>Put your music on an iPod, without iTunes.</h1>
             <p class="lead">
               OpenTunes reads your iPod, backs it up, then adds music, podcasts, audiobooks and video. It runs in this browser tab. Nothing is uploaded unless you turn the AI assistant on, and nothing is installed.
+            </p>
+            <p class="callout info tested-note">
+              <strong>Tested on the iPod nano 7th generation only.</strong> Other iPods are supported from published specifications and have never been tried, so treat them as experimental. Always make the backup first.
             </p>
             <div class="actions">
               <button type="button" onClick={() => void chooseFolder()} disabled={working || !canPickFolder}>
