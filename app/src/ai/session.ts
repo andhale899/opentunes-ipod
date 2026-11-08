@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'preact/hooks';
 import type { AskResult } from './assistant';
 import { browserStorage, defaultSettings, loadSettings, type KeyStore, type Settings } from './settings';
 
@@ -86,4 +87,27 @@ export function initSession(): typeof session {
     session.initialised = true;
   }
   return session;
+}
+
+const watchers = new Set<() => void>();
+
+/**
+ * Tells every panel that reads the session that it changed (a key, the opt-in, a setting). Panels are
+ * kept on screen when you look at another tab, so without this the Assistant and the duplicate finder
+ * would each keep showing what the session held when they last drew.
+ */
+export function sessionChanged(): void {
+  for (const watcher of [...watchers]) watcher();
+}
+
+/** Draws the calling panel again whenever the session changes anywhere. */
+export function useSessionWatch(): void {
+  const [, setVersion] = useState(0);
+  useEffect(() => {
+    const watcher = (): void => setVersion((version) => version + 1);
+    watchers.add(watcher);
+    return () => {
+      watchers.delete(watcher);
+    };
+  }, []);
 }

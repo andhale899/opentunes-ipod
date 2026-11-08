@@ -15,7 +15,7 @@ import { presetFor } from './ai/presets';
 import { ModelError, cleanKey, hostOf, keyProblem, listModels, scrub, type ProviderConfig } from './ai/providers';
 import { ProposalPreview } from './ai/ProposalPreview';
 import { browserStorage, forgetKeys, saveSettings, type Settings } from './ai/settings';
-import { initSession, markTouched, saveDraft, session, type Turn } from './ai/session';
+import { initSession, markTouched, saveDraft, session, sessionChanged, useSessionWatch, type Turn } from './ai/session';
 
 const EXAMPLES = [
   'Fix spelling and casing of artists and albums',
@@ -55,7 +55,11 @@ export function AssistantPanel({
 }) {
   const state = initSession();
   const [, setTick] = useState(0);
-  const bump = () => setTick((tick) => tick + 1);
+  const bump = () => {
+    setTick((tick) => tick + 1);
+    sessionChanged();
+  };
+  useSessionWatch();
   const [keyVersion, setKeyVersion] = useState(0);
   const [storageFailed, setStorageFailed] = useState(false);
   const [prompt, setPromptState] = useState(() => state.draft);

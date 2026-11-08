@@ -9,7 +9,7 @@ import { newEngine } from '../engineLoader';
 import { allowWriting } from '../WriteBackPanel';
 import { ModelError, hostOf, keyProblem, scrub, type ProviderConfig } from '../ai/providers';
 import { MAX_GROUPS_PER_REQUEST, buildDuplicateDigest, groupsToSend, reviewDuplicates } from '../ai/review';
-import { initSession } from '../ai/session';
+import { initSession, sessionChanged, useSessionWatch } from '../ai/session';
 import type { Dropped } from '../ai/schema';
 import {
   applyVerdicts,
@@ -77,7 +77,11 @@ export function DuplicatesPanel({
 }) {
   const session = initSession();
   const [, setTick] = useState(0);
-  const bump = () => setTick((tick) => tick + 1);
+  const bump = () => {
+    setTick((tick) => tick + 1);
+    sessionChanged();
+  };
+  useSessionWatch();
   const report = useMemo(() => findDuplicates(tracks, playlists), [tracks, playlists]);
   const everyGroup = useMemo(() => [...report.groups, ...report.candidates], [report]);
   const [held, setHeld] = useState<Held | null>(null);

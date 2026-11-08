@@ -116,6 +116,8 @@ export function judgeWrite(result: unknown): WriteVerdict {
   if (!report) return { outcome: 'clean', ok: true, stopped: false };
   const failures = strings(report.failures);
   const rollbackFailures = strings(report.rollbackFailures);
+  // A backup report has `verified` too, but as a count of files, so only a true or false means "read back".
+  const verified = typeof report.verified === 'boolean' ? report.verified : undefined;
   const wasStopped = report.aborted === true || report.stopped === true;
   const undone = report.rolledBack === true && rollbackFailures.length === 0 && report.restoreNeeded !== true;
   // A stop that left the iPod as it was, or consistent, is not a failure, even though the run did not verify.
@@ -127,10 +129,10 @@ export function judgeWrite(result: unknown): WriteVerdict {
       detail: report.rolledBack === true ? 'Everything it had done was undone.' : (failures[0] ?? 'What was done so far is kept.'),
     };
   }
-  if (report.verified === true) {
+  if (verified === true) {
     return failures.length || report.rolledBack === true ? { outcome: 'clean', ok: false, stopped: false, detail: failures[0] } : { outcome: 'clean', ok: true, stopped: false };
   }
-  if (report.verified === undefined) {
+  if (verified === undefined) {
     // Something that completes or does not, such as a backup, or putting an offload copy back (which carries its library restore).
     if (report.complete !== false) return { outcome: 'clean', ok: true, stopped: false };
     const detail = failures[0] ?? (typeof report.summary === 'string' ? report.summary : undefined);
@@ -391,16 +393,17 @@ export const offloadIpod = track('Copying files off the iPod', false, engine.off
   },
 });
 
-export const restoreOffload = track('Putting everything back on the iPod', true, engine.restoreOffload, {
-  pause: true,
-  stop: {
-    label: 'Stop (the library is not changed yet)',
-    confirm: 'Stop? The files copied back so far stay on the iPod, but its library is not changed, so it stays as it was. You can run this again to finish.',
-    stopping: 'Stopping after the pieces being copied. The iPod library is not changed.',
-    at: 2,
-    // The library files are written in one go at the end, and stopping halfway would leave a mix of old and restored files.
-    blocked: (progress) =>
-      typeof progress === 'object' && progress !== null && (progress as { phase?: string }).phase === 'restoring' ? 'This part cannot be stopped safely: the library files are being put back, and stopping halfway would leave a mix of old and restored files. It takes a few seconds.' : null,
-  },
-});
+/** Putting an offload copy back: Stop works while files are copied, and is off once the library files are being put back. */
+export const restoreOffloadStop: StopSpec = {
+  label: 'Stop (the library is not changed yet)',
+  confirm: 'Stop? The files copied back so far stay on the iPod, but its library is not changed, so it stays as it was. You can run this again to finish.',
+  stopping: 'Stopping after the pieces being copied. The iPod library is not changed.',
+  at: 2,
+  // The library files are written in one go at the end, and stopping halfway would leave a mix of old and restored files.
+  blocked: (progress) =>
+    typeof progress === 'object' && progress !== null && (progress as { phase?: string }).phase === 'restoring'
+      ? 'This part cannot be stopped safely: the library files are being put back, and stopping halfway would leave a mix of old and restored files. It takes a few seconds.'
+      : null,
+};
+export const restoreOffload = track('Putting everything back on the iPod', true, engine.restoreOffload, { pause: true, stop: restoreOffloadStop });
 export const checkEarlierBackupTracked = track('Checking the earlier backup', false, checkEarlierBackup);
