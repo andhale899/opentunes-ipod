@@ -36,7 +36,7 @@ export function App() {
       </main>
 
       <footer class="site-footer">
-        OpenTunes runs entirely in this browser. Nothing is uploaded. {devices.length} iPod models are listed. Only the nano 7th generation has been tried on real hardware.
+        OpenTunes runs entirely in this browser. Nothing is uploaded unless you turn the AI assistant on.{devices.length} iPod models are listed. Only the nano 7th generation has been tried on real hardware.
       </footer>
     </>
   );

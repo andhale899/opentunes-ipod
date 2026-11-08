@@ -63,6 +63,8 @@ Writing the database last means an interrupted sync leaves the iPod with its old
 | Preact and TypeScript | Small, typed, and the app is a handful of screens. One typed worker API replaces v1's three-way iframe bridge. |
 | Database written last, with backup | A failed sync must not leave an iPod unusable. |
 
+**AI assistant (`app/src/ai/`, `app/src/AssistantPanel.tsx`).** The one place the page talks to another server, and only after an explicit opt-in. A pure digest (`digest.ts`) turns the library into short numbered lines with no paths; `providers.ts` posts it with `fetch` to Anthropic or an OpenAI-style endpoint with forced tool use; `schema.ts` defines the three tools and validates every answer, dropping what is not allowed. The model proposes only. The ticked proposals become `TrackEdit[]` and `PlaylistChange[]` (`apply.ts`) and go through the same planning, backup gate, read-back and rollback as the Library tab. What is sent and stored is in [AI-ORGANISER.md](AI-ORGANISER.md).
+
 ## What exists
 
 - `core/`: capability detection, song identity, device registry, with tests.
