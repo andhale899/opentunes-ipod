@@ -8,6 +8,7 @@ import { BackupGate } from './BackupGate';
 import { allowWriting } from './WriteBackPanel';
 import { BulkEdit } from './library/BulkEdit';
 import { rowsOf, selectedRows } from './library/organise';
+import { DuplicatesPanel } from './library/DuplicatesPanel';
 import { PlaylistManager } from './library/PlaylistManager';
 import { TrackBrowser } from './library/TrackBrowser';
 
@@ -30,7 +31,7 @@ type EditField = (typeof EDIT_FIELDS)[number][0];
 
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;
 
-type LibraryView = 'tracks' | 'playlists';
+type LibraryView = 'tracks' | 'playlists' | 'duplicates';
 
 /**
  * The library of a real iPod, with the ways to change it: filter, sort, group and select tracks,
@@ -215,6 +216,9 @@ export function ManagePanel({
             <button type="button" role="tab" class="subtab" aria-selected={view === 'playlists'} onClick={() => show('playlists')}>
               Playlists <span class="badge">{playlists.length}</span>
             </button>
+            <button type="button" role="tab" class="subtab" aria-selected={view === 'duplicates'} onClick={() => show('duplicates')}>
+              Find duplicates
+            </button>
           </div>
 
           {view === 'tracks' ? (
@@ -253,6 +257,8 @@ export function ManagePanel({
 
               {chosen.length ? <BulkEdit selected={chosen} busy={busy} ready={ready} onApply={applyBulk} /> : null}
             </>
+          ) : view === 'duplicates' ? (
+            <DuplicatesPanel root={root} tracks={tracks} playlists={playlists} backup={backup} onChanged={onChanged} />
           ) : (
             <PlaylistManager root={root} rows={rows} playlists={playlists} selected={selected} onSelect={select} backup={backup} onChanged={onChanged} />
           )}

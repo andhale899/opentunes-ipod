@@ -34,6 +34,8 @@ export interface ModelRequest {
   system: string;
   messages: ChatMessage[];
   tools: readonly ToolDefinition[];
+  /** What to add to the system text when the endpoint will not take tools. Defaults to the assistant's JSON instructions. */
+  jsonSuffix?: string;
 }
 
 export interface ModelReply {
@@ -212,6 +214,7 @@ export function parseJsonReply(text: string): ToolCall[] {
   const calls: ToolCall[] = TOOL_NAMES.filter((name) => name in value).map((name) => ({ name, input: value[name] }));
   if (calls.length) return calls;
   // A model that leaves out the wrapper keys.
+  if (Array.isArray(value.verdicts)) calls.push({ name: 'review_duplicates', input: { verdicts: value.verdicts } });
   if (Array.isArray(value.edits)) calls.push({ name: 'propose_edits', input: { edits: value.edits } });
   if (Array.isArray(value.playlists)) calls.push({ name: 'propose_playlists', input: { playlists: value.playlists } });
   if (typeof value.text === 'string') calls.push({ name: 'answer', input: { text: value.text } });
@@ -277,7 +280,7 @@ async function once(config: ProviderConfig, request: ModelRequest, withTools: bo
   const key = cleanKey(config.apiKey);
   const model = config.model.trim();
   const { url, host } = endpointOf(config);
-  const system = withTools ? request.system : request.system + JSON_MODE_SUFFIX;
+  const system = withTools ? request.system : request.system + (request.jsonSuffix ?? JSON_MODE_SUFFIX);
 
   if (config.provider === 'anthropic') {
     const body: Record<string, unknown> = { model, max_tokens: ANTHROPIC_MAX_TOKENS, system, messages: request.messages };

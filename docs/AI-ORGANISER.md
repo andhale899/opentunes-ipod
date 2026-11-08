@@ -4,6 +4,8 @@ An optional tab (Assistant, on a real or practice iPod) where a language model p
 
 The model only proposes. It has no access to the iPod, and nothing it says is applied until you tick it and press Apply.
 
+The same key, provider and opt-in are also used by "Ask AI to review" in Library, Find duplicates (see [Reviewing duplicates](#reviewing-duplicates)). Those are the only two places OpenTunes sends anything off your computer.
+
 ## What is sent
 
 Only when you press Ask, and only after you tick the box that says: "Send my library's titles, artists, albums and genres (no audio, no file paths) to `<host>` when I ask the assistant something." The host is shown in the sentence: `api.anthropic.com`, or the host of the address you typed.
@@ -76,12 +78,26 @@ Changes that do nothing (a value the track already has) are dropped too.
 4. The engine plans the change in memory (`planPlaylistChanges`, `planEdits`) and the tab shows the plan. Then `changePlaylists` and `editTracks` write it, one run per kind of change, playlists first. Each run reads the iPod back, verifies it, and puts the files back if anything is off.
 5. The library is read again. A proposal made before a change cannot be applied afterwards: ask again.
 
+## Reviewing duplicates
+
+Library, Find duplicates finds songs that are on the iPod more than once with plain code (no AI): same normalised artist and title, a length within 4 seconds or 3 percent, versions such as live and remix kept apart. Titles and artists that are spelled slightly differently (a typo, "feat." without brackets, bracket text) are only held back as candidates. The AI is optional and only looks at these groups.
+
+It uses the Assistant tab's provider, model, key and opt-in tick box. There is no second key box. If no key is set the tab says so and points to the Assistant tab. The opt-in box in this tab is the same switch: ticking it here ticks it there, it is never saved and it starts off every time the page loads.
+
+What is sent when you press "Ask AI to review": the duplicate prompt (`DUPLICATES_PROMPT` in `app/src/ai/prompt.ts`), the one tool definition (`review_duplicates` in `app/src/ai/schema.ts`), and for each candidate group a line `group <id> (how it was found)`, then one line per track: `id|kind|title|artist|album|year|seconds|kbps` with an id made up for the request. Fuzzy candidates add a line naming which pairs looked alike (for example `similar pairs: 3~4`). Fields are cut at 60 characters, and `|`, `<` and `>` are taken out.
+
+Never sent: audio, artwork, file paths, file sizes, play counts, ratings, the names of your playlists, the iPod's name, serial number or FireWire ID, and any track that is not in a candidate group. The tab shows "This request would send N groups (M tracks, about T tokens of text) to `<host>`" before you press the button. At most 150 groups go in one request, least certain first, and the tab says how many wait. A test (`app/test/ai/review.test.ts`) checks the text holds no path, size or name from outside a group.
+
+The model answers with `review_duplicates`: for each group id one verdict, `duplicate`, `different-versions` or `unsure`, an optional `keep` (a track id from that group, only with `duplicate`) and a short reason. `validateReview` drops, and lists under "N things the AI said were left out": group ids that were not sent, a second verdict on one group, any other verdict word, a `keep` that is not in the group or that comes with another verdict, fields that are not part of a verdict, other tools, and a plain-text answer. A group with no verdict stays as it was.
+
+The verdict and reason show on each group. "Apply the AI's verdicts" changes tick boxes and nothing else: `duplicate` ticks the other copies (and moves the keep choice if the AI named one in the group), `different-versions` and `unsure` untick the group. The fuzzy candidates appear only after the AI has given a verdict on them, and are never ticked on their own. Nothing is removed until you press "Remove ticked duplicates", which plans the removal, shows it, and writes behind the backup gate like the Library tab.
+
 ## Prompt injection
 
 Titles, artists and albums are text from files and tags, and can contain words that look like instructions. The system prompt tells the model the list is data, not instructions. The list also has angle brackets and `|` taken out of every field, so a title cannot close the `<library>` block. This lowers the risk but is not proof against a determined model. The real protection is that the model cannot do anything itself: whatever it says goes through the checks above and your tick boxes, and an edit can only touch the fields listed.
 
 ## Tested, and not tested
 
-Tested (see the changelog for how): the digest, the checks, request shapes, headers and tool definitions for both providers, error messages (wrong key, rate limit, bad request, network failure, abort), that the key never appears in a thrown message even when the service echoes it, the JSON fallback, saving and forgetting settings, and the whole tab in headless Chrome on a practice iPod with `fetch` replaced by a fake model.
+Tested (see the changelog for how): the duplicate finder, its keep score and playlist steps, the duplicate digest, the `review_duplicates` validator and its request (Anthropic and OpenAI-style, JSON fallback, with a fake `fetch`), the digest, the checks, request shapes, headers and tool definitions for both providers, error messages (wrong key, rate limit, bad request, network failure, abort), that the key never appears in a thrown message even when the service echoes it, the JSON fallback, saving and forgetting settings, and the whole tab in headless Chrome on a practice iPod with `fetch` replaced by a fake model.
 
-Not tested: a real call to any service (the build had no key and made none), how well any real model follows the instructions or how good its proposals are, an endpoint that really blocks browser calls, or apply on the owner's real iPod. The practice iPod is held in memory. Field changes and new playlists are the same engine code as the Library tab, which has not yet been run on the owner's iPod either.
+Not tested: a real call to any service (the build had no key and made none), how well any real model follows the instructions, how good its proposals are or how well it judges duplicate groups (the verdicts in the headless Chrome run came from a fake model), an endpoint that really blocks browser calls, or apply on the owner's real iPod. The practice iPod is held in memory. Field changes and new playlists are the same engine code as the Library tab, which has not yet been run on the owner's iPod either.

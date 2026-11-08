@@ -421,6 +421,139 @@ const SCENARIOS = [
     alert: false,
   },
   {
+    // Find duplicates on a practice iPod. Part 1: add the same tone files twice (with the box that
+    // allows the same song again), see one SURE group, remove the extra copy through the backup gate.
+    // Part 2: a fake model (window.fetch replaced, nothing leaves the page) reviews a new group; only
+    // the groups' metadata may be sent, its verdict only changes ticks, and nothing is removed until
+    // the person presses the remove button.
+    name: 'finding duplicates on a practice iPod (remove a SURE group, then a fake AI review that only ticks)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        const clickTab = (name) => page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.trim().startsWith(${JSON.stringify(name)})).click()`);
+        const addTone = async (paths, expectedLine, readyLine, copiedLine) => {
+          await clickTab('Add music');
+          await page.waitFor('Add music, podcasts');
+          await page.evaluate(`(() => { const clear = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Clear the list'); if (clear) clear.click(); })()`);
+          await page.chooseFiles(paths);
+          await page.waitFor(expectedLine);
+          await page.evaluate(`(() => { const box = [...document.querySelectorAll('label.check')].find((l) => l.textContent.includes('Add files even if')).querySelector('input'); if (!box.checked) box.click(); })()`);
+          await page.click('Convert and check');
+          await page.waitFor(readyLine, 90_000);
+          await page.click('Put on the iPod');
+          await page.waitFor(copiedLine, 90_000);
+        };
+        await page.waitFor('Practice iPod, held in memory');
+        await page.evaluate(`(() => {
+          window.__ai = [];
+          const real = window.fetch.bind(window);
+          window.fetch = async (url, init) => {
+            if (!String(url).startsWith('https://api.anthropic.com/')) return real(url, init);
+            const body = JSON.parse(init.body);
+            window.__ai.push({ url: String(url), headers: init.headers, body });
+            const text = body.messages[body.messages.length - 1].content;
+            const lines = text.split('\\n');
+            const at = lines.findIndex((line) => /^group \\d+ /.test(line));
+            const group = Number(lines[at].split(' ')[1]);
+            const firstTrack = Number(lines[at + 1].split('|')[0]);
+            return new Response(JSON.stringify({
+              stop_reason: 'tool_use',
+              content: [{ type: 'tool_use', id: 'a', name: 'review_duplicates', input: { verdicts: [
+                { group, verdict: 'duplicate', keep: firstTrack, reason: 'A fake model says these are the same file.' },
+                { group: 9999, verdict: 'duplicate', reason: 'A group that was never sent' },
+              ] } }],
+            }), { status: 200 });
+          };
+        })()`);
+        await page.click('Backup');
+        await page.waitFor('Back up the database files');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+
+        // Part 1: the same two tone files, then one of them again.
+        await addTone([TONE_COPY, TONE_CONVERT], '2 of 2 can be added', 'Ready to copy 2 files', 'Copied 2 files and checked the iPod by reading it back');
+        await page.waitFor('7 tracks');
+        await addTone([TONE_COPY], '1 of 1 can be added', 'Ready to copy 1 file', 'Copied 1 file and checked the iPod by reading it back');
+        await page.waitFor('8 tracks');
+        await clickTab('Library');
+        await page.waitFor('Your library');
+        await clickTab('Find duplicates');
+        await page.waitFor('1 group, 1 track that could go');
+        const groups = await page.evaluate(`document.querySelectorAll('.dup-group').length`);
+        check(groups === 1, 'Expected one group, found ' + groups);
+        const card = await page.evaluate(`document.querySelector('.dup-group').innerText`);
+        check(/Sure/.test(card) && card.includes('same artist, title, album and length') && card.includes('Recommended:'), 'The group card is wrong: ' + card);
+        check(!card.includes('smoke tone convert'), 'A different song was put in the group.');
+        check((await page.evaluate(`document.querySelectorAll('.dup-row input[type=radio]:checked').length`)) === 1, 'Exactly one copy should be kept.');
+        check((await page.evaluate(`document.querySelectorAll('.dup-row input[type=checkbox]:checked').length`)) === 1, 'Exactly one copy should be ticked for removal.');
+        await page.waitFor('1 track ticked');
+        await page.click('Remove ticked duplicates');
+        await page.waitFor('Ready to remove 1 track and delete 1 file');
+        await page.click('Remove from the iPod');
+        await page.waitFor('Removed 1 track and deleted 1 file');
+        await page.waitFor('No duplicates found');
+        check((await page.evaluate('window.__ai.length')) === 0, 'The AI was called without being asked.');
+
+        // Part 2: a new copy, and the AI review.
+        await addTone([TONE_COPY], '1 of 1 can be added', 'Ready to copy 1 file', 'Copied 1 file and checked the iPod by reading it back');
+        await page.waitFor('8 tracks');
+        await clickTab('Library');
+        await clickTab('Find duplicates');
+        await page.waitFor('1 group, 1 track that could go');
+        await page.evaluate(`document.querySelector('.dup-ai > summary').click()`);
+        // Not set up yet: it says so and points to the Assistant tab, and has no key box of its own.
+        await page.waitFor('The AI is not set up. Open the Assistant tab');
+        check((await page.evaluate(`document.querySelectorAll('.dupes input[type=password]').length`)) === 0, 'The duplicates tab must not have a key box.');
+        await clickTab('Assistant');
+        await page.waitFor('Ask a language model');
+        await page.evaluate(`(() => { const box = document.querySelector('input[type=password]'); box.value = 'sk-test-0000'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        await clickTab('Library');
+        await clickTab('Find duplicates');
+        await page.evaluate(`document.querySelector('.dup-ai > summary').click()`);
+        await page.waitFor('This request would send 1 group (2 tracks');
+        check(await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Ask AI to review').disabled`), 'Ask AI to review must be off before the opt-in.');
+        const wording = await page.evaluate(`document.querySelector('.dup-ai .ai-optin span').textContent`);
+        check(wording.includes('no audio, no file paths, no sizes, no playlist names') && wording.includes('api.anthropic.com'), 'The opt-in wording is wrong: ' + wording);
+        check((await page.evaluate('window.__ai.length')) === 0, 'Something was sent before the opt-in.');
+        await page.evaluate(`document.querySelector('.dup-ai .ai-optin input').click()`);
+        await page.click('Ask AI to review');
+        await page.waitFor('The AI says: duplicate');
+        await page.waitFor('A fake model says these are the same file.');
+        await page.waitFor('1 thing the AI said was left out');
+        const sent = JSON.parse(await page.evaluate('JSON.stringify(window.__ai)'));
+        check(sent.length === 1, 'Expected one request, got ' + sent.length);
+        const [call] = sent;
+        check(call.headers['x-api-key'] === 'sk-test-0000' && !call.url.includes('sk-test') && !JSON.stringify(call.body).includes('sk-test'), 'The key must be in a header only.');
+        check(call.body.tools.length === 1 && call.body.tools[0].name === 'review_duplicates' && call.body.tool_choice.type === 'any', 'The tool was not forced.');
+        const message = call.body.messages[call.body.messages.length - 1].content;
+        check(message.includes('smoke tone copy') && message.includes('group 1 (same artist, title, album and length)'), 'The groups were not sent: ' + message);
+        check(!/Morning Light|Night Drive|smoke tone convert/.test(message), 'Tracks that are not in a group were sent.');
+        check(!/iPod_Control|\.wav|\.m4a|F\d\d|playlist|Road trip/i.test(message), 'A path or playlist name was sent.');
+        // The verdict only ticks. Untick everything, apply it, and the track is still there.
+        await page.click('Select none');
+        await page.waitFor('0 tracks ticked');
+        await page.click("Apply the AI's verdicts");
+        await page.waitFor('1 track ticked');
+        await page.waitFor('Nothing is removed until you press Remove ticked duplicates');
+        await page.waitFor('8 tracks');
+        await page.click('Remove ticked duplicates');
+        await page.waitFor('Ready to remove 1 track and delete 1 file');
+        await page.click('Remove from the iPod');
+        await page.waitFor('Removed 1 track and deleted 1 file');
+        await page.waitFor('7 tracks');
+        await page.waitFor('No duplicates found');
+      },
+    },
+    expected: ['No duplicates found', 'Removed 1 track and deleted 1 file', '7 tracks'],
+    forbidden: ['sk-test-0000', 'did not finish', 'could not be put back', 'did not finish'],
+    alert: false,
+  },
+  {
     // Copies everything off the practice iPod into a folder the page hands back from a faked
     // showDirectoryPicker, the same technique the folder step above uses. The iPod is only read.
     name: 'offloading a practice iPod into a picked folder',
