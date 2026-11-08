@@ -226,9 +226,6 @@ const SCENARIOS = [
     // the opt-in, what is sent after it, that the preview shows before and after, that one edit
     // and one new playlist apply through the backup gate, and that the key is never in the page.
     name: 'the AI assistant on a practice iPod (fake model, no network): opt in, ask, preview, apply one edit and one playlist',
-    // The library organiser on a practice iPod: select every track, set a genre on all of them in one
-    // write, group by it, make a playlist from the selection, then take the tracks out of it again.
-    name: 'organising a practice iPod (select all, bulk edit, group, playlist create, add and remove)',
     url: `http://localhost:${port}/?demo=practice`,
     devtools: {
       doneSelector: 'body',
@@ -262,10 +259,6 @@ const SCENARIOS = [
             }), { status: 200 });
           };
         })()`);
-        const setValue = (selector, value) =>
-          page.evaluate(`(() => { const box = document.querySelector(${JSON.stringify(selector)}); if (!box) return false; box.value = ${JSON.stringify(value)}; box.dispatchEvent(new Event(box.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); return true; })()`);
-        const clickTab = (name) => page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.trim().startsWith(${JSON.stringify(name)})).click()`);
-        await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
         await page.waitFor('Back up the database files');
         await page.click('Choose where to keep the backup');
@@ -313,6 +306,25 @@ const SCENARIOS = [
     },
     expected: ['Smoke Artist', 'Applied 1 edit and 1 new playlist', 'A key is set'],
     forbidden: ['sk-test-0000', 'did not finish', 'could not be put back', 'Nothing more was changed'],
+    alert: false,
+  },
+  {
+    // The library organiser on a practice iPod: select every track, set a genre on all of them in one
+    // write, group by it, make a playlist from the selection, then take the tracks out of it again.
+    name: 'organising a practice iPod (select all, bulk edit, group, playlist create, add and remove)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const setValue = (selector, value) =>
+          page.evaluate(`(() => { const box = document.querySelector(${JSON.stringify(selector)}); if (!box) return false; box.value = ${JSON.stringify(value)}; box.dispatchEvent(new Event(box.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); return true; })()`);
+        const clickTab = (name) => page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.trim().startsWith(${JSON.stringify(name)})).click()`);
+        await page.waitFor('Practice iPod, held in memory');
+        await page.click('Backup');
+        await page.waitFor('Back up the database files');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
         await clickTab('Library');
         await page.waitFor('Your library');
         // Filter chips carry counts.
