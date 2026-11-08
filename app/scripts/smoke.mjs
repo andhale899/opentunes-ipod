@@ -809,7 +809,7 @@ const SCENARIOS = [
           window.Worker = class extends Real { constructor(...args) { super(...args); window.__workers += 1; } };
         })()`);
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('Back up the iPod');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
 
