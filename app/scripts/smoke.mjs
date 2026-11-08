@@ -220,6 +220,94 @@ const SCENARIOS = [
     forbidden: ['smoke tone copy', 'did not finish', 'could not be put back'],
     alert: false,
   },
+  {
+    // The AI assistant with a FAKE model: window.fetch is replaced, so nothing leaves the page
+    // (the browser here resolves no host except localhost). It checks that nothing is sent before
+    // the opt-in, what is sent after it, that the preview shows before and after, that one edit
+    // and one new playlist apply through the backup gate, and that the key is never in the page.
+    name: 'the AI assistant on a practice iPod (fake model, no network): opt in, ask, preview, apply one edit and one playlist',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        await page.waitFor('Practice iPod, held in memory');
+        // The assistant is off until the person opts in, and the app's own wording says so.
+        await page.waitFor('Nothing is uploaded unless you turn the AI assistant on');
+        await page.evaluate(`(() => {
+          window.__ai = [];
+          const real = window.fetch.bind(window);
+          window.fetch = async (url, init) => {
+            if (!String(url).startsWith('https://api.anthropic.com/')) return real(url, init);
+            const body = JSON.parse(init.body);
+            window.__ai.push({ url: String(url), headers: init.headers, body });
+            const library = body.messages[body.messages.length - 1].content;
+            const idOf = (title) => Number(library.split('\\n').find((line) => line.split('|')[2] === title).split('|')[0]);
+            return new Response(JSON.stringify({
+              stop_reason: 'tool_use',
+              content: [
+                { type: 'tool_use', id: 'a', name: 'propose_edits', input: { edits: [
+                  { id: idOf('Morning Light'), fields: { artist: 'Smoke Artist' }, reason: 'A fake model changed this' },
+                  { id: 9999, fields: { artist: 'Nobody' }, reason: 'An id that was never sent' },
+                  { id: idOf('Night Drive'), fields: { size: 5 }, reason: 'A field the engine may not edit' },
+                ] } },
+                { type: 'tool_use', id: 'b', name: 'propose_playlists', input: { playlists: [{ name: 'Smoke mix', ids: [idOf('Morning Light'), idOf('Night Drive')], reason: 'A fake playlist' }] } },
+              ],
+            }), { status: 200 });
+          };
+        })()`);
+        await page.click('Backup');
+        await page.waitFor('Back up the database files');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        await page.click('Assistant');
+        await page.waitFor('Ask a language model');
+        const optIn = await page.evaluate(`document.querySelector('.ai-optin span').textContent`);
+        check(optIn === "Send my library's titles, artists, albums and genres (no audio, no file paths) to api.anthropic.com when I ask the assistant something.", 'The opt-in wording is wrong: ' + optIn);
+        check(await page.evaluate(`document.querySelector('.ai-optin input').checked === false`), 'The opt-in must start off.');
+        await page.evaluate(`(() => { const box = document.querySelector('input[type=password]'); box.value = 'sk-test-0000'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        await page.evaluate(`(() => { const box = document.querySelector('textarea'); box.value = 'Change the artist of Morning Light and make a mix'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        await page.waitFor('Tick the box above to allow sending the library.');
+        check(await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Ask').disabled`), 'Ask must be off before the opt-in.');
+        await page.waitFor('This request would send 5 tracks');
+        check((await page.evaluate('window.__ai.length')) === 0, 'Something was sent before the opt-in.');
+        await page.evaluate(`document.querySelector('.ai-optin input').click()`);
+        await page.click('Ask');
+        await page.waitFor('Nothing has been changed yet');
+        await page.waitFor('Smoke Artist');
+        await page.waitFor('The Demo Band');
+        await page.waitFor('A fake model changed this');
+        await page.waitFor('New playlist "Smoke mix"');
+        await page.waitFor('2 of 2 ticked');
+        await page.waitFor('2 things the assistant asked for were left out');
+        // What was sent: one request, to the right place, with the key only in a header.
+        const sent = JSON.parse(await page.evaluate('JSON.stringify(window.__ai)'));
+        check(sent.length === 1, 'Expected one request, got ' + sent.length);
+        const [call] = sent;
+        check(call.headers['x-api-key'] === 'sk-test-0000' && call.headers['anthropic-dangerous-direct-browser-access'] === 'true', 'The headers are wrong.');
+        check(!call.url.includes('sk-test') && !JSON.stringify(call.body).includes('sk-test'), 'The key is in the URL or the body.');
+        check(call.body.tool_choice.type === 'any' && call.body.tools.length === 3, 'Tools were not forced.');
+        const library = call.body.messages[call.body.messages.length - 1].content;
+        check(library.includes('|Morning Light|The Demo Band|Samples|Rock|2021|track 1') && !/iPod_Control|\.m4a|F\d\d/.test(library), 'The library text is wrong or holds a path.');
+        // Apply the edit and the playlist.
+        await page.click('Apply selected');
+        await page.waitFor('Applied 1 edit and 1 new playlist', 90_000);
+        await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
+        await page.waitFor('Smoke Artist');
+        await page.waitFor('Smoke mix');
+        await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Assistant')).click()`);
+        // Back on the tab: the conversation, the key and the opt-in are still there (this tab's memory), and the old answer cannot be applied twice.
+        await page.waitFor('Applied 1 edit and 1 new playlist');
+        check(!(await page.evaluate(`[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Apply selected')`)), 'An applied answer must not offer Apply again.');
+      },
+    },
+    expected: ['Smoke Artist', 'Applied 1 edit and 1 new playlist', 'A key is set'],
+    forbidden: ['sk-test-0000', 'did not finish', 'could not be put back', 'Nothing more was changed'],
+    alert: false,
+  },
   ...(REAL_MEDIA
     ? [
         {

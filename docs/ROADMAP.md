@@ -44,6 +44,7 @@ Goal: a libgpod WebAssembly build that anyone with Docker can reproduce, and a C
 - [ ] Video, with profiles generated from the registry.
 - [ ] Podcasts and audiobooks, including merging files into one M4B with chapters.
 - [ ] Library manager: browse, edit, delete, playlists, duplicates, artwork.
+- [x] AI assistant (`app/src/ai/`, [AI-ORGANISER.md](AI-ORGANISER.md)): optional, opt-in, a model proposes tag fixes, kind changes and new playlists from a text digest of the library, and everything goes through a validator, a preview with tick boxes, the backup gate and `editTracks` / `changePlaylists`. Built and tested with a fake `fetch` (unit tests, and headless Chrome on a practice iPod). Not tried against a real model, so the quality of real proposals is unknown, and not run on the owner's iPod. Not built: changing or deleting existing playlists (refused on purpose), a streamed reply, remembering a conversation across reloads.
 - [ ] Playlist import from an Exportify CSV, M3U or Last.fm, matched against files you already own.
 
 ## Phase 4: Everything else

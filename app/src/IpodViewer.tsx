@@ -21,6 +21,7 @@ import {
   type TrackInfo,
 } from '@opentunes/engine';
 import { AddPanel } from './AddPanel';
+import { AssistantPanel } from './AssistantPanel';
 import { BackupPanel } from './BackupPanel';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
@@ -293,7 +294,7 @@ function Library({ tracks }: { tracks: TrackInfo[] }) {
   );
 }
 
-type Tab = 'library' | 'add' | 'backup' | 'diagnostics';
+type Tab = 'library' | 'add' | 'assistant' | 'backup' | 'diagnostics';
 
 export function IpodViewer({
   canPickFolder,
@@ -401,7 +402,7 @@ export function IpodViewer({
   const ready = view.phase === 'ready' ? view.snapshot : null;
   const writable = ready !== null && ready.source !== 'demo';
   const tabs: [Tab, string][] = writable
-    ? [['library', 'Library'], ['add', 'Add music'], ['backup', 'Backup'], ['diagnostics', 'Diagnostics']]
+    ? [['library', 'Library'], ['add', 'Add music'], ['assistant', 'Assistant'], ['backup', 'Backup'], ['diagnostics', 'Diagnostics']]
     : [['library', 'Library'], ['diagnostics', 'Diagnostics']];
   const current: Tab = tabs.some(([id]) => id === tab) ? tab : 'library';
   const refreshed = () => (ready ? readIpod(ready.root, ready.source, true) : undefined);
@@ -421,7 +422,7 @@ export function IpodViewer({
           <div>
             <h1>Put your music on a classic iPod, without iTunes.</h1>
             <p class="lead">
-              OpenTunes reads your iPod, backs it up, then adds music, podcasts, audiobooks and video. It runs in this browser tab. Nothing is uploaded and nothing is installed.
+              OpenTunes reads your iPod, backs it up, then adds music, podcasts, audiobooks and video. It runs in this browser tab. Nothing is uploaded unless you turn the AI assistant on, and nothing is installed.
             </p>
             <div class="actions">
               <button type="button" onClick={() => void chooseFolder()} disabled={working || !canPickFolder}>
@@ -618,6 +619,12 @@ export function IpodViewer({
       {current === 'add' && writable ? (
         <PanelBoundary name="Add to the iPod">
           <AddPanel root={snapshot.root} device={device} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
+        </PanelBoundary>
+      ) : null}
+
+      {current === 'assistant' && writable ? (
+        <PanelBoundary name="Assistant">
+          <AssistantPanel root={snapshot.root} tracks={tracks} playlists={playlists} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
         </PanelBoundary>
       ) : null}
 
