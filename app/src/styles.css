@@ -899,3 +899,88 @@ pre {
   font-size: 0.78rem;
   font-weight: 400;
 }
+
+/* ---- offload, guide, about ---- */
+
+.guide {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+
+.guide > summary {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.guide-body {
+  margin-top: 0.75rem;
+  max-width: 46rem;
+}
+
+.guide-body h4,
+.about h4 {
+  margin: 1.1rem 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.guide-body ul,
+.about ul {
+  margin: 0.35rem 0 0.75rem;
+  padding-left: 1.2rem;
+}
+
+.guide-body li,
+.about li {
+  margin: 0.3rem 0;
+}
+
+.tree {
+  max-height: none;
+  line-height: 1.45;
+  white-space: pre;
+  background: var(--surface);
+}
+
+.about-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.about h5 {
+  margin: 1rem 0 0.25rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.about ul.credits {
+  padding-left: 0;
+  list-style: none;
+}
+
+.about ul.credits li {
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.about ul.credits details {
+  margin: 0.15rem 0 0;
+}
+
+.about .licence {
+  margin-left: 0.6rem;
+  color: var(--muted);
+}
+
+.risk-notice {
+  margin-bottom: 1rem;
+}
+
+.footer-link {
+  padding-inline: 0.4rem;
+}

@@ -25,7 +25,14 @@ export class ScratchFile implements FileEntry {
 
   async getFile() {
     const bytes = this.bytes;
-    return { size: bytes.length, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer };
+    return {
+      size: bytes.length,
+      arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+      /** Like the browser's Blob.slice, so code that reads in pieces is tested the way it runs. */
+      slice: (start: number, end: number) => ({
+        arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset + start, bytes.byteOffset + Math.min(end, bytes.length)) as ArrayBuffer,
+      }),
+    };
   }
 
   /** Like the browser's: nothing is stored until the writer is closed. */

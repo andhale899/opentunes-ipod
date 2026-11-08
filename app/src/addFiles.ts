@@ -10,6 +10,7 @@ import {
   type PlanDecision,
 } from '@opentunes/core';
 import { syncDataFromBlob, syncDataFromBytes, type SyncItem } from '@opentunes/engine';
+import { guessFromFolders, mergeMissingTags } from './folderRules';
 
 /** A file the person picked, what it is, and what will be done with it. */
 export interface Candidate {
@@ -23,6 +24,10 @@ export interface Candidate {
   estimatedBytes: number | null;
   /** The folder it came from inside a chosen folder, such as "Album / Disc 2", or empty. */
   folder: string;
+  /** True when `userKind` came from the folder names (Audiobooks, Podcasts ...) and the person has not changed it. */
+  kindFromFolder?: boolean;
+  /** Tags the file lacked that were filled from the folder and file names, such as "artist". */
+  filledFromFolders?: string[];
 }
 
 let counter = 0;
@@ -45,18 +50,40 @@ export function limitedByConverter(info: MediaInfo, decision: PlanDecision): Pla
   return decision;
 }
 
-/** Reads a picked file's tags and streams and decides, for one model, what to do with it. */
-export async function inspectFile(file: File, device: DeviceModel, userKind?: ContentKind, folder = ''): Promise<Candidate> {
-  const info = await probeMedia(fileSourceFromBlob(file.name, file));
-  const decision = limitedByConverter(info, decideForDevice(info, device, { userKind }));
+/**
+ * Reads a picked file's tags and streams and decides, for one model, what to do with it.
+ * `folders` is the file's folder path inside a chosen folder, starting with the chosen folder's own
+ * name. When it names a kind (Audiobooks, Podcasts ...) that becomes the file's `userKind`, and tags
+ * the file lacks are filled from the folder and file names, see folderRules.ts. The tags in the
+ * file always win, and the person can still change the kind.
+ */
+export async function inspectFile(file: File, device: DeviceModel, userKind?: ContentKind, folder = '', folders?: string[]): Promise<Candidate> {
+  const probed = await probeMedia(fileSourceFromBlob(file.name, file));
+  let info = probed;
+  let kind = userKind;
+  let kindFromFolder = false;
+  let filledFromFolders: string[] | undefined;
+  if (folders) {
+    const guess = guessFromFolders(folders, file.name, probed.tags, { hasVideo: probed.video !== null });
+    const merged = mergeMissingTags(probed.tags, guess.tags);
+    if (merged.filled.length) {
+      info = { ...probed, tags: merged.tags };
+      filledFromFolders = merged.filled;
+    }
+    if (!kind && guess.kind) {
+      kind = guess.kind;
+      kindFromFolder = true;
+    }
+  }
+  const decision = limitedByConverter(info, decideForDevice(info, device, { userKind: kind }));
   counter += 1;
-  return { id: `file-${counter}`, file, info, decision, userKind, estimatedBytes: estimateOutputBytes(info, decision), folder };
+  return { id: `file-${counter}`, file, info, decision, userKind: kind, estimatedBytes: estimateOutputBytes(info, decision), folder, kindFromFolder, filledFromFolders };
 }
 
 /** Decides again, for another model or after the person named the kind. Does not read the file again. */
 export function redecide(candidate: Candidate, device: DeviceModel, userKind: ContentKind | undefined): Candidate {
   const decision = limitedByConverter(candidate.info, decideForDevice(candidate.info, device, { userKind }));
-  return { ...candidate, decision, userKind, estimatedBytes: estimateOutputBytes(candidate.info, decision) };
+  return { ...candidate, decision, userKind, kindFromFolder: candidate.kindFromFolder && userKind === candidate.userKind, estimatedBytes: estimateOutputBytes(candidate.info, decision) };
 }
 
 export interface PrepareOptions {

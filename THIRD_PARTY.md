@@ -36,3 +36,15 @@ Copied from `node_modules` into `app/public/ffmpeg/` by `app/scripts/sync-ffmpeg
 | --- | --- | --- |
 | `@ffmpeg/ffmpeg` 0.12.15 | MIT (package.json) | The JavaScript that starts the worker. Bundled into the app. |
 | `@ffmpeg/core` 0.12.10 | GPL 2 or later (package.json) | The WebAssembly build of FFmpeg 5.1.4, single thread. Its own configure line, read from the wasm file, includes `--enable-gpl --enable-libx264 --enable-libx265 --enable-libvpx --enable-libmp3lame --enable-libvorbis --enable-libopus`, so the whole core is GPL. The package ships no licence text or source offer, and the licences of the libraries inside it were not read. Fine for private use. Before the app is ever shared, the GPL terms (source for the core and the app code that links it) have to be dealt with, or the core replaced with an LGPL-only build. |
+
+## Used to build and run the app
+
+Licences are the `license` field of each package's own `package.json`, read from `node_modules` on 2026-11-07. The licence texts shipped with the packages were not read.
+
+| Component | Licence | Notes |
+| --- | --- | --- |
+| Preact 11.2.0 | MIT (package.json) | The interface library. Bundled into the app. |
+| Vite 8.3.6 | MIT (package.json) | The build tool and dev server. Not part of what the app ships. |
+| `@preact/preset-vite` 2.10.6 | MIT (package.json) | Connects Preact to Vite. Build time only. |
+| Vitest 5.1.0 | MIT (package.json) | Runs the app and core tests. Development only. |
+| TypeScript 7.0.2 | Apache-2.0 (package.json) | The typechecker. Development only. |
