@@ -9,6 +9,9 @@ import { BackupGate } from './BackupGate';
 import { allowWriting } from './WriteBackPanel';
 import { startActivity } from './activity';
 import { FolderGuide } from './FolderGuide';
+import { ArtFinder } from './ArtFinder';
+import { albumKey, albumRefOf, coverSource, findFolderCover, folderCoverRank, type OnlineCover } from './albumArt';
+import { decodePicture } from './artDecode';
 
 type Stage =
   | { phase: 'idle' }
@@ -73,6 +76,7 @@ export function AddPanel({
   const folderPicker = useRef<HTMLInputElement>(null);
   const [ignored, setIgnored] = useState(0);
   const [allowDuplicates, setAllowDuplicates] = useState(false);
+  const [putArt, setPutArt] = useState(true);
 
   const ready = backup !== null && backup.complete;
   const busy = stage.phase === 'reading' || stage.phase === 'converting' || stage.phase === 'syncing';
@@ -81,7 +85,7 @@ export function AddPanel({
   const capacityBytes = device && device.capacity_gb > 0 ? Math.round(device.capacity_gb * 1e9 * USABLE_SHARE) : undefined;
 
   /** Reads each file, in order, and adds it to the list. `folder` is where it sat inside a chosen folder. */
-  async function addToList(list: { file: File; folder: string; folders?: string[] }[], alreadyLeftOut = 0) {
+  async function addToList(list: { file: File; folder: string; folders?: string[]; cover?: { name: string; file: File } | null }[], alreadyLeftOut = 0) {
     const media = list.filter(({ file }) => !isNotMedia(file.name));
     setIgnored((previous) => previous + alreadyLeftOut + (list.length - media.length));
     if (!media.length) {
@@ -91,10 +95,10 @@ export function AddPanel({
     }
     const added: Candidate[] = [];
     const failed: string[] = [];
-    for (const [index, { file, folder, folders }] of media.entries()) {
+    for (const [index, { file, folder, folders, cover }] of media.entries()) {
       setStage({ phase: 'reading', message: `Reading ${index + 1} of ${media.length}: ${file.name}` });
       try {
-        added.push(await inspectFile(file, model, undefined, folder, folders));
+        added.push(await inspectFile(file, model, undefined, folder, folders, cover ?? undefined));
       } catch (error) {
         failed.push(`${file.name}: ${describeError(error)}`);
       }
@@ -108,10 +112,19 @@ export function AddPanel({
     if (!files?.length) return;
     setStage({ phase: 'reading', message: 'Reading the files...' });
     // The plain folder dialog gives each file's path from the chosen folder, such as "Audiobooks/Author/Book/01.mp3".
+    const partsOf = (file: File): string[] => (file as File & { webkitRelativePath?: string }).webkitRelativePath?.split('/').slice(0, -1) ?? [];
+    // Cover pictures sitting next to the music, by folder.
+    const pictures = new Map<string, Map<string, File>>();
+    for (const file of files) {
+      if (folderCoverRank(file.name) === null) continue;
+      const key = partsOf(file).join('/');
+      pictures.set(key, (pictures.get(key) ?? new Map()).set(file.name, file));
+    }
     await addToList(
       [...files].map((file) => {
-        const parts = (file as File & { webkitRelativePath?: string }).webkitRelativePath?.split('/').slice(0, -1) ?? [];
-        return { file, folder: parts.slice(1).join(' / '), folders: parts.length ? parts : undefined };
+        const parts = partsOf(file);
+        const cover = parts.length ? findFolderCover(parts, pictures) : null;
+        return { file, folder: parts.slice(1).join(' / '), folders: parts.length ? parts : undefined, cover: cover ? { name: cover.name, file: cover.file } : null };
       }),
     );
   }
@@ -132,20 +145,37 @@ export function AddPanel({
     }
     setStage({ phase: 'reading', message: `Listing "${top.name}" and its subfolders...` });
     try {
-      const found: { file: File; folder: string; folders: string[] }[] = [];
+      const found: { file: File; folder: string; folders: string[]; dir: string[]; cover?: { name: string; file: File } | null }[] = [];
       let leftOut = 0;
+      // Cover pictures (cover.jpg, folder.jpg ...) by folder. They are read only when a file uses one.
+      const pictures = new Map<string, Map<string, FileHandleLike>>();
       const walk = async (directory: FolderHandle, parts: string[]): Promise<void> => {
         for await (const [name, entry] of directory.entries()) {
           if (entry.kind === 'directory') {
             if (!name.startsWith('.')) await walk(entry as unknown as FolderHandle, [...parts, name]);
           } else if (isNotMedia(name)) {
             leftOut += 1;
+            if (folderCoverRank(name) !== null) {
+              const key = parts.join('/');
+              pictures.set(key, (pictures.get(key) ?? new Map()).set(name, entry as unknown as FileHandleLike));
+            }
           } else {
-            found.push({ file: await (entry as unknown as FileHandleLike).getFile(), folder: parts.join(' / '), folders: [top.name, ...parts] });
+            found.push({ file: await (entry as unknown as FileHandleLike).getFile(), folder: parts.join(' / '), folders: [top.name, ...parts], dir: parts });
           }
         }
       };
       await walk(top, []);
+      const opened = new Map<FileHandleLike, Promise<File>>();
+      for (const item of found) {
+        const cover = findFolderCover(item.dir, pictures);
+        if (!cover) continue;
+        if (!opened.has(cover.file)) opened.set(cover.file, cover.file.getFile());
+        try {
+          item.cover = { name: cover.name, file: await (opened.get(cover.file) as Promise<File>) };
+        } catch {
+          item.cover = null; // a picture that cannot be opened is left out, the music still goes on
+        }
+      }
       found.sort((a, b) => a.folder.localeCompare(b.folder, undefined, { numeric: true }) || a.file.name.localeCompare(b.file.name, undefined, { numeric: true }));
       await addToList(found, leftOut);
     } catch (error) {
@@ -205,6 +235,7 @@ export function AddPanel({
       const plan = await planSync(root as unknown as IpodRoot, newEngine, items, {
         capacityBytes,
         duplicates: allowDuplicates ? 'allow' : 'skip',
+        ...(putArt ? { artwork: { decode: decodePicture } } : {}),
         onProgress: (message) => setStage({ phase: 'reading', message }),
       });
       setStage({ phase: 'planned', plan, items, failed });
@@ -340,6 +371,7 @@ export function AddPanel({
                       {candidate.info.tags.title ?? candidate.file.name}
                       {candidate.folder ? <div class="path">{candidate.folder}</div> : null}
                       {candidate.filledFromFolders?.length ? <div class="path">{candidate.filledFromFolders.join(', ')} filled in from the folder and file names</div> : null}
+                      {putArt && !unsupported ? <CoverNote candidate={candidate} /> : null}
                     </td>
                     <td>
                       <select
@@ -391,6 +423,26 @@ export function AddPanel({
             <input type="checkbox" checked={allowDuplicates} disabled={busy} onChange={(event) => setAllowDuplicates((event.target as HTMLInputElement).checked)} />
             Add files even if the same song, episode or title is already on the iPod
           </label>
+          <label class="check">
+            <input type="checkbox" checked={putArt} disabled={busy} onChange={(event) => setPutArt((event.target as HTMLInputElement).checked)} />
+            Put cover pictures on the iPod (from inside the files, or cover.jpg and folder.jpg beside them). Writing cover art has not been tried on a real iPod yet.
+          </label>
+          {putArt ? (
+            <ArtFinder
+              candidates={candidates}
+              disabled={busy}
+              onUse={(covers: Map<string, OnlineCover>) => {
+                setCandidates((previous) =>
+                  previous.map((candidate) => {
+                    const ref = albumRefOf(candidate.info.tags);
+                    const cover = ref ? covers.get(albumKey(ref)) : undefined;
+                    return cover && coverSource(candidate).from === 'none' ? { ...candidate, onlineCover: cover } : candidate;
+                  }),
+                );
+                setStage({ phase: 'idle' });
+              }}
+            />
+          ) : null}
           <label class="field">
             Put them in a playlist (optional)
             <input type="text" value={playlist} disabled={busy} onInput={(event) => setPlaylist((event.target as HTMLInputElement).value)} placeholder="Playlist name" />
@@ -529,6 +581,11 @@ function Done({ report }: { report: SyncReport }) {
               : 'The sync did not finish.'}
         </p>
       </div>
+      {good && report.artwork ? (
+        <p class="note">
+          Album art was written for {report.artwork.tracks} {report.artwork.tracks === 1 ? 'track' : 'tracks'} ({report.artwork.images} {report.artwork.images === 1 ? 'picture' : 'pictures'}) and read back. Whether the iPod shows it has not been checked: look at Now Playing and the album list on the iPod.
+        </p>
+      ) : null}
       {report.failures.length ? (
         <ul class="files">
           {report.failures.map((failure) => (
@@ -546,4 +603,15 @@ function Done({ report }: { report: SyncReport }) {
       ) : null}
     </>
   );
+}
+
+/** Where a file's cover comes from, in the list: inside the file, a picture in its folder, one found online, or none. */
+function CoverNote({ candidate }: { candidate: Candidate }) {
+  const source = coverSource(candidate);
+  const text =
+    source.from === 'file' ? 'Cover: inside the file'
+    : source.from === 'folder' ? `Cover: ${source.name} from its folder`
+    : source.from === 'online' ? 'Cover: found online (you approved it)'
+    : 'Cover: none';
+  return <div class="path">{text}</div>;
 }

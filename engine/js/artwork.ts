@@ -120,6 +120,23 @@ export function coverSupport(sysInfoExtended: string | null): CoverSupport {
   return { ok: true, reason: null, maxThumbFileBytes: declaredSize > 0 ? Math.min(declaredSize * 1000 * 1000, DEFAULT_MAX_THUMB_FILE_BYTES) : DEFAULT_MAX_THUMB_FILE_BYTES };
 }
 
+/**
+ * Adds the four cover formats (AlbumArt2, and MaxThumbFileSize 50) to a SysInfoExtended that has
+ * none, in the form the real nano 7G's file has them. For the practice iPod and tests, which carry
+ * a stripped-down description. A file that already lists album art formats is returned unchanged.
+ */
+export function withCoverFormats(sysInfoExtended: string): string {
+  if (/<key>AlbumArt2?<\/key>\s*<array>\s*<dict>/.test(sysInfoExtended)) return sysInfoExtended;
+  const dictionary = (format: CoverFormat): string =>
+    `    <dict>\n      <key>FormatId</key>\n      <integer>${format.id}</integer>\n      <key>RenderWidth</key>\n      <integer>${format.width}</integer>\n` +
+    `      <key>RenderHeight</key>\n      <integer>${format.height}</integer>\n      <key>PixelFormat</key>\n      <string>4C353635</string>\n` +
+    `      <key>Crop</key>\n      <false/>\n      <key>AlignRowBytes</key>\n      <true/>\n    </dict>\n`;
+  const added = `  <key>AlbumArt2</key>\n  <array>\n${COVER_FORMATS.map(dictionary).join('')}  </array>\n  <key>MaxThumbFileSize</key>\n  <integer>50</integer>\n`;
+  const end = sysInfoExtended.lastIndexOf('</dict>');
+  if (end < 0) throw new ArtworkError('That is not a SysInfoExtended file.');
+  return sysInfoExtended.slice(0, end) + added + sysInfoExtended.slice(end);
+}
+
 // ---------------------------------------------------------------- rendering
 
 /** A decoded picture: RGBA, 8 bits a channel, rows top to bottom, no padding between rows. */

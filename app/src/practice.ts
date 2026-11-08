@@ -1,4 +1,4 @@
-import { ScratchFolder, buildSignedDemoIpod, mediaPathOf, type Engine } from '@opentunes/engine';
+import { ScratchFolder, buildSignedDemoIpod, mediaPathOf, withCoverFormats, type Engine } from '@opentunes/engine';
 
 const ITUNES = 'iPod_Control/iTunes';
 
@@ -31,6 +31,12 @@ export async function buildPracticeIpod(engine: Engine, mount: string): Promise<
   engine.fs.unlink(`${mount}/${ITUNES}/iTunesDB`);
   const ipod = new ScratchFolder('PRACTICE IPOD');
   await copyDirectory(engine, mount, ipod, '');
+  // The practice iPod's description is stripped down. Give it the album art formats a real nano 7G
+  // declares, so album art can be tried on it too.
+  const description = `${mount}/iPod_Control/Device/SysInfoExtended`;
+  if (engine.fs.analyzePath(description).exists) {
+    await writeInto(ipod, 'iPod_Control/Device/SysInfoExtended', new TextEncoder().encode(withCoverFormats(new TextDecoder().decode(engine.fs.readFile(description)))));
+  }
   // A real iPod has all fifty music folders, F00 to F49, empty or not. libgpod picks a number
   // below the count of folders and expects every one of them to exist, so a sparse set fails.
   for (let number = 0; number < 50; number += 1) {

@@ -12,9 +12,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import {
-  ArtworkError, COVER_FORMATS, addToArtworkDb, coverSupport, createArtworkDb, imageRecord, nextImageId, parseArtworkDb, planArtwork, renderCover, renderThumbnail,
+  ArtworkError, COVER_FORMATS, addToArtworkDb, coverSupport, createArtworkDb, imageRecord, nextImageId, parseArtworkDb, planArtwork, renderCover, renderThumbnail, withCoverFormats,
 } from '../js/index.ts';
 import { readDb, rgbaImage, sysInfoExtended } from './artwork-helpers.mjs';
+import { MOUNT, newEngine } from './helpers.mjs';
 
 
 describe('the thumbnail formats', () => {
@@ -36,6 +37,20 @@ describe('the thumbnail formats', () => {
     assert.match(coverSupport(changed).reason, /format 1010 differently/);
     // The new key is only read when the old one is empty, as libgpod does.
     assert.equal(coverSupport(sysInfoExtended().replace('<key>AlbumArt2</key>', '<key>Other</key>')).ok, false);
+  });
+
+  it('can be added to the stripped-down description of the practice iPod, and libgpod then reads them', async () => {
+    const plain = '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n  <key>DBVersion</key>\n  <integer>5</integer>\n</dict>\n</plist>\n';
+    assert.equal(coverSupport(plain).ok, false);
+    const added = withCoverFormats(plain);
+    assert.deepEqual(coverSupport(added), { ok: true, reason: null, maxThumbFileBytes: 50_000_000 });
+    assert.equal(withCoverFormats(added), added, 'a file that lists formats is left as it is');
+    assert.equal(withCoverFormats(sysInfoExtended()), sysInfoExtended());
+    const engine = await newEngine();
+    engine.init(MOUNT, 'MA450', 'Test');
+    engine.fs.writeFile(`${MOUNT}/iPod_Control/Device/SysInfoExtended`, added.replace('<key>DBVersion</key>', '<key>FireWireGUID</key>\n  <string>0000000000000001</string>\n  <key>DBVersion</key>'));
+    engine.open(MOUNT);
+    assert.equal(engine.device().supports.artwork, true, 'libgpod reads the formats from AlbumArt2');
   });
 });
 

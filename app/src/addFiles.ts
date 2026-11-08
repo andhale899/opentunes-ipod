@@ -11,6 +11,7 @@ import {
 } from '@opentunes/core';
 import { syncDataFromBlob, syncDataFromBytes, type SyncItem } from '@opentunes/engine';
 import { guessFromFolders, mergeMissingTags } from './folderRules';
+import { coverFor, type OnlineCover } from './albumArt';
 
 /** A file the person picked, what it is, and what will be done with it. */
 export interface Candidate {
@@ -28,6 +29,10 @@ export interface Candidate {
   kindFromFolder?: boolean;
   /** Tags the file lacked that were filled from the folder and file names, such as "artist". */
   filledFromFolders?: string[];
+  /** A cover picture (cover.jpg, folder.jpg ...) found in the file's folder or the one above it. Used only when the file has no cover inside. */
+  folderCover?: { name: string; file: File };
+  /** A cover found online and approved by the person. Used only when the file and its folder have none. */
+  onlineCover?: OnlineCover;
 }
 
 let counter = 0;
@@ -57,7 +62,14 @@ export function limitedByConverter(info: MediaInfo, decision: PlanDecision): Pla
  * the file lacks are filled from the folder and file names, see folderRules.ts. The tags in the
  * file always win, and the person can still change the kind.
  */
-export async function inspectFile(file: File, device: DeviceModel, userKind?: ContentKind, folder = '', folders?: string[]): Promise<Candidate> {
+export async function inspectFile(
+  file: File,
+  device: DeviceModel,
+  userKind?: ContentKind,
+  folder = '',
+  folders?: string[],
+  folderCover?: { name: string; file: File },
+): Promise<Candidate> {
   const probed = await probeMedia(fileSourceFromBlob(file.name, file));
   let info = probed;
   let kind = userKind;
@@ -77,7 +89,10 @@ export async function inspectFile(file: File, device: DeviceModel, userKind?: Co
   }
   const decision = limitedByConverter(info, decideForDevice(info, device, { userKind: kind }));
   counter += 1;
-  return { id: `file-${counter}`, file, info, decision, userKind: kind, estimatedBytes: estimateOutputBytes(info, decision), folder, kindFromFolder, filledFromFolders };
+  return {
+    id: `file-${counter}`, file, info, decision, userKind: kind, estimatedBytes: estimateOutputBytes(info, decision), folder, kindFromFolder, filledFromFolders,
+    ...(folderCover ? { folderCover } : {}),
+  };
 }
 
 /** Decides again, for another model or after the person named the kind. Does not read the file again. */
@@ -101,10 +116,19 @@ export interface PrepareOptions {
  * Returns null for a file that cannot be added.
  */
 export async function prepareItem(candidate: Candidate, options: PrepareOptions = {}): Promise<SyncItem | null> {
-  const { decision, info, file } = candidate;
+  const { decision, file } = candidate;
   if (decision.action === 'unsupported') return null;
   const playlists = options.playlist ? [options.playlist] : undefined;
   const extension = decision.outputExtension.replace(/^\./, '');
+  // The cover the file has inside, else a picture from its folder, else one found online. A picture
+  // that cannot be read (a damaged cover.jpg) is left off rather than stopping the file.
+  let artwork = candidate.info.artwork;
+  try {
+    artwork = await coverFor(candidate);
+  } catch {
+    artwork = null;
+  }
+  const info: MediaInfo = { ...candidate.info, artwork };
 
   if (decision.action === 'copy') {
     return { id: candidate.id, kind: decision.kind, data: syncDataFromBlob(file), extension, info, name: file.name, playlists };
@@ -116,7 +140,7 @@ export async function prepareItem(candidate: Candidate, options: PrepareOptions 
   const converted = await convertMedia({ name: file.name, blob: file }, decision.conversion, {
     onProgress: options.onProgress,
     signal: options.signal,
-    artwork: info.artwork,
+    artwork: candidate.info.artwork,
   });
   const after = await probeMedia(fileSourceFromBytes(converted.fileName, converted.bytes));
   // The converter keeps the tags it was given, but a field it could not carry is filled from the original.
