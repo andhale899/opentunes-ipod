@@ -1001,28 +1001,44 @@ export function IpodViewer({
         {writable
           ? pane('backup', () => (
               <>
-                {snapshot.source === 'folder' ? (
-                  <PanelBoundary name="Earlier backup" key={`reuse-${epoch}`}>
-                    <ReuseBackup ipodRoot={snapshot.root} ipodName={snapshot.folderName} backup={backup} onUse={setBackup} />
+                <section class="step-group" aria-labelledby="protect-heading">
+                  <h3 class="section-title" id="protect-heading">
+                    1. Protect the iPod before you change it
+                  </h3>
+                  <p class="section-lead">
+                    <strong>A backup is required</strong>: the app will not change the iPod until one exists. A <strong>full copy</strong> (also called an offload) is optional: it keeps the music and videos too.
+                  </p>
+                  {snapshot.source === 'folder' ? (
+                    <PanelBoundary name="Earlier backup" key={`reuse-${epoch}`}>
+                      <ReuseBackup ipodRoot={snapshot.root} ipodName={snapshot.folderName} backup={backup} onUse={setBackup} />
+                    </PanelBoundary>
+                  ) : null}
+                  <PanelBoundary name="Backup" key={`backup-${epoch}`}>
+                    <BackupPanel source={snapshot.root} onDone={onBackupDone} inMemory={snapshot.source === 'practice'} />
                   </PanelBoundary>
-                ) : null}
-                <p class="callout info">
-                  <strong>Two kinds of safety copy.</strong> A <strong>backup</strong> saves only the library files, so a bad change can be undone. It is small and quick, and it is needed before the app changes anything. An <strong>offload</strong> copies everything, the music and videos too, plus the library, so one folder can put the whole iPod back.
-                </p>
-                <PanelBoundary name="Backup" key={`backup-${epoch}`}>
-                  <BackupPanel source={snapshot.root} onDone={onBackupDone} inMemory={snapshot.source === 'practice'} />
-                </PanelBoundary>
-                <PanelBoundary name="Offload" key={`offload-${epoch}`}>
-                  <OffloadPanel source={snapshot.root} inMemory={snapshot.source === 'practice'} />
-                </PanelBoundary>
-                {snapshot.source === 'folder' ? (
-                  <PanelBoundary name="Restore" key={`restore-${epoch}`}>
-                    <RestorePanel root={snapshot.root} onRestored={() => void refreshed()} />
+                  <PanelBoundary name="Offload" key={`offload-${epoch}`}>
+                    <OffloadPanel source={snapshot.root} inMemory={snapshot.source === 'practice'} />
                   </PanelBoundary>
-                ) : null}
-                <PanelBoundary name="Restore everything" key={`restore-everything-${epoch}`}>
-                  <RestoreEverythingPanel root={snapshot.root} backup={backup} onChanged={() => void refreshed()} />
-                </PanelBoundary>
+                </section>
+
+                <section class="step-group" aria-labelledby="restore-heading">
+                  <h3 class="section-title" id="restore-heading">
+                    2. Put things back if something goes wrong
+                  </h3>
+                  <p class="section-lead">
+                    Use <strong>restore from a backup</strong> when a change broke the library. Use <strong>restore everything</strong> to rebuild the whole iPod from a full copy.
+                  </p>
+                  {snapshot.source === 'folder' ? (
+                    <PanelBoundary name="Restore" key={`restore-${epoch}`}>
+                      <RestorePanel root={snapshot.root} onRestored={() => void refreshed()} />
+                    </PanelBoundary>
+                  ) : (
+                    <p class="note">Restoring from a backup works on a real iPod. The practice iPod keeps its backup in memory only.</p>
+                  )}
+                  <PanelBoundary name="Restore everything" key={`restore-everything-${epoch}`}>
+                    <RestoreEverythingPanel root={snapshot.root} backup={backup} onChanged={() => void refreshed()} />
+                  </PanelBoundary>
+                </section>
               </>
             ))
           : null}

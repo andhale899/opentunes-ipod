@@ -82,10 +82,12 @@ export function OffloadPanel({ source, inMemory = false }: { source: DirectoryEn
     <section class="card">
       <h3>Copy everything off the iPod</h3>
       <p class="card-lead">
-        Copies the whole iPod to a folder on your computer: every music, podcast, audiobook and video file exactly as it is, the iPod's library, and a library.csv with the real titles, artists and playlists, because the iPod gives its files random names. The iPod is only read: nothing is written to it and nothing is deleted from it. You can pause or stop at any time and finish later. Chrome may refuse Desktop, Documents or Downloads themselves. If it does, make a folder inside one, for example "iPod copy".
+        Copies the whole iPod to a folder on your computer, the music and videos too, with a spreadsheet saying which title is which file. Optional: it is for keeping a full copy or moving to a new computer. The iPod is only read, and you can pause or stop and finish later.
       </p>
-      <div class="howto" role="note">
-        <h4>What you get and how to use it</h4>
+      <p class="note">If Chrome refuses a folder such as Desktop or Documents, make a new folder inside it, for example "iPod copy".</p>
+      <details class="howto-details">
+        <summary>What you get and how to use it</summary>
+        <div class="howto" role="note">
         <ul>
           <li>
             <strong>The folder holds everything.</strong> The media files in F00, F01 and so on, library.csv and playlists.csv, a database folder with the iPod's library and device files (the same files a backup holds, each checked), opentunes-offload.json, and a README.txt that explains it all.
@@ -97,14 +99,18 @@ export function OffloadPanel({ source, inMemory = false }: { source: DirectoryEn
             <strong>To use the audio and video elsewhere,</strong> copy the files out. They are plain MP3, AAC, M4A and video files with their tags still in them, and any player can open them. Files bought with copy protection (.m4p) will not play outside iTunes.
           </li>
           <li>
-            <strong>To put everything back,</strong> use Backup, then "Restore everything from an offload folder", and choose this folder. A single folder is enough: it copies back the files the iPod lacks, then restores the library. It needs a backup of the iPod as it is first.
+            <strong>To put everything back,</strong> use Backup, then "Restore everything from a full copy", and choose this folder. A single folder is enough: it copies back the files the iPod lacks, then restores the library. It needs a backup of the iPod as it is first.
           </li>
           <li>
             <strong>Keep it private.</strong> The database folder holds the iPod's identity files (its serial number and FireWire ID), so do not share or upload the folder.
           </li>
           <li>An offload folder is not a backup folder. A backup holds only the database files and no music. An offload folder holds everything.</li>
         </ul>
-      </div>
+        </div>
+        <p class="note">
+        Each file is copied in pieces of 4 MB, three at a time, then read back and checked. A file already in the folder with the same size is skipped, so a stopped copy can be finished by copying again into the same folder. The iPod's library files are saved again each time. To add music from files you already have, see "How to arrange your files" in the Add music tab.
+        </p>
+      </details>
       <div class="actions">
         <button type="button" onClick={() => void choose()} disabled={working}>
           Choose where to copy everything
@@ -125,9 +131,6 @@ export function OffloadPanel({ source, inMemory = false }: { source: DirectoryEn
           </button>
         ) : null}
       </div>
-      <p class="note">
-        Each file is copied in pieces of 4 MB, three at a time, then read back and checked. A file already in the folder with the same size is skipped, so a stopped copy can be finished by copying again into the same folder. The iPod's library files are saved again each time. To add music from files you already have, see "How to arrange your files" in the Add music tab.
-      </p>
 
       {state.phase === 'working' ? (
         <div class="callout info" role="status">
@@ -260,7 +263,7 @@ function Done({ report, into, onResume }: { report: OffloadReport; into: string;
         </div>
       ) : null}
       <p class="muted">
-        The folder holds the copied files in F00, F01 and so on, library.csv, playlists.csv, the database folder, opentunes-offload.json and a README.txt that explains them. It holds the iPod's identity files, so keep it private. To put everything back, use Backup, then "Restore everything from an offload folder".
+        The folder holds the copied files in F00, F01 and so on, library.csv, playlists.csv, the database folder, opentunes-offload.json and a README.txt that explains them. It holds the iPod's identity files, so keep it private. To put everything back, use Backup, then "Restore everything from a full copy".
       </p>
     </>
   );
