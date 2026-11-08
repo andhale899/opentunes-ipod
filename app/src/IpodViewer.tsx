@@ -1015,7 +1015,7 @@ export function IpodViewer({
         {writable
           ? pane('add', () => (
               <PanelBoundary name="Add to the iPod" key={`add-${epoch}`}>
-                <AddPanel root={snapshot.root} device={device} backup={backup} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
+                <AddPanel root={snapshot.root} device={device} backup={backup} tracks={tracks} onChanged={() => void refreshed()} onNeedBackup={goToBackup} />
               </PanelBoundary>
             ))
           : null}

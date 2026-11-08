@@ -2694,3 +2694,57 @@ p.last-backup button {
 .partial-copy {
   margin: 0.5rem 0;
 }
+
+/* ---- duplicates checked before converting (Add music) ---- */
+.dup-note {
+  margin-top: 0.35rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-left-width: 4px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.dup-note.skip {
+  border-left-style: solid;
+  border-color: var(--warn);
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.dup-note.anyway {
+  border-left-style: double;
+  border-left-width: 6px;
+}
+
+.dup-note.unsure {
+  border-style: dashed;
+  border-left-style: dashed;
+}
+
+.dup-note .dup-badge {
+  display: block;
+}
+
+.library tr.dup-skipped td:not(.cell-title):not(.cell-action) {
+  color: var(--muted);
+}
+
+.library td.cell-action {
+  white-space: normal;
+}
+
+.library td.cell-action .small + .small,
+.library td.cell-action .secondary + .ghost {
+  margin-left: 0.35rem;
+}
+
+@media (max-width: 40rem) {
+  .library.stack.add-stack td.cell-action button {
+    min-height: 2.75rem;
+  }
+}
+/* ---- end of duplicates checked before converting ---- */

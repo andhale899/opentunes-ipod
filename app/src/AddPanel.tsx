@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { describeDecision, devices, formatBytes, kindLabel, type ContentKind, type DeviceModel } from '@opentunes/core';
-import { PauseGate, type BackupReport, type DeviceInfo, type DirectoryEntry, type IpodRoot, type SyncItem, type SyncPlan, type SyncProgress, type SyncReport } from '@opentunes/engine';
+import { PauseGate, trackKey, type BackupReport, type DeviceInfo, type DirectoryEntry, type IpodRoot, type SyncItem, type SyncPlan, type SyncProgress, type SyncReport, type TrackInfo } from '@opentunes/engine';
 import { applySync, planSync } from './tracked';
 import { inspectFile, isNotMedia, prepareItem, redecide, type Candidate } from './addFiles';
+import { countsOf, missedDuplicates, precheck, summaryOf, type RowDuplicate } from './duplicatePrecheck';
 import { ConfirmBox, Notice, useOnce, usePauseState } from './controls';
 import { describeError, isStopped } from './describeError';
 import { newEngine } from './engineLoader';
@@ -19,10 +20,20 @@ type Stage =
   | { phase: 'idle' }
   | { phase: 'reading'; message: string }
   | { phase: 'converting'; message: string; fraction: number }
-  | { phase: 'planned'; plan: SyncPlan; items: SyncItem[]; failed: string[] }
+  | { phase: 'planned'; plan: SyncPlan; items: SyncItem[]; failed: string[]; precheck: PrecheckNotes }
   | { phase: 'syncing'; progress: SyncProgress | null }
   | { phase: 'done'; report: SyncReport }
   | { phase: 'error'; message: string };
+
+/** What the check before converting and the check after it have to say, shown with the plan. */
+interface PrecheckNotes {
+  /** Files left out before converting, as duplicates. */
+  skipped: number;
+  /** Duplicates the plan found that the check before converting did not, in plain words. */
+  missed: string[];
+  /** Files left out as the same as one that then could not be converted. */
+  sameAsFailed: string[];
+}
 
 const KINDS: ContentKind[] = ['music', 'audiobook', 'podcast', 'movie', 'tv-show', 'music-video', 'video-podcast'];
 
@@ -58,12 +69,15 @@ export function AddPanel({
   root,
   device,
   backup,
+  tracks = [],
   onChanged,
   onNeedBackup,
 }: {
   root: DirectoryEntry;
   device: DeviceInfo | null;
   backup: BackupReport | null;
+  /** The tracks on the iPod now, as the page last read them. Duplicates are checked against these, and again whenever they change. */
+  tracks?: TrackInfo[];
   /** Called after files were put on the iPod, so the page reads it again. */
   onChanged: () => void;
   /** Takes the person to the backup step. */
@@ -87,6 +101,8 @@ export function AddPanel({
   const folderPicker = useRef<HTMLInputElement>(null);
   const [ignored, setIgnored] = useState(0);
   const [allowDuplicates, setAllowDuplicates] = useState(false);
+  /** Files the person chose to add although they are duplicates, without ticking the box for all of them. */
+  const [allowIds, setAllowIds] = useState<ReadonlySet<string>>(new Set());
   const [putArt, setPutArt] = useState(true);
 
   const { ready, backupOk, wait } = useWriteReady(backup);
@@ -97,7 +113,13 @@ export function AddPanel({
     return holdWork();
   }, [holding]);
   const busy = stage.phase === 'reading' || stage.phase === 'converting' || stage.phase === 'syncing';
-  const addable = candidates.filter((candidate) => candidate.decision.action !== 'unsupported');
+  // Which files repeat one on the iPod or one above them, worked out again whenever the list, the iPod's
+  // tracks or the choices change, and before anything is converted.
+  const rows = useMemo(() => precheck(candidates, tracks, { allowAll: allowDuplicates, allowIds }), [candidates, tracks, allowDuplicates, allowIds]);
+  const supported = candidates.filter((candidate) => candidate.decision.action !== 'unsupported');
+  /** What will be converted or copied: supported files that are not skipped as duplicates. */
+  const addable = supported.filter((candidate) => !rows.get(candidate.id)?.skipped);
+  const counts = countsOf(candidates, rows);
   const convertBytes = sum(addable.filter((candidate) => candidate.decision.action === 'convert').map((candidate) => candidate.estimatedBytes));
   const capacityBytes = device && device.capacity_gb > 0 ? Math.round(device.capacity_gb * 1e9 * USABLE_SHARE) : undefined;
 
@@ -273,7 +295,26 @@ export function AddPanel({
 
   function remove(id: string) {
     setCandidates((previous) => previous.filter((candidate) => candidate.id !== id));
+    setAllowIds((previous) => without(previous, id));
     setStage({ phase: 'idle' });
+  }
+
+  /** What was planned no longer matches the list, so it is dropped and the person is told. */
+  function planChanged() {
+    if (stage.phase !== 'planned') return;
+    setNotice('You changed which files are added, so the earlier check no longer fits. Press Check and prepare again. The files converted before were thrown away, and nothing on the iPod changed.');
+    setStage({ phase: 'idle' });
+  }
+
+  function chooseAllowAll(checked: boolean) {
+    setAllowDuplicates(checked);
+    planChanged();
+  }
+
+  /** Adds, or stops adding, one duplicate row without ticking the box for all of them. */
+  function toggleAnyway(id: string) {
+    setAllowIds((previous) => (previous.has(id) ? without(previous, id) : new Set(previous).add(id)));
+    planChanged();
   }
 
   async function prepare() {
@@ -290,6 +331,10 @@ export function AddPanel({
     setNotice('');
     const items: SyncItem[] = [];
     const failed: string[] = [];
+    const failedIds = new Set<string>();
+    // Duplicates are decided before any file is converted. A skipped file is never read, converted or copied.
+    const toPrepare = addable;
+    const notes: PrecheckNotes = { skipped: counts.skipped, missed: [], sameAsFailed: [] };
     const activity = startActivity('Preparing files', {
       pause: pauseGate,
       stop: {
@@ -300,11 +345,11 @@ export function AddPanel({
       },
     });
     try {
-      for (const [index, candidate] of addable.entries()) {
+      for (const [index, candidate] of toPrepare.entries()) {
         // A pause waits between files, never in the middle of one.
         await pauseGate.checkpoint(controller.signal);
         controller.signal.throwIfAborted();
-        const label = `${index + 1} of ${addable.length}: ${candidate.file.name}`;
+        const label = `${index + 1} of ${toPrepare.length}: ${candidate.file.name}`;
         activity.update(`Converting or reading ${label}`);
         setStage({ phase: 'converting', message: label, fraction: 0 });
         try {
@@ -312,15 +357,17 @@ export function AddPanel({
             playlist: playlist.trim() || undefined,
             signal: controller.signal,
             onProgress: (fraction) => {
-              activity.update('', { fraction: (index + fraction) / addable.length });
+              activity.update('', { fraction: (index + fraction) / toPrepare.length });
               setStage({ phase: 'converting', message: label, fraction });
             },
           });
           if (item) items.push(item);
+          else failedIds.add(candidate.id);
         } catch (error) {
           if (controller.signal.aborted) throw error;
           // One file that cannot be converted must not stop the rest of a folder.
           failed.push(`${candidate.file.name}: ${describeError(error)}`);
+          failedIds.add(candidate.id);
         }
       }
       if (!items.length) {
@@ -331,12 +378,28 @@ export function AddPanel({
       const plan = await planSync(root as unknown as IpodRoot, newEngine, items, {
         capacityBytes,
         duplicates: allowDuplicates ? 'allow' : 'skip',
+        allowDuplicateIds: [...allowIds],
         ...(putArt ? { artwork: { decode: decodePicture } } : {}),
         // Stop in the panel or the bar reaches the planner too.
         signal: controller.signal,
         onProgress: (message) => setStage({ phase: 'reading', message }),
       });
-      setStage({ phase: 'planned', plan, items, failed });
+      // The plan is the safety net. It uses the same judge as the check made before converting, so it
+      // should agree. If it found a duplicate the first check let through, say so.
+      const nameOf = (id: string) => candidates.find((candidate) => candidate.id === id)?.file.name ?? id;
+      for (const miss of missedDuplicates(rows, plan.duplicates)) {
+        const on = miss.trackKey ? plan.tracksBefore.find((track) => trackKey(track) === miss.trackKey) : undefined;
+        const what = miss.trackKey ? `already on the iPod${on ? ` as "${on.title}"` : ''}` : 'the same as another file in this list';
+        notes.missed.push(`"${nameOf(miss.itemId)}" is ${what}. The check before converting did not catch this one, the last check did${miss.skipped ? ' and left it out' : ', and it is being added because duplicates are allowed'}.`);
+      }
+      // A file skipped as the same as an earlier one that then failed to convert would otherwise vanish.
+      for (const candidate of candidates) {
+        const row = rows.get(candidate.id);
+        if (row?.skipped && row.state === 'in-list' && row.otherId && failedIds.has(row.otherId)) {
+          notes.sameAsFailed.push(`"${candidate.file.name}" was skipped as the same as "${nameOf(row.otherId)}", which could not be converted, so neither is being added. Press Add this one anyway on "${candidate.file.name}" to use this copy instead.`);
+        }
+      }
+      setStage({ phase: 'planned', plan, items, failed, precheck: notes });
     } catch (error) {
       if (controller.signal.aborted || isStopped(error)) {
         setNotice('Stopped. The files converted so far were thrown away, and nothing was written to the iPod.');
@@ -450,6 +513,7 @@ export function AddPanel({
           onConfirm={() => {
             setClearing(false);
             setCandidates([]);
+            setAllowIds(new Set());
             setProblems([]);
             setIgnored(0);
             setNotice('');
@@ -494,13 +558,18 @@ export function AddPanel({
             <tbody>
               {candidates.map((candidate) => {
                 const unsupported = candidate.decision.action === 'unsupported';
+                const dup = rows.get(candidate.id);
+                const skipped = dup?.skipped === true;
+                // The row's own button: add a skipped duplicate anyway, or take back that choice.
+                const anyway = skipped ? 'add' : dup?.addedAnyway && !allowDuplicates && allowIds.has(candidate.id) ? 'undo' : null;
                 return (
-                  <tr key={candidate.id}>
+                  <tr key={candidate.id} class={skipped ? 'dup-skipped' : undefined} data-duplicate={dup && dup.state !== 'new' && dup.state !== 'not-added' ? dup.state : undefined}>
                     <td class="cell-title" data-label="File" title={candidate.file.name}>
                       {candidate.info.tags.title ?? candidate.file.name}
                       {candidate.folder ? <div class="path">{candidate.folder}</div> : null}
                       {candidate.filledFromFolders?.length ? <div class="path">{candidate.filledFromFolders.join(', ')} filled in from the folder and file names</div> : null}
-                      {putArt && !unsupported ? <CoverNote candidate={candidate} /> : null}
+                      {putArt && !unsupported && !skipped ? <CoverNote candidate={candidate} /> : null}
+                      {dup?.label ? <DuplicateNote row={dup} /> : null}
                     </td>
                     <td data-label="Kind">
                       <select
@@ -519,10 +588,15 @@ export function AddPanel({
                       {candidate.kindFromFolder ? <div class="path">from the folder name</div> : null}
                     </td>
                     <td class={unsupported ? 'wrap no-text' : 'wrap'} data-label="What happens">
-                      {describeDecision(candidate.decision, candidate.info)}
+                      {skipped ? 'Nothing: not converted, not copied' : describeDecision(candidate.decision, candidate.info)}
                     </td>
-                    <td class="num" data-label="On the iPod">{candidate.estimatedBytes === null ? '' : formatBytes(candidate.estimatedBytes)}</td>
+                    <td class="num" data-label="On the iPod">{skipped ? 'Not added' : candidate.estimatedBytes === null ? '' : formatBytes(candidate.estimatedBytes)}</td>
                     <td class="cell-action">
+                      {anyway ? (
+                        <button type="button" class="secondary small" disabled={busy} onClick={() => toggleAnyway(candidate.id)} aria-label={`${anyway === 'add' ? 'Add this one anyway' : 'Skip this one again'}: ${candidate.file.name}`}>
+                          {anyway === 'add' ? 'Add this one anyway' : 'Skip this one again'}
+                        </button>
+                      ) : null}
                       <button type="button" class="ghost small" disabled={busy} onClick={() => remove(candidate.id)} aria-label={`Leave out ${candidate.file.name}`}>
                         Leave out
                       </button>
@@ -537,9 +611,28 @@ export function AddPanel({
 
       {candidates.length ? (
         <>
-          <p class="note">
-            {addable.length} of {candidates.length} can be added, about {formatBytes(sum(addable.map((candidate) => candidate.estimatedBytes)))}.
-          </p>
+          <div class="dup-summary" aria-live="polite" aria-atomic="true">
+            <p class="note">
+              {addable.length} of {candidates.length} can be added, about {formatBytes(sum(addable.map((candidate) => candidate.estimatedBytes)))}.
+              {counts.skipped ? ` ${counts.skipped} skipped as ${counts.skipped === 1 ? 'a duplicate' : 'duplicates'}.` : ''}
+            </p>
+            <p class="note" data-prepare-counts>
+              <strong>{summaryOf(counts)}.</strong>
+            </p>
+          </div>
+          {counts.skipped ? (
+            <Notice tone="info" scroll={false}>
+              <p>
+                {counts.skipped} {counts.skipped === 1 ? 'file is' : 'files are'} already on the iPod or repeat{counts.skipped === 1 ? 's' : ''} another file in this list. {counts.skipped === 1 ? 'It is' : 'They are'} not converted or copied, so no time is spent on {counts.skipped === 1 ? 'it' : 'them'}. Use Add this one anyway on a row, or tick the box below to add all of them.
+              </p>
+            </Notice>
+          ) : null}
+          {candidates.some((candidate) => rows.get(candidate.id)?.state === 'cannot-tell') ? (
+            <p class="note">Files marked "Could not tell" have no title to compare, so they are let through, as the final check does too.</p>
+          ) : null}
+          {supported.length && !addable.length ? (
+            <p class="note">Every file in the list is a duplicate, so there is nothing to convert. Tick the box below or use Add this one anyway on a row to add some.</p>
+          ) : null}
           {ignored ? <p class="note">{ignored} other file{ignored === 1 ? ' was' : 's were'} left out because they are not music, audiobooks, podcasts or video (cover pictures, playlists, system files).</p> : null}
           {convertBytes > LARGE_BATCH_BYTES ? (
             <div class="callout warn">
@@ -549,7 +642,7 @@ export function AddPanel({
             </div>
           ) : null}
           <label class="check">
-            <input type="checkbox" checked={allowDuplicates} disabled={busy} onChange={(event) => setAllowDuplicates((event.target as HTMLInputElement).checked)} />
+            <input type="checkbox" checked={allowDuplicates} disabled={busy} onChange={(event) => chooseAllowAll((event.target as HTMLInputElement).checked)} />
             Add files even if the same song, episode or title is already on the iPod
           </label>
           <label class="check">
@@ -577,7 +670,7 @@ export function AddPanel({
             <input type="text" value={playlist} disabled={busy} onInput={(event) => setPlaylist((event.target as HTMLInputElement).value)} placeholder="Playlist name" />
           </label>
           <div class="actions">
-            <button type="button" disabled={busy || !addable.length} onClick={() => void prepare()}>
+            <button type="button" disabled={busy || !addable.length} onClick={() => void prepare()} title={addable.length ? summaryOf(counts) : undefined}>
               Check and prepare
             </button>
             {stage.phase === 'converting' && gate ? (
@@ -613,7 +706,7 @@ export function AddPanel({
         </Notice>
       ) : null}
 
-      {stage.phase === 'planned' ? <Planned plan={stage.plan} failed={stage.failed} ready={ready} backupOk={backupOk} wait={wait} onSync={() => void sync(stage.plan)} onNeedBackup={onNeedBackup} /> : null}
+      {stage.phase === 'planned' ? <Planned plan={stage.plan} failed={stage.failed} notes={stage.precheck} ready={ready} backupOk={backupOk} wait={wait} onSync={() => void sync(stage.plan)} onNeedBackup={onNeedBackup} /> : null}
 
       {stage.phase === 'syncing' ? (
         <>
@@ -635,7 +728,7 @@ export function AddPanel({
   );
 }
 
-function Planned({ plan, failed, ready, backupOk, wait, onSync, onNeedBackup }: { plan: SyncPlan; failed: string[]; ready: boolean; backupOk: boolean; wait: string | null; onSync: () => void; onNeedBackup?: () => void }) {
+function Planned({ plan, failed, notes, ready, backupOk, wait, onSync, onNeedBackup }: { plan: SyncPlan; failed: string[]; notes: PrecheckNotes; ready: boolean; backupOk: boolean; wait: string | null; onSync: () => void; onNeedBackup?: () => void }) {
   const fits = plan.space.fits;
   return (
     <>
@@ -647,6 +740,28 @@ function Planned({ plan, failed, ready, backupOk, wait, onSync, onNeedBackup }: 
           {fits === false ? ' They do not fit on the iPod.' : ''}
         </p>
       </Notice>
+      {notes.skipped ? (
+        <p class="note">
+          {notes.skipped} {notes.skipped === 1 ? 'file was' : 'files were'} skipped as {notes.skipped === 1 ? 'a duplicate' : 'duplicates'} before converting, so {notes.skipped === 1 ? 'it was' : 'they were'} never converted.
+        </p>
+      ) : null}
+      {notes.missed.length ? (
+        <Notice tone="warn">
+          <p>
+            <strong>{notes.missed.length === 1 ? 'The last check found a duplicate that the first check missed:' : `The last check found ${notes.missed.length} duplicates that the first check missed:`}</strong>
+          </p>
+          {notes.missed.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </Notice>
+      ) : null}
+      {notes.sameAsFailed.length ? (
+        <Notice tone="warn">
+          {notes.sameAsFailed.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </Notice>
+      ) : null}
       {failed.length ? (
         <div class="callout no" role="note">
           <p>
@@ -740,6 +855,23 @@ function Done({ report }: { report: SyncReport }) {
       ) : null}
     </>
   );
+}
+
+/** What the duplicate check says about a file, as words with a label, so it never relies on colour. */
+function DuplicateNote({ row }: { row: RowDuplicate }) {
+  const kind = row.skipped ? 'skip' : row.state === 'cannot-tell' ? 'unsure' : 'anyway';
+  return (
+    <div class={`dup-note ${kind}`} data-dup={row.state}>
+      <strong class="dup-badge">{row.label}</strong>
+      <span class="dup-text"> {row.text}</span>
+    </div>
+  );
+}
+
+function without(set: ReadonlySet<string>, id: string): Set<string> {
+  const next = new Set(set);
+  next.delete(id);
+  return next;
 }
 
 /** Where a file's cover comes from, in the list: inside the file, a picture in its folder, one found online, or none. */
