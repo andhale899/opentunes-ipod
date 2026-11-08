@@ -226,6 +226,9 @@ const SCENARIOS = [
     // the opt-in, what is sent after it, that the preview shows before and after, that one edit
     // and one new playlist apply through the backup gate, and that the key is never in the page.
     name: 'the AI assistant on a practice iPod (fake model, no network): opt in, ask, preview, apply one edit and one playlist',
+    // The library organiser on a practice iPod: select every track, set a genre on all of them in one
+    // write, group by it, make a playlist from the selection, then take the tracks out of it again.
+    name: 'organising a practice iPod (select all, bulk edit, group, playlist create, add and remove)',
     url: `http://localhost:${port}/?demo=practice`,
     devtools: {
       doneSelector: 'body',
@@ -259,6 +262,10 @@ const SCENARIOS = [
             }), { status: 200 });
           };
         })()`);
+        const setValue = (selector, value) =>
+          page.evaluate(`(() => { const box = document.querySelector(${JSON.stringify(selector)}); if (!box) return false; box.value = ${JSON.stringify(value)}; box.dispatchEvent(new Event(box.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); return true; })()`);
+        const clickTab = (name) => page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.trim().startsWith(${JSON.stringify(name)})).click()`);
+        await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
         await page.waitFor('Back up the database files');
         await page.click('Choose where to keep the backup');
@@ -306,6 +313,62 @@ const SCENARIOS = [
     },
     expected: ['Smoke Artist', 'Applied 1 edit and 1 new playlist', 'A key is set'],
     forbidden: ['sk-test-0000', 'did not finish', 'could not be put back', 'Nothing more was changed'],
+        await clickTab('Library');
+        await page.waitFor('Your library');
+        // Filter chips carry counts.
+        const chips = await page.evaluate(`[...document.querySelectorAll('.chip')].map((chip) => chip.textContent.trim().replace(/\\s+/g, ' ')).join('|')`);
+        if (chips !== 'All 5|Music 2|Podcasts 1|Audiobooks 1|Video 1') throw new Error('The kind chips read: ' + chips);
+        // Select every track, set the genre and the album artist on all of them in one write.
+        await page.click('Select all (5)');
+        await page.waitFor('5 tracks selected');
+        await setValue('.bulk .field:nth-child(3) input', 'Various');
+        await setValue('.bulk .field:nth-child(4) input', 'Folk');
+        await page.waitFor('5 tracks would change');
+        await page.click('Apply to 5 tracks');
+        await page.waitFor('Changed 5 tracks in one write');
+        await setValue('.browser select', 'genre');
+        await page.waitFor('Folk');
+        const groups = await page.evaluate(`[...document.querySelectorAll('.group-name')].map((name) => name.textContent).join('|')`);
+        if (groups !== 'Folk') throw new Error('Grouping by genre gave: ' + groups);
+        // Collapse the group: its header stays and its rows go.
+        await page.evaluate(`document.querySelector('.group-toggle').click()`);
+        await page.waitFor('Showing 0 of 0 tracks');
+        await page.evaluate(`document.querySelector('.group-toggle').click()`);
+        await page.waitFor('Showing 5 of 5 tracks');
+        // A playlist from the selection.
+        await clickTab('Playlists');
+        await page.waitFor('Playlists on this iPod');
+        await setValue('.create-box input[type=text]', 'Smoke mix');
+        await page.click('Create playlist');
+        await page.waitFor('Ready to write.');
+        await page.waitFor('Create the playlist "Smoke mix" with 5 tracks.');
+        await page.click('Apply to the iPod');
+        await page.waitFor('Done. The iPod was read back and matches.');
+        await page.waitFor('Smoke mix');
+        // Read-only lists say why.
+        await page.evaluate(`[...document.querySelectorAll('button.plist')].find((item) => item.textContent.includes('holds everything')).click()`);
+        await page.waitFor('Read only. This list holds every track');
+        // Take the tracks out of the new playlist again.
+        await page.evaluate(`[...document.querySelectorAll('button.plist')].find((item) => item.textContent.includes('Smoke mix')).click()`);
+        await page.waitFor('Take 5 out of this playlist');
+        await page.click('Take 5 out of this playlist');
+        await page.waitFor('Take 5 tracks out of "Smoke mix". They stay on the iPod.');
+        await page.click('Apply to the iPod');
+        await page.waitFor('Done. The iPod was read back and matches.');
+        const lists = await page.evaluate(`[...document.querySelectorAll('button.plist')].map((item) => item.textContent.replace(/\\s+/g, ' ').trim()).join('|')`);
+        if (!/Smoke mix\s*0 tracks/.test(String(lists))) throw new Error('The playlists read: ' + lists);
+        // Add the selection to an existing playlist. Road trip holds two of the five already, so three are added.
+        await page.waitFor('already in "Road trip"');
+        await page.click('Add 3 to this playlist');
+        await page.waitFor('Add 3 tracks to "Road trip".');
+        await page.click('Apply to the iPod');
+        await page.waitFor('Done. The iPod was read back and matches.');
+        const after = await page.evaluate(`[...document.querySelectorAll('button.plist')].map((item) => item.textContent.replace(/\\s+/g, ' ').trim()).join('|')`);
+        if (!/Road trip\s*5 tracks/.test(String(after))) throw new Error('The playlists read: ' + after);
+      },
+    },
+    expected: ['Smoke mix', 'Done. The iPod was read back and matches.'],
+    forbidden: ['did not finish', 'could not be put back'],
     alert: false,
   },
   ...(REAL_MEDIA

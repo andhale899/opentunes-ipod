@@ -1104,4 +1104,630 @@ pre {
 
 .ai-summary {
   margin: 0.5rem 0;
+/* ---- library organiser ---- */
+
+:root {
+  --tap: 2.4rem;
+}
+
+/* Tablets and phones: every control is at least 44 px tall. */
+@media (max-width: 64rem), (pointer: coarse) {
+  :root {
+    --tap: 44px;
+  }
+
+  button,
+  button.small,
+  input[type='text'],
+  input[type='search'],
+  select,
+  summary,
+  .tab,
+  .check {
+    min-height: var(--tap);
+  }
+
+  summary {
+    display: flex;
+    align-items: center;
+  }
+
+  .check input[type='checkbox'] {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+}
+
+/* Filter bar */
+
+.browser {
+  min-width: 0;
+}
+
+.toolbar .field.grow {
+  flex: 1 1 14rem;
+}
+
+.toolbar .field.grow input {
+  max-width: none;
+}
+
+.sort-field {
+  display: none;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.25rem 0 0.6rem;
+}
+
+button.chip {
+  min-height: var(--tap);
+  padding: 0.25rem 0.85rem;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border-strong);
+  font-weight: 500;
+}
+
+button.chip:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+button.chip[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.chip .count,
+.group-toggle .count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.select-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0.6rem;
+}
+
+.more-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin: 0.6rem 0;
+}
+
+.more-row .muted {
+  font-size: 0.88rem;
+}
+
+/* The list: a table by default, stacked cards on a narrow screen (below). */
+
+.stack-wrap {
+  max-height: 38rem;
+}
+
+.library.stack td.pick,
+.library.stack th.pick {
+  width: 2.75rem;
+  padding: 0 0 0 0.25rem;
+}
+
+.library.stack .cell-title,
+.library.stack .cell-artist,
+.library.stack .cell-album {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hit {
+  display: inline-grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  margin: 0;
+  cursor: pointer;
+}
+
+button.sort {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  gap: 0.3rem;
+}
+
+button.sort:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
+}
+
+.arrow {
+  font-size: 0.65rem;
+}
+
+.library.stack tr.group-row td {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+button.group-toggle {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: var(--tap);
+  padding-inline: 0.25rem;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+}
+
+button.group-toggle:hover:not(:disabled) {
+  background: transparent;
+  color: var(--accent);
+}
+
+.group-name {
+  overflow-wrap: anywhere;
+}
+
+/* Selection bar, stays in view while a list is long */
+
+.selection-bar {
+  position: sticky;
+  bottom: 0.5rem;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 0.75rem;
+  margin: 0.75rem 0;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+}
+
+.selection-count {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Library views */
+
+.subtabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.5rem 0 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+button.subtab {
+  min-height: var(--tap);
+  padding-inline: 0.9rem;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+button.subtab:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+button.subtab[aria-selected='true'] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.subtab .badge {
+  margin-left: 0.3rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* Bulk edit */
+
+.bulk {
+  margin-top: 0.5rem;
+}
+
+.bulk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0 1rem;
+}
+
+.bulk-grid .field input,
+.bulk-grid .field select {
+  max-width: none;
+  width: 100%;
+}
+
+.bulk-preview {
+  margin: 0.25rem 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+/* Playlists */
+
+.playlist-list {
+  margin: 0.25rem 0 0.5rem;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+}
+
+button.plist {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  width: 100%;
+  min-height: var(--tap);
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+  font-weight: 500;
+  text-align: left;
+}
+
+button.plist:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+button.plist[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.plist-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.plist .pill {
+  margin-left: auto;
+}
+
+.add-box,
+.create-box,
+.playlist-detail,
+.plan {
+  margin: 0.75rem 0;
+}
+
+.add-box {
+  padding: 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+
+.add-box .note {
+  margin: 0.4rem 0 0;
+}
+
+.add-controls,
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.25rem 0.75rem;
+}
+
+.add-controls .field,
+.detail-actions .field {
+  margin: 0.4rem 0;
+  flex: 1 1 12rem;
+}
+
+.playlist-detail {
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.plan ul {
+  margin: 0.4rem 0;
+  padding-left: 1.25rem;
+}
+
+/* ---- phones and small tablets: tables become stacked cards ---- */
+
+@media (max-width: 40rem) {
+  .sort-field {
+    display: flex;
+    align-items: end;
+    gap: 0.5rem;
+    flex: 1 1 100%;
+    margin: 0;
+  }
+
+  .sort-field label {
+    display: grid;
+    flex: 1;
+    gap: 0.3rem;
+  }
+
+  .toolbar .field,
+  .toolbar .field select {
+    width: 100%;
+  }
+
+  .toolbar .field:not(.sort-field) {
+    flex: 1 1 100%;
+  }
+
+  .stack-wrap {
+    max-height: none;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+  }
+
+  /* The headers are hidden, so sorting and select-all live in the filter bar above. */
+  .library.stack thead {
+    display: none;
+  }
+
+  .library.stack,
+  .library.stack tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .library.stack tr {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    column-gap: 0.75rem;
+    align-items: baseline;
+    margin: 0 0 0.5rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+  }
+
+  .library.stack tr.selected {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+
+  .library.stack td,
+  .library.stack td.num {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    max-width: none;
+  }
+
+  .library.stack td:empty {
+    display: none;
+  }
+
+  .library.stack .cell-title,
+  .library.stack .cell-artist,
+  .library.stack .cell-album {
+    grid-column: 1 / -1;
+    overflow: visible;
+  }
+
+  .library.stack .cell-artist,
+  .library.stack .cell-album {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .library.stack .cell-meta {
+    margin-top: 0.25rem;
+    color: var(--faint);
+    font-size: 0.8rem;
+  }
+
+  /* A card with a checkbox: the box sits in its own column on the left. */
+  .library.stack tr:has(td.pick) {
+    grid-template-columns: var(--tap) auto auto 1fr;
+    padding-left: 0.25rem;
+  }
+
+  .library.stack td.pick {
+    grid-column: 1;
+    grid-row: 1 / span 4;
+    align-self: start;
+    width: auto;
+  }
+
+  .library.stack tr:has(td.pick) .cell-title,
+  .library.stack tr:has(td.pick) .cell-artist,
+  .library.stack tr:has(td.pick) .cell-album {
+    grid-column: 2 / -1;
+  }
+
+  .library.stack tr.group-row {
+    grid-template-columns: var(--tap) 1fr;
+    padding-block: 0.15rem;
+    background: var(--surface-2);
+    border-color: var(--border-strong);
+  }
+
+  .library.stack tr.group-row td.pick {
+    grid-row: auto;
+    align-self: center;
+  }
+
+  .library.stack tr.group-row td.group-head {
+    grid-column: 2;
+    padding: 0;
+  }
+
+  .selection-bar {
+    bottom: 0.25rem;
+  }
+
+  .selection-actions {
+    width: 100%;
+  }
+
+  .selection-actions button {
+    flex: 1 1 auto;
+  }
+}
+
+/* ---- the whole app on a phone ---- */
+
+@media (max-width: 34rem) {
+  body {
+    font-size: 16px;
+  }
+
+  .topbar-inner {
+    padding-inline: 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .topbar-end {
+    min-width: 0;
+  }
+
+  .topbar-end .pill {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .site-footer {
+    padding-inline: 0.75rem;
+  }
+
+  .card {
+    padding: 1rem 0.85rem;
+  }
+
+  .hero {
+    gap: 1.25rem;
+    padding-top: 0.5rem;
+  }
+
+  .hero .actions button {
+    flex: 1 1 100%;
+  }
+
+  .device {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  .device-icon {
+    width: 2.75rem;
+    height: 2.75rem;
+    font-size: 1.3rem;
+  }
+
+  .device > .actions button {
+    width: 100%;
+  }
+
+  .storage-label {
+    flex-wrap: wrap;
+    gap: 0.15rem 1rem;
+  }
+
+  .field input,
+  .field select,
+  input[type='text'],
+  input[type='search'],
+  select {
+    max-width: none;
+    width: 100%;
+    font-size: 16px;
+  }
+
+  .actions > button,
+  .detail-actions > button,
+  .add-controls > button {
+    flex: 1 1 auto;
+  }
+
+  .tabs {
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab {
+    scroll-snap-align: start;
+  }
+
+  .playlists li {
+    flex-wrap: wrap;
+    gap: 0.15rem 1rem;
+  }
+
+  .capability-head {
+    align-items: flex-start;
+  }
+
+  .needed {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+
+  pre,
+  .files {
+    max-width: 100%;
+  }
+}
+
+/* Long words and paths never push the page wider than the screen. */
+.page,
+.card,
+.callout,
+.result {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 64rem), (pointer: coarse) {
+  button.sort {
+    min-height: var(--tap);
+    min-width: var(--tap);
+  }
 }
