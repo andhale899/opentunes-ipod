@@ -95,6 +95,15 @@ const SCENARIOS = [
   {
     name: 'a nano 7G-style iPod with signed databases',
     url: `http://localhost:${port}/?demo=signed&rewrite=1&tab=diagnostics`,
+    // The rewrite check is the heaviest page load. Chrome's virtual-time budget was too short for a
+    // slow CI runner, so this one waits in real time for the last line it expects.
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        await page.waitFor('Copy rewrite report', 120_000);
+      },
+    },
     expected: [
       'Demo nano 7G',
       '5 tracks, 3 playlists',
