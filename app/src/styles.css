@@ -526,9 +526,14 @@ summary:hover {
 
 .device {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 1rem 1.25rem;
   align-items: center;
+}
+
+/* The buttons and their notes sit on their own row, so a long note can never squeeze the name. */
+.device > .actions {
+  grid-column: 1 / -1;
 }
 
 .device-icon {

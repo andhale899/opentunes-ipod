@@ -88,7 +88,7 @@ export function RestoreEverythingPanel({ root, backup, onNeedBackup, onChanged }
     <section class="card">
       <h3>Restore everything from an offload folder</h3>
       <p class="card-lead">
-        Choose a folder made by the Offload tab (the one named opentunes-offload-...). It copies back every music and video file the iPod is missing, then puts the saved library back, so the library never lists a file that is not there. An offload folder holds everything. A backup folder holds only the database files, so use "Restore from a backup" for those.
+        Choose a folder made by Offload on this tab (the one named opentunes-offload-...). It copies back every music and video file the iPod is missing, then puts the saved library back, so the library never lists a file that is not there. An offload folder holds everything. A backup folder holds only the database files, so use "Restore from a backup" for those.
       </p>
       <button type="button" onClick={() => void choose()} disabled={working}>
         Choose an offload folder

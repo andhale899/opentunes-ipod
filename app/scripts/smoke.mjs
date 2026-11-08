@@ -903,7 +903,7 @@ const SCENARIOS = [
       timeoutMs: 5_000,
       async drive(page) {
         await page.waitFor('Practice iPod, held in memory');
-        await page.click('Offload');
+        await page.click('Backup');
         await page.waitFor('Copy everything off the iPod');
         // A destination folder held in the page: it keeps what is written so the test can look at it.
         await page.evaluate(`(() => {
@@ -989,7 +989,6 @@ const SCENARIOS = [
         await page.waitFor('Back up the database files');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
-        await page.click('Offload');
         await page.waitFor('What you get and how to use it');
         await page.waitFor('Restore everything from an offload folder');
         await page.evaluate(`(() => {
