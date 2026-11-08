@@ -621,7 +621,7 @@ const SCENARIOS = [
             media: media.length,
             bom: files[folder + '/library.csv'][0] === 0xef && files[folder + '/library.csv'][1] === 0xbb && files[folder + '/library.csv'][2] === 0xbf,
             hasPlaylists: names.includes(folder + '/playlists.csv') && text(folder + '/playlists.csv').includes('Road trip'),
-            hasReadme: text(folder + '/README.txt').includes('copy of everything on an iPod'),
+            hasReadme: text(folder + '/README.txt').includes('full copy of an iPod'),
             csvRow: row,
             copyText: copy ? new TextDecoder().decode(files[copy]) : null,
           });
@@ -636,8 +636,106 @@ const SCENARIOS = [
         if (result.copyText !== 'stand-in for Morning Light') throw new Error('The copied file does not hold the iPod file\'s bytes: ' + result.copyText);
       },
     },
-    expected: ['Copied 5 files', 'in "offload-destination"', 'library.csv, playlists.csv and a README.txt'],
+    expected: ['Copied 5 files', 'in "offload-destination"', 'the database folder, opentunes-offload.json and a README.txt'],
     forbidden: ['could not be copied', 'is not complete'],
+    alert: false,
+  },
+  {
+    // Offloads a practice iPod into a faked folder (the technique above), takes one track off the
+    // iPod, then puts everything back from that same fake folder and checks what the page says and
+    // that the track and its file are back. The folder picker is faked; nothing touches a disk.
+    name: 'restoring everything from an offload folder on a practice iPod',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        await page.waitFor('Practice iPod, held in memory');
+        // The backup of the current state, which Restore everything needs.
+        await page.click('Backup');
+        await page.waitFor('Back up the database files');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        await page.click('Offload');
+        await page.waitFor('What you get and how to use it');
+        await page.waitFor('Restore everything from an offload folder');
+        await page.evaluate(`(() => {
+          const directory = (name) => ({
+            kind: 'directory', name, children: new Map(),
+            async *entries() { for (const entry of this.children) yield entry; },
+            async getDirectoryHandle(child, options = {}) {
+              const found = this.children.get(child);
+              if (found && found.kind === 'directory') return found;
+              if (found || !options.create) throw Object.assign(new Error(child + ' was not found.'), { name: 'NotFoundError' });
+              const made = directory(child); this.children.set(child, made); return made;
+            },
+            async getFileHandle(child, options = {}) {
+              const found = this.children.get(child);
+              if (found && found.kind === 'file') return found;
+              if (found || !options.create) throw Object.assign(new Error(child + ' was not found.'), { name: 'NotFoundError' });
+              const file = {
+                kind: 'file', name: child, bytes: new Uint8Array(0),
+                async getFile() { return new File([this.bytes], child); },
+                async createWritable() {
+                  const chunks = [];
+                  return {
+                    write: async (data) => { chunks.push(new Uint8Array(data)); },
+                    close: async () => { const all = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0)); let at = 0; for (const c of chunks) { all.set(c, at); at += c.length; } file.bytes = all; },
+                  };
+                },
+              };
+              this.children.set(child, file); return file;
+            },
+          });
+          window.__restoreDestination = directory('restore-destination');
+          window.showDirectoryPicker = async () => window.__restoreDestination;
+        })()`);
+        await page.click('Choose where to copy everything');
+        await page.waitFor('and checked each by reading it back', 60_000);
+        await page.waitFor('are saved in the database folder');
+        const saved = await page.evaluate(`(() => { try {
+          const folder = [...window.__restoreDestination.children.values()].find((entry) => entry.kind === 'directory');
+          const marker = JSON.parse(new TextDecoder().decode(folder.children.get('opentunes-offload.json').bytes));
+          const database = folder.children.get('database');
+          const info = JSON.parse(new TextDecoder().decode(database.children.get('backup-info.json').bytes));
+          return JSON.stringify({ kind: marker.kind, complete: marker.complete, media: marker.mediaFiles, folder: marker.databaseFolder, backupKind: info.kind, backupComplete: info.complete, files: info.files.length });
+        } catch (error) { return JSON.stringify({ error: String(error) }); } })()`);
+        const marker = JSON.parse(String(saved));
+        if (marker.error) throw new Error('Reading the offload folder failed in the page: ' + marker.error);
+        if (marker.kind !== 'ipod-offload' || marker.complete !== true || marker.media !== 5 || marker.folder !== 'database') throw new Error('The offload marker is wrong: ' + saved);
+        if (marker.backupKind !== 'ipod-database-backup' || marker.backupComplete !== true || marker.files < 1) throw new Error('database/ is not a complete backup: ' + saved);
+
+        // Take a track and its file off the iPod, so there is something to put back.
+        await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
+        await page.waitFor('Your library');
+        await page.evaluate(`document.querySelector('input[aria-label="Select Night Drive"]').click()`);
+        await page.waitFor('1 track selected');
+        await page.click('Remove selected');
+        await page.waitFor('Ready to remove 1 track and delete 1 file');
+        await page.click('Remove from the iPod');
+        await page.waitFor('Removed 1 track and deleted 1 file');
+        await page.waitFor('4 tracks');
+
+        // Put everything back from the offload folder, picked through the same fake picker.
+        await page.click('Backup');
+        await page.waitFor('Restore everything from an offload folder');
+        await page.evaluate(`window.showDirectoryPicker = async () => [...window.__restoreDestination.children.values()].find((entry) => entry.kind === 'directory')`);
+        await page.click('Choose an offload folder');
+        await page.waitFor('holds 5 media files');
+        await page.waitFor('4 of the media files are already on this iPod');
+        await page.waitFor('This replaces the iPod\'s library');
+        await page.click('Restore everything to the iPod');
+        await page.waitFor('1 file was copied back to the iPod, 4 files were already there and left alone', 60_000);
+        await page.waitFor('The saved library was put back, read back and checked');
+        await page.waitFor('The iPod can now be ejected');
+        await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
+        await page.waitFor('Your library');
+        await page.waitFor('5 tracks');
+        await page.waitFor('Night Drive');
+      },
+    },
+    expected: ['Night Drive', '5 tracks', 'Done: putting everything back on the ipod'],
+    forbidden: ['could not be copied back', 'did not finish', 'did not check out cleanly', 'is not complete'],
     alert: false,
   },
   {

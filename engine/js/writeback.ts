@@ -225,6 +225,28 @@ export async function describeBackup(backup: BackupSource): Promise<BackupSummar
   return { createdAt: manifest.createdAt, files: manifest.files.length, bytes: manifest.files.reduce((sum, file) => sum + file.size, 0) };
 }
 
+async function readVerifiedBackup(backup: BackupSource, manifest: Manifest): Promise<Map<string, Uint8Array>> {
+  const contents = new Map<string, Uint8Array>();
+  for (const file of manifest.files) {
+    const bytes = await readFromBackup(backup, file.path);
+    if (!bytes) throw new WriteBackError(`${file.path} is listed in the backup but is not in the folder, so nothing was restored.`);
+    if (bytes.length !== file.size) throw new WriteBackError(`${file.path} is ${bytes.length} bytes in the backup and should be ${file.size}, so nothing was restored.`);
+    if (file.sha256 && (await sha256Of(bytes)) !== file.sha256) throw new WriteBackError(`${file.path} does not match its checksum in the backup, so nothing was restored.`);
+    contents.set(file.path, bytes);
+  }
+  return contents;
+}
+
+/**
+ * Checks a backup the way a restore does, without writing anything: the manifest is usable and
+ * complete, and every file is there with its size and checksum. Throws what a restore would throw.
+ */
+export async function checkBackup(backup: BackupSource): Promise<BackupSummary> {
+  const manifest = await readManifest(backup);
+  await readVerifiedBackup(backup, manifest);
+  return { createdAt: manifest.createdAt, files: manifest.files.length, bytes: manifest.files.reduce((sum, file) => sum + file.size, 0) };
+}
+
 export interface RestoreReport {
   restored: number;
   bytes: number;
@@ -251,14 +273,7 @@ export async function restoreBackup(root: IpodRoot, backup: BackupSource, option
   const manifest = await readManifest(backup);
 
   options.onProgress?.('Checking the backup...');
-  const contents = new Map<string, Uint8Array>();
-  for (const file of manifest.files) {
-    const bytes = await readFromBackup(backup, file.path);
-    if (!bytes) throw new WriteBackError(`${file.path} is listed in the backup but is not in the folder, so nothing was restored.`);
-    if (bytes.length !== file.size) throw new WriteBackError(`${file.path} is ${bytes.length} bytes in the backup and should be ${file.size}, so nothing was restored.`);
-    if (file.sha256 && (await sha256Of(bytes)) !== file.sha256) throw new WriteBackError(`${file.path} does not match its checksum in the backup, so nothing was restored.`);
-    contents.set(file.path, bytes);
-  }
+  const contents = await readVerifiedBackup(backup, manifest);
 
   const report: RestoreReport = { restored: 0, bytes: 0, failures: [], verified: false, signatures: [] };
   for (const [path, bytes] of contents) {

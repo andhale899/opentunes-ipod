@@ -120,7 +120,7 @@ describe('a full copy', () => {
     assert.deepEqual([...copied.get(`${report.folder}/library.csv`).slice(0, 3)], [0xef, 0xbb, 0xbf], 'library.csv starts with a UTF-8 byte order mark');
     assert.ok(copied.has(`${report.folder}/library.csv`));
     assert.ok(copied.has(`${report.folder}/playlists.csv`));
-    assert.match(textOf(destination, `${report.folder}/README.txt`), /copy of everything on an iPod/);
+    assert.match(textOf(destination, `${report.folder}/README.txt`), /full copy of an iPod/);
 
     // The iPod was read and nothing else.
     assert.deepEqual(writes, []);
@@ -275,7 +275,7 @@ describe('stopping and resuming', () => {
     const destination = new ScratchFolder('Backups');
     const controller = new AbortController();
     let closed = 0;
-    const watched = instrument(destination, { closed: () => { closed += 1; if (closed === 2) controller.abort(); } });
+    const watched = instrument(destination, { closed: (path) => { if (!/^opentunes-offload[^/]*\/F\d\d\//.test(path) && !/^F\d\d\//.test(path)) return; closed += 1; if (closed === 2) controller.abort(); } });
 
     const first = await run(ipod, watched, { concurrency: 1, signal: controller.signal });
     assert.equal(first.stopped, true);

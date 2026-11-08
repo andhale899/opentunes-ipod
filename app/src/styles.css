@@ -2137,3 +2137,28 @@ button.plist[aria-pressed='true'] {
     align-items: center;
   }
 }
+
+/* ---- offload: what you get, and restore everything ---- */
+
+.howto {
+  margin: 0.75rem 0 1rem;
+  padding: 0.75rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--info-bg);
+  max-width: 46rem;
+}
+
+.howto h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.howto ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.howto li + li {
+  margin-top: 0.35rem;
+}
