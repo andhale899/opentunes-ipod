@@ -82,14 +82,14 @@ const SCENARIOS = [
     name: 'a demo iPod with one of each kind (library tab)',
     url: `http://localhost:${port}/?demo=1`,
     expected: ['Demo iPod', '5 tracks, 3 playlists', 'Morning Light', 'Episode 12: Engines', 'A Short Story', 'Demo Film', 'Road trip', 'Audiobook', 'Podcast', 'Demo data'],
-    forbidden: ['Signature on', 'Back up the database files', 'Add music'],
+    forbidden: ['Signature on', "Back up the iPod's library", 'Add music'],
     alert: false,
   },
   {
     name: 'a demo iPod, diagnostics tab',
     url: `http://localhost:${port}/?demo=1&tab=diagnostics`,
     expected: ['Device details', 'Files read from the iPod', 'Run the test (nothing is written)', 'Copy iPod report'],
-    forbidden: ['Signature on', 'Back up the database files'],
+    forbidden: ['Signature on', "Back up the iPod's library"],
     alert: false,
   },
   {
@@ -172,7 +172,7 @@ const SCENARIOS = [
       async drive(page) {
         await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
-        await page.waitFor('Back up the database files');
+        await page.waitFor("Back up the iPod's library");
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.click('Add music');
@@ -294,7 +294,7 @@ const SCENARIOS = [
           };
         })()`);
         await page.click('Backup');
-        await page.waitFor('Back up the database files');
+        await page.waitFor("Back up the iPod's library");
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.click('Add music');
@@ -404,7 +404,7 @@ const SCENARIOS = [
           };
         })()`);
         await page.click('Backup');
-        await page.waitFor('Back up the database files');
+        await page.waitFor("Back up the iPod's library");
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.click('Assistant');
@@ -482,7 +482,7 @@ const SCENARIOS = [
         const clickTab = (name) => page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.trim().startsWith(${JSON.stringify(name)})).click()`);
         await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
-        await page.waitFor('Back up the database files');
+        await page.waitFor("Back up the iPod's library");
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await clickTab('Library');
@@ -600,7 +600,7 @@ const SCENARIOS = [
           };
         })()`);
         await page.click('Backup');
-        await page.waitFor('Back up the database files');
+        await page.waitFor("Back up the iPod's library");
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
 
@@ -709,7 +709,7 @@ const SCENARIOS = [
         const visibleButton = (text) => page.evaluate(`[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === ${JSON.stringify(text)} && b.offsetParent !== null)`);
         await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
-        await page.waitFor('Back up the database files');
+        await page.waitFor("Back up the iPod's library");
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         // Files picked in Add music survive a visit to another tab.
@@ -718,7 +718,7 @@ const SCENARIOS = [
         await page.chooseFiles([TONE_COPY]);
         await page.waitFor('1 of 1 can be added');
         await page.click('Backup');
-        await page.waitFor('Back up the database files');
+        await page.waitFor("Back up the iPod's library");
         await page.click('Add music');
         await page.waitFor('1 of 1 can be added');
         // The tab list is a proper tab list: one tab stop, panels named by their tabs.
@@ -767,7 +767,7 @@ const SCENARIOS = [
         const leaveAsks = () => page.evaluate(`(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })()`);
         await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
-        await page.waitFor('Back up the database files');
+        await page.waitFor("Back up the iPod's library");
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.click('Add music');
@@ -986,11 +986,11 @@ const SCENARIOS = [
         await page.waitFor('Practice iPod, held in memory');
         // The backup of the current state, which Restore everything needs.
         await page.click('Backup');
-        await page.waitFor('Back up the database files');
+        await page.waitFor("Back up the iPod's library");
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.waitFor('What you get and how to use it');
-        await page.waitFor('Restore everything from an offload folder');
+        await page.waitFor('Restore everything from a full copy');
         await page.evaluate(`(() => {
           const directory = (name) => ({
             kind: 'directory', name, children: new Map(),
@@ -1050,9 +1050,9 @@ const SCENARIOS = [
 
         // Put everything back from the offload folder, picked through the same fake picker.
         await page.click('Backup');
-        await page.waitFor('Restore everything from an offload folder');
+        await page.waitFor('Restore everything from a full copy');
         await page.evaluate(`window.showDirectoryPicker = async () => [...window.__restoreDestination.children.values()].find((entry) => entry.kind === 'directory')`);
-        await page.click('Choose an offload folder');
+        await page.click('Choose a full-copy folder');
         await page.waitFor('holds 5 media files');
         await page.waitFor('4 of the media files are already on this iPod');
         await page.waitFor('This replaces the iPod\'s library');
@@ -1171,7 +1171,7 @@ const SCENARIOS = [
         await page.waitFor('Practice iPod, held in memory');
         await page.waitFor('Last read from the iPod:');
         await page.click('Backup');
-        await page.waitFor('Back up the database files');
+        await page.waitFor("Back up the iPod's library");
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
@@ -1222,7 +1222,7 @@ const SCENARIOS = [
         };
         await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
-        await page.waitFor('Back up the database files');
+        await page.waitFor("Back up the iPod's library");
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.evaluate(`(() => {
@@ -1308,7 +1308,7 @@ const SCENARIOS = [
             async drive(page) {
               await page.waitFor('Choose another iPod');
               await page.click('Backup');
-              await page.waitFor('Back up the database files');
+              await page.waitFor("Back up the iPod's library");
               await page.click('Choose where to keep the backup');
               await page.waitFor('Every file was read back and matched');
               await page.click('Add music');

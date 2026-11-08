@@ -90,6 +90,7 @@
 - "Ask AI to review" in Find duplicates (opt-in, same key, provider and opt-in as the Assistant tab). Sends only the candidate groups (short ids, kind, title, artist, album, year, length, bitrate) and, for fuzzy candidates, the similar pairs. The new `review_duplicates` tool is checked by a hand-written validator that drops unknown ids and anything else and reports it. "Apply the AI's verdicts" only changes tick boxes. Tested with a fake `fetch` (unit tests and headless Chrome). Not tried against a real model.
 
 ### Changed
+- The Backup tab is in the order a person needs things: 1. Protect the iPod before you change it (the required backup, then the optional full copy), 2. Put things back if something goes wrong (restore from a backup, restore everything from a full copy). Each step has a heading and one sentence, the long explanation of a full copy is folded under "What you get and how to use it", and the names are backup, full copy (also called offload) and restore.
 - Backup and Offload are one tab, with a short note on the difference (a backup saves only the library files, an offload copies everything). A saved link to the old Offload tab still lands there.
 - The device card no longer squeezes the iPod's name into one letter per line while a job runs: its buttons and notes sit on their own row.
 - The wording no longer calls the iPod "classic" (that is a different model). The stylesheet merge had cut a rule in half and left the organiser and phone styles nested inside it, which is repaired.

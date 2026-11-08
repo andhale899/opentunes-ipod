@@ -118,7 +118,7 @@ describe('what an offload folder now holds', () => {
 
     const readme = new TextDecoder().decode(all.get('README.txt'));
     assert.match(readme, /START HERE to browse/);
-    assert.match(readme, /Restore everything from an offload folder/);
+    assert.match(readme, /Restore everything from a full copy/);
     assert.match(readme, /Keep this folder private/);
     assert.match(readme, /database\//);
     assert.match(readme, /not the same/);

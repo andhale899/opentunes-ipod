@@ -344,7 +344,7 @@ if you like. Files bought with copy protection (.m4p) are copied as they are and
 Putting everything back on an iPod
   1. Open OpenTunes in Chrome on a computer, connect the iPod and choose its top folder.
   2. Make a backup of the iPod as it is now (Backup tab). OpenTunes will not put anything back without one.
-  3. In the Backup tab, under "Restore everything from an offload folder", choose this folder.
+  3. In the Backup tab, under "Restore everything from a full copy", choose this folder.
   4. OpenTunes copies back every media file the iPod is missing, checks each, and only then puts the saved
      library back, so the library never lists a file that is not on the iPod. The iPod's library is replaced
      by the one saved here. Nothing is deleted from the iPod, and a file that is already there is not touched.

@@ -2573,3 +2573,33 @@ fieldset.write-lock:disabled {
     text-align: right;
   }
 }
+
+/* ---- backup tab ---- */
+
+.step-group {
+  margin: 0 0 2rem;
+}
+
+.step-group > .section-title {
+  margin-top: 0.25rem;
+}
+
+.section-lead {
+  margin: 0.15rem 0 1rem;
+  color: var(--muted);
+  max-width: 46rem;
+}
+
+.howto-details {
+  margin: 0.5rem 0 0.75rem;
+}
+
+.howto-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.howto-details > .howto {
+  margin-top: 0.5rem;
+}
