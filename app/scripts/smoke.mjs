@@ -882,6 +882,198 @@ const SCENARIOS = [
     forbidden: [],
     alert: false,
   },
+  {
+    // A change that never finished: the app writes a note in the browser when a write starts. Here the
+    // note is planted the way the app writes it (IndexedDB, database "opentunes", store "kv"), then the
+    // page is reloaded, as if the tab had been closed mid-write. The banner must appear, Dismiss must
+    // clear it for good, and the log must still hold what came before the reload.
+    name: 'a change that never finished: the note left in the browser shows a banner after a reload, and Dismiss clears it',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        const run = async (expression) => (await page.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result?.result?.value;
+        await page.waitFor('Practice iPod, held in memory');
+        check(!String(await page.evaluate('document.body.innerText')).includes('did not finish'), 'A banner showed before any note existed.');
+        await run(`new Promise((resolve, reject) => {
+          const open = indexedDB.open('opentunes', 1);
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const tx = open.result.transaction('kv', 'readwrite');
+            tx.objectStore('kv').put({ version: 1, operation: 'Saving changes to the iPod', startedAt: Date.now() - 60000, ipod: 'MY IPOD', backup: 'opentunes-backup-2026-11-07-1200', status: 'running', practice: false }, 'write-journal');
+            tx.oncomplete = () => resolve(true);
+          };
+        })`);
+        await page.send('Page.reload');
+        await page.waitFor('The last change to the iPod did not finish (it was saving changes to the iPod at');
+        await page.waitFor('look at the Diagnostics tab');
+        await page.waitFor('restore your backup');
+        await page.waitFor('opentunes-backup-2026-11-07-1200');
+        await page.waitFor('Take me to Backup');
+        // The log kept the earlier page's lines, and says the note was found.
+        await page.evaluate("document.querySelector('.log-button').click()");
+        await page.waitFor('A change to the iPod was found that never finished');
+        await page.waitFor('before the reload');
+        await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await page.click('Dismiss');
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        check(!String(await page.evaluate('document.body.innerText')).includes('did not finish (it was'), 'Dismiss did not hide the banner.');
+        await page.send('Page.reload');
+        await page.waitFor('Practice iPod, held in memory');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        check(!String(await page.evaluate('document.body.innerText')).includes('did not finish (it was'), 'The banner came back after Dismiss and a reload.');
+      },
+    },
+    expected: ['Practice iPod, held in memory'],
+    forbidden: ['did not finish (it was'],
+    alert: false,
+  },
+  {
+    // Two changes at once, and a change made behind the page's back. Two clicks on Save in the same
+    // moment: one write runs, the second is refused with a plain message. Then the practice iPod is
+    // changed outside the page (as iTunes would) and Reload from the iPod must notice, reset the
+    // screens and stop counting the old backup.
+    name: 'the write lock refuses a second write, and Reload from the iPod picks up a change made behind the back',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        const run = async (expression) => (await page.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result?.result?.value;
+        await page.waitFor('Practice iPod, held in memory');
+        await page.waitFor('Last read from the iPod:');
+        await page.click('Backup');
+        await page.waitFor('Back up the database files');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
+        await page.waitFor('Your library');
+        await page.evaluate(`document.querySelector('input[aria-label="Select Morning Light"]').click()`);
+        await page.waitFor('Edit this track');
+        await page.evaluate(`(() => { const box = document.querySelector('h4 + label input'); box.value = 'Morning Light (twice)'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        // Two clicks in the same moment.
+        await page.evaluate(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Save changes to the iPod'); b.click(); b.click(); })()`);
+        await page.waitFor('Saved.', 90_000);
+        const titles = String(await page.evaluate(`[...document.querySelectorAll('td.cell-title')].map((cell) => cell.textContent.trim()).join('|')`));
+        check(titles.split('Morning Light (twice)').length === 2, 'The edit should be on the iPod once: ' + titles);
+        await page.evaluate("document.querySelector('.log-button').click()");
+        await page.waitFor('Another change to the iPod is already running');
+        await page.waitFor('Finished: Saving changes to the iPod');
+        await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        // A change made outside the page: the first track is removed through the engine, without telling the page.
+        check((await run(`window.__opentunesPractice.removeFirstTrackBehindTheBack()`)) === 1, 'The change behind the back did not work.');
+        await page.waitFor('Backup made');
+        await page.click('Reload from the iPod');
+        await page.waitFor('The iPod changed since it was last read');
+        await page.waitFor('4 tracks');
+        await page.waitFor('No backup yet');
+        await page.waitFor('earlier backup no longer matches');
+        // A second reload with nothing changed says so, and keeps the screens.
+        await page.click('Reload from the iPod');
+        await page.waitFor('Nothing had changed');
+      },
+    },
+    expected: ['Last read from the iPod:', '4 tracks'],
+    forbidden: ['The iPod is being changed'],
+    alert: false,
+  },
+  {
+    // The Logs button: an entry for something that just ran, Copy log, Download log, Errors only, and
+    // Escape closing the drawer with focus back on the button. Clipboard and download are stood in for
+    // so the test can read what would have been copied and saved.
+    name: 'the Logs button shows what ran, copies and downloads it, and Escape closes it',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        await page.waitFor('Practice iPod, held in memory');
+        await page.click('Backup');
+        await page.waitFor('Back up the database files');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        await page.evaluate(`(() => {
+          window.__copied = null; window.__saved = null;
+          Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => { window.__copied = text; } } });
+          const create = URL.createObjectURL.bind(URL);
+          URL.createObjectURL = (blob) => { blob.text().then((text) => { window.__saved = text; }); return create(blob); };
+        })()`);
+        check((await page.evaluate(`document.querySelector('.log-button').getBoundingClientRect().height >= 44`)) === true, 'The Logs button is smaller than 44 px.');
+        await page.evaluate("document.querySelector('.log-button').click()");
+        await page.waitFor('This log stays in your browser. It may contain file names, so look through it before you share it.');
+        await page.waitFor('Finished: Backing up the iPod');
+        await page.waitFor('Started: Backing up the iPod');
+        await page.click('Copy log');
+        await page.waitFor('Copied.');
+        check(String(await page.evaluate('window.__copied')).includes('Finished: Backing up the iPod'), 'Copy log did not copy the entries.');
+        await page.click('Download log (.txt)');
+        await page.waitFor('Downloaded.');
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        check(String(await page.evaluate('window.__saved')).includes('Finished: Backing up the iPod'), 'Download log did not save the entries.');
+        // No private data in what was copied.
+        check(!/000A27|000A95/i.test(String(await page.evaluate('window.__copied'))), 'The log holds an ID.');
+        await page.evaluate(`document.querySelector('.log-tools input[type=checkbox]').click()`);
+        await page.waitFor('No errors.');
+        await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        check((await page.evaluate(`Boolean(document.querySelector('.log-panel'))`)) === false, 'Escape did not close the log.');
+        check((await page.evaluate(`document.activeElement && document.activeElement.classList.contains('log-button')`)) === true, 'Focus did not return to the Logs button.');
+      },
+    },
+    expected: ['Logs'],
+    forbidden: [],
+    alert: false,
+  },
+  {
+    // Reconnect after a reload. A folder handle (here a folder in the browser's private storage, which
+    // is a real FileSystemDirectoryHandle) is kept the way the app keeps the iPod's, the page is
+    // reloaded, and the landing page must offer Reconnect with its name. Using it asks for permission
+    // and reads the folder: this one is not an iPod, so the plain "no iPod_Control folder" message shows.
+    name: 'Reconnect is offered for the folder used last time, after a reload',
+    url: `http://localhost:${port}/`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const run = async (expression) => (await page.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result?.result?.value;
+        await page.waitFor('Choose iPod folder');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await run(`(async () => {
+          const root = await navigator.storage.getDirectory();
+          const folder = await root.getDirectoryHandle('smoke-ipod-folder', { create: true });
+          await new Promise((resolve, reject) => {
+            const open = indexedDB.open('opentunes', 1);
+            open.onerror = () => reject(open.error);
+            open.onsuccess = () => {
+              const tx = open.result.transaction('kv', 'readwrite');
+              tx.objectStore('kv').put({ name: 'smoke-ipod-folder', handle: folder, savedAt: Date.now() }, 'ipod-handle');
+              tx.oncomplete = resolve;
+              tx.onerror = () => reject(tx.error);
+            };
+          });
+          return true;
+        })()`);
+        await page.send('Page.reload');
+        await page.waitFor('Reconnect smoke-ipod-folder');
+        await page.waitFor('Chrome forgets the permission when the page reloads');
+        await page.click('Reconnect smoke-ipod-folder');
+        await page.waitFor('has no iPod_Control folder');
+      },
+    },
+    expected: ['Reconnect smoke-ipod-folder', 'has no iPod_Control folder'],
+    forbidden: [],
+    alert: true,
+  },
   ...(REAL_MEDIA
     ? [
         {

@@ -3,6 +3,7 @@ import { formatBytes } from '@opentunes/core';
 import { ScratchFolder, type BackupReport, type DirectoryEntry, type WritableDirectory } from '@opentunes/engine';
 import { backupIpod } from './tracked';
 import { describeError } from './describeError';
+import { logError, logOk } from './log';
 
 type State =
   | { phase: 'idle' }
@@ -16,7 +17,7 @@ type Picker = (options?: { mode?: 'read' | 'readwrite' }) => Promise<unknown>;
  * Copies the iPod's database files to a folder on the computer, and checks the copy. This is
  * the safety net before anything is written to the iPod. It only reads the iPod.
  */
-export function BackupPanel({ source, onDone, inMemory = false }: { source: DirectoryEntry; onDone?: (report: BackupReport) => void; /** Keep the backup in memory, for the practice iPod. */ inMemory?: boolean }) {
+export function BackupPanel({ source, onDone, inMemory = false }: { source: DirectoryEntry; onDone?: (report: BackupReport, destination?: WritableDirectory) => void; /** Keep the backup in memory, for the practice iPod. */ inMemory?: boolean }) {
   const [state, setState] = useState<State>({ phase: 'idle' });
 
   async function run() {
@@ -38,7 +39,9 @@ export function BackupPanel({ source, onDone, inMemory = false }: { source: Dire
       const folder = destination as WritableDirectory;
       const report = await backupIpod(source, folder, { onProgress: (message) => setState({ phase: 'working', message }) });
       setState({ phase: 'done', report, into: folder.name });
-      onDone?.(report);
+      if (report.complete) logOk('backup', `Backup complete: ${report.files} files in the folder "${report.folder}".`);
+      else logError('backup', `The backup in "${report.folder}" is not complete.`);
+      onDone?.(report, inMemory ? undefined : folder);
     } catch (error) {
       setState({ phase: 'error', message: describeError(error) });
     }

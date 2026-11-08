@@ -5,6 +5,12 @@
  */
 import * as engine from '@opentunes/engine';
 import { startActivity, type Progress } from './activity';
+import { checkEarlierBackup } from './backupReuse';
+import { describeError } from './describeError';
+import { plainFailure } from './friendlyError';
+import { beginWriteNote, endWriteNote, type WriteOutcome } from './journal';
+import { logError } from './log';
+import { beginRead, beginWrite, takeTabLock, type LocksLike } from './writeLock';
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype;
@@ -50,9 +56,83 @@ export function progressOf(progress: unknown): Progress | undefined {
   return phase in SYNC_PHASES ? { fraction: SYNC_PHASES[phase] } : undefined;
 };
 
+/** What a finished write says about the iPod: fine, failed and fully undone, or in a state to check. */
+export interface WriteVerdict {
+  outcome: WriteOutcome;
+  /** True when the change worked and was read back. */
+  ok: boolean;
+  /** One plain line for the bar when it did not work. */
+  detail?: string;
+  /** The same, for the note kept in the browser. */
+  note?: string;
+}
+
+interface ReportLike {
+  verified?: unknown;
+  rolledBack?: unknown;
+  rollbackFailures?: unknown;
+  restoreNeeded?: unknown;
+  failures?: unknown;
+}
+
+const reportIn = (result: unknown): ReportLike | null => {
+  if (typeof result !== 'object' || result === null) return null;
+  const direct = result as ReportLike & { report?: unknown };
+  if (typeof direct.verified === 'boolean') return direct;
+  const inner = direct.report as ReportLike | undefined;
+  return inner && typeof inner === 'object' && typeof inner.verified === 'boolean' ? inner : null;
+};
+
+const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((line): line is string => typeof line === 'string') : []);
+
+/**
+ * Reads the report an engine write returns. The engine reports a write that did not work (and was
+ * rolled back) instead of throwing, so without this the bar would say "Done" for it.
+ */
+export function judgeWrite(result: unknown): WriteVerdict {
+  const report = reportIn(result);
+  if (!report) return { outcome: 'clean', ok: true };
+  const failures = strings(report.failures);
+  const rollbackFailures = strings(report.rollbackFailures);
+  if (report.verified === true) {
+    return failures.length || report.rolledBack === true ? { outcome: 'clean', ok: false, detail: failures[0] } : { outcome: 'clean', ok: true };
+  }
+  const first = failures[0] ?? 'The iPod could not be read back as expected.';
+  const undone = report.rolledBack === true && rollbackFailures.length === 0 && report.restoreNeeded !== true;
+  if (undone) return { outcome: 'undone', ok: false, detail: first };
+  return {
+    outcome: 'problem',
+    ok: false,
+    detail: first,
+    note: report.rolledBack === true ? 'Some files could not be put back.' : 'It stopped part way.',
+  };
+}
+
+/** Puts Chrome's raw wording in the failure lists of a write's report into plain words, in place. */
+function softenReport(result: unknown): void {
+  const report = reportIn(result);
+  if (!report) return;
+  for (const name of ['failures', 'rollbackFailures'] as const) {
+    const lines = report[name];
+    if (Array.isArray(lines)) lines.forEach((line, index) => typeof line === 'string' && (lines[index] = plainFailure(line)));
+  }
+}
+
+const tabLocks = (): LocksLike | undefined => (typeof navigator === 'undefined' ? undefined : (navigator as unknown as { locks?: LocksLike }).locks);
+
 export function track<A extends unknown[], R>(label: string, writes: boolean, run: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
   return async (...args: A): Promise<R> => {
+    // Taken at once, before anything is awaited, so two clicks in the same moment cannot both get in.
+    let releaseLock: () => void;
+    try {
+      releaseLock = writes ? beginWrite(label) : beginRead(label);
+    } catch (error) {
+      logError('activity', `${label} was not started: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
     const handle = startActivity(label, { writes });
+    let releaseTab: (() => void) | null = null;
+    let progressed = false;
     // The options object is always the last argument. If it carries an onProgress, listen in.
     const last = args[args.length - 1];
     const patched: unknown[] = [...args];
@@ -61,18 +141,38 @@ export function track<A extends unknown[], R>(label: string, writes: boolean, ru
       patched[patched.length - 1] = {
         ...last,
         onProgress: (progress: unknown) => {
+          progressed = true;
           handle.update(messageOf(progress), progressOf(progress));
           original(progress);
         },
       };
     }
+    let noted = false;
     try {
+      if (writes) {
+        releaseTab = await takeTabLock(tabLocks());
+        noted = true;
+        await beginWriteNote(label);
+      }
       const result = await run(...(patched as A));
-      handle.end(true);
+      if (writes) {
+        softenReport(result);
+        const verdict = judgeWrite(result);
+        handle.end(verdict.ok, verdict.detail);
+        await endWriteNote(verdict.outcome, verdict.note);
+      } else {
+        handle.end(true);
+      }
       return result;
     } catch (error) {
-      handle.end(false, error instanceof Error ? error.message : String(error));
+      const message = describeError(error, { writing: writes });
+      handle.end(false, message);
+      // Nothing reported means nothing was written, so a refusal before the first step leaves no note.
+      if (noted) await endWriteNote(progressed ? 'problem' : 'undone', progressed ? `It stopped with an error: ${message}` : undefined);
       throw error;
+    } finally {
+      releaseTab?.();
+      releaseLock();
     }
   };
 }
@@ -93,3 +193,4 @@ export const removeOrphans = track('Deleting leftover files from the iPod', true
 export const backupIpod = track('Backing up the iPod', false, engine.backupIpod);
 export const offloadIpod = track('Copying files off the iPod', false, engine.offloadIpod);
 export const restoreOffload = track('Putting everything back on the iPod', true, engine.restoreOffload);
+export const checkEarlierBackupTracked = track('Checking the earlier backup', false, checkEarlierBackup);

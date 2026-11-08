@@ -1,4 +1,5 @@
-import { ScratchFolder, buildSignedDemoIpod, mediaPathOf, withCoverFormats, type Engine } from '@opentunes/engine';
+import { newEngine } from './engineLoader';
+import { ScratchFolder, applyRemoval, buildSignedDemoIpod, loadIpodFolder, mediaPathOf, planRemoval, trackKey, withCoverFormats, type Engine, type IpodRoot } from '@opentunes/engine';
 
 const ITUNES = 'iPod_Control/iTunes';
 
@@ -48,4 +49,29 @@ export async function buildPracticeIpod(engine: Engine, mount: string): Promise<
     if (path) await writeInto(ipod, path, new TextEncoder().encode(`stand-in for ${track.title}`));
   }
   return ipod;
+}
+
+/**
+ * For the smoke test only, and only for the practice iPod, which lives in memory and is never a real
+ * device. Lets the test make a change "behind the page's back", the way iTunes or another computer
+ * would, to check that Reload from the iPod notices it. Not linked from anywhere in the page.
+ */
+export function exposePracticeForTests(ipod: ScratchFolder): void {
+  (window as unknown as { __opentunesPractice?: unknown }).__opentunesPractice = {
+    root: ipod,
+    /** Removes the first track through the engine directly, without telling the page. */
+    async removeFirstTrackBehindTheBack(): Promise<number> {
+      const engine = await newEngine();
+      const load = await loadIpodFolder(ipod, engine, { mount: '/ipod' });
+      engine.open(load.mount);
+      const first = engine.tracks()[0];
+      if (!first) return 0;
+      const key = trackKey(first);
+      const plan = await planRemoval(ipod as unknown as IpodRoot, newEngine, [key]);
+      const report = await applyRemoval(plan, ipod as unknown as IpodRoot, newEngine, {
+        backup: { folder: 'test', files: 1, bytes: 1, verified: 1, failures: [], left: [], complete: true },
+      });
+      return report.verified ? 1 : 0;
+    },
+  };
 }

@@ -14,7 +14,7 @@ import { presetFor } from './ai/presets';
 import { ModelError, cleanKey, hostOf, keyProblem, listModels, scrub, type ProviderConfig } from './ai/providers';
 import { ProposalPreview } from './ai/ProposalPreview';
 import { browserStorage, forgetKeys, saveSettings, type Settings } from './ai/settings';
-import { initSession, session, type Turn } from './ai/session';
+import { initSession, markTouched, saveDraft, session, type Turn } from './ai/session';
 
 const EXAMPLES = [
   'Fix spelling and casing of artists and albums',
@@ -57,7 +57,13 @@ export function AssistantPanel({
   const bump = () => setTick((tick) => tick + 1);
   const [keyVersion, setKeyVersion] = useState(0);
   const [storageFailed, setStorageFailed] = useState(false);
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPromptState] = useState(() => state.draft);
+  /** The unsent question is kept in the page's memory, so a switch of tab does not lose it. */
+  const setPrompt = (text: string) => {
+    state.draft = text;
+    saveDraft(text);
+    setPromptState(text);
+  };
   const [filter, setFilter] = useState('');
   const [partIndex, setPartIndex] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -201,8 +207,14 @@ export function AssistantPanel({
 
   /** Runs from the Apply button. Chrome's permission prompt must come first, straight from the click. */
   async function apply(turn: Turn) {
-    if (!(await allowWriting(root))) {
-      setStatus('Chrome was not allowed to change the iPod, so nothing was changed.');
+    if (busy) return;
+    try {
+      if (!(await allowWriting(root))) {
+        setStatus('Chrome was not allowed to change the iPod, so nothing was changed.');
+        return;
+      }
+    } catch (error) {
+      updateTurn(turn.id, (previous) => ({ ...previous, applied: { ok: false, message: describeError(error, { writing: true }), lines: [], details: [] } }));
       return;
     }
     const result = turn.result;
@@ -248,7 +260,7 @@ export function AssistantPanel({
       if (ok) message = `Applied ${[chosenEdits.length ? plural(chosenEdits.length, 'edit') : '', chosenPlaylists.length ? plural(chosenPlaylists.length, 'new playlist') : ''].filter(Boolean).join(' and ')}. Each write was read back and checked.`;
     } catch (error) {
       ok = false;
-      message = `Nothing more was changed. ${describeError(error)}`;
+      message = `Nothing more was changed. ${describeError(error, { writing: true })}`;
     }
     updateTurn(turn.id, (previous) => ({ ...previous, applied: { ok, message, lines, details } }));
     setStatus('');
@@ -265,6 +277,11 @@ export function AssistantPanel({
         Ask a language model to tidy tags or build playlists. It can only propose: you see every change first, tick what you want, and what you apply goes through the same backup and read-back checks as the Library tab. This is the one part of OpenTunes that sends anything off this computer, and only if you allow it below.
       </p>
       <BackupGate ready={ready} onGo={onNeedBackup} />
+      {state.afterReload && !state.optIn && !state.turns.length ? (
+        <p class="callout info" role="note">
+          This page was reloaded since you last used the assistant. The permission to send the library, the conversation and the key (unless you ticked Remember) are kept in memory only, so they were cleared. Tick the box and paste the key again to continue.
+        </p>
+      ) : null}
 
       <AssistantSettings
         settings={settings}
@@ -276,6 +293,7 @@ export function AssistantPanel({
         optIn={state.optIn}
         onOptIn={(on) => {
           state.optIn = on;
+          markTouched();
           bump();
         }}
         host={host}

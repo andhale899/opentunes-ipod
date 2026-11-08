@@ -5,6 +5,7 @@ import { restoreBackup } from './tracked';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 import { allowWriting } from './WriteBackPanel';
+import { logError, logOk } from './log';
 
 type State =
   | { phase: 'idle' }
@@ -19,7 +20,7 @@ type Picker = (options?: { mode?: 'read' | 'readwrite' }) => Promise<unknown>;
  * Puts a backup's files back on the iPod, one by one. Every file is checked against its
  * checksum first, so a damaged backup changes nothing. Nothing on the iPod is deleted.
  */
-export function RestorePanel({ root }: { root: DirectoryEntry }) {
+export function RestorePanel({ root, onRestored }: { root: DirectoryEntry; /** Called after a restore, so the library on screen is read again. */ onRestored?: () => void }) {
   const [state, setState] = useState<State>({ phase: 'idle' });
 
   async function choose() {
@@ -57,8 +58,12 @@ export function RestorePanel({ root }: { root: DirectoryEntry }) {
       setState({ phase: 'working', message: 'Restoring...' });
       const report = await restoreBackup(root as unknown as IpodRoot, folder, { newEngine, onProgress: (message) => setState({ phase: 'working', message }) });
       setState({ phase: 'done', report });
+      if (report.verified) logOk('restore', `Restored ${report.restored} files and the iPod reads back.`);
+      else logError('restore', `The restore did not finish cleanly: ${report.failures[0] ?? 'see the list'}`);
+      // The restore changed the iPod's library, so what the page shows must be read again.
+      onRestored?.();
     } catch (error) {
-      setState({ phase: 'error', message: describeError(error) });
+      setState({ phase: 'error', message: describeError(error, { writing: true }) });
     }
   }
 

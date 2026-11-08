@@ -4,6 +4,7 @@ import { type BackupReport, type DirectoryEntry, type IpodRoot, type WriteBackPl
 import { applyWriteBack, planWriteBack } from './tracked';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
+import { allowWriting } from './ipodAccess';
 
 type State =
   | { phase: 'idle' }
@@ -12,13 +13,8 @@ type State =
   | { phase: 'done'; report: WriteBackReport }
   | { phase: 'error'; message: string };
 
-type Permission = { requestPermission?: (descriptor: { mode: 'readwrite' }) => Promise<string> };
-
-/** Asks Chrome to let the page change the iPod. Must run straight from a click. */
-export async function allowWriting(root: DirectoryEntry): Promise<boolean> {
-  const handle = root as unknown as Permission;
-  return !handle.requestPermission || (await handle.requestPermission({ mode: 'readwrite' })) === 'granted';
-}
+// Kept here so the panels that import it from this file keep working.
+export { allowWriting };
 
 /**
  * The first step that changes an iPod: writes the database libgpod rebuilds, with no new songs,

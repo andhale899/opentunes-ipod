@@ -2205,3 +2205,238 @@ button.plist[aria-pressed='true'] {
   overflow-wrap: anywhere;
 }
 /* ---- end of album art ---- */
+
+/* ===== robustness: log viewer, notices, banners, write lock (marked section, keep at the end) ===== */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The fieldset only turns controls off while a change runs. It must not look like a box. */
+fieldset.write-lock {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+fieldset.write-lock:disabled {
+  opacity: 0.7;
+}
+
+.last-read {
+  align-self: center;
+  font-size: 0.85rem;
+}
+
+.reload-note {
+  flex-basis: 100%;
+  margin: 0.5rem 0 0;
+}
+
+.journal-banner .actions,
+.reconnect .actions {
+  margin-top: 0.5rem;
+}
+
+/* Logs button and drawer */
+
+.log-button {
+  position: fixed;
+  right: 0.75rem;
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgb(16 24 40 / 0.18);
+}
+
+.log-button.has-errors {
+  border-color: var(--no);
+}
+
+.log-dot {
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--no);
+  color: #fff;
+  font-size: 0.72rem;
+  line-height: 1.25rem;
+  text-align: center;
+}
+
+.log-panel {
+  position: fixed;
+  right: 0.75rem;
+  bottom: calc(4.25rem + env(safe-area-inset-bottom, 0px));
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  width: min(34rem, calc(100vw - 1.5rem));
+  max-height: min(34rem, 70vh);
+  padding: 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 28px rgb(16 24 40 / 0.28);
+}
+
+.log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.log-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.log-note {
+  margin: 0.35rem 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.log-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.log-tools .check {
+  margin: 0;
+}
+
+.log-list {
+  flex: 1;
+  min-height: 8rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.log-entry,
+.log-empty {
+  display: grid;
+  grid-template-columns: 1.1rem auto 1fr;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.log-empty {
+  display: block;
+  color: var(--muted);
+}
+
+.log-mark {
+  font-weight: 700;
+  text-align: center;
+}
+
+.log-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.log-text {
+  overflow-wrap: anywhere;
+}
+
+.log-ok .log-mark {
+  color: var(--ok);
+}
+
+.log-error {
+  background: var(--no-bg);
+  color: var(--no);
+}
+
+.log-before {
+  opacity: 0.8;
+}
+
+.log-tag {
+  font-style: normal;
+  font-weight: 700;
+}
+
+/* Small notices for errors nobody caught */
+
+.notices {
+  position: fixed;
+  left: 0.75rem;
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  z-index: 29;
+  display: grid;
+  gap: 0.5rem;
+  width: min(30rem, calc(100vw - 6.5rem));
+}
+
+.notice {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--no);
+  border-radius: var(--radius-sm);
+  background: var(--no-bg);
+  color: var(--no);
+  font-size: 0.88rem;
+  box-shadow: 0 2px 8px rgb(16 24 40 / 0.18);
+}
+
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* Phones: the drawer becomes a sheet above the button, the notices sit above the footer. */
+@media (max-width: 34rem) {
+  .log-panel {
+    right: 0.5rem;
+    left: 0.5rem;
+    width: auto;
+    max-height: 65vh;
+  }
+
+  .notices {
+    left: 0.5rem;
+    width: calc(100vw - 5rem);
+  }
+
+  .site-footer {
+    padding-bottom: 4.5rem;
+  }
+}
