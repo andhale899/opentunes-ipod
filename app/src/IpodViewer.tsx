@@ -429,7 +429,7 @@ export function IpodViewer({
           <div>
             <h1>Put your music on an iPod, without iTunes.</h1>
             <p class="lead">
-              OpenTunes reads your iPod, backs it up, then adds music, podcasts, audiobooks and video. It runs in this browser tab. Nothing is uploaded unless you turn the AI assistant on, and nothing is installed.
+              OpenTunes reads your iPod, backs it up, then adds music, podcasts, audiobooks and video. It runs in this browser tab. Nothing is uploaded unless you turn the AI assistant on or use the optional online album art lookup (artist and album names only), and nothing is installed.
             </p>
             <p class="callout info tested-note">
               <strong>Tested on the iPod nano 7th generation only.</strong> Other iPods are supported from published specifications and have never been tried, so treat them as experimental. Always make the backup first.

@@ -36,7 +36,9 @@ Writing the database last means an interrupted sync leaves the iPod with its old
 
 **iPod storage (File System Access).** You pick the iPod's root folder. The app streams files into it rather than holding them in memory.
 
-**Database engine (libgpod as WebAssembly).** libgpod parses and writes the iPod's databases, assigns file paths and sets media types. Album artwork is not built yet. It lives in `engine/` with a C interface of our own and typed bindings, and is built in Docker from pinned sources, see [ENGINE-BUILD.md](ENGINE-BUILD.md).
+**Database engine (libgpod as WebAssembly).** libgpod parses and writes the iPod's databases, assigns file paths and sets media types. It lives in `engine/` with a C interface of our own and typed bindings, and is built in Docker from pinned sources, see [ENGINE-BUILD.md](ENGINE-BUILD.md).
+
+**Album art (`engine/js/artwork.ts`, `app/src/albumArt.ts`, `app/src/artLookup.ts`).** libgpod cannot write artwork here: it needs gdk-pixbuf, and its ArtworkDB differs from the one a nano 7G has, see [ARTWORK-RESEARCH.md](ARTWORK-RESEARCH.md). So the sync writes the four thumbnails (RGB565, 240, 50, 58 and 57 pixels) and the ArtworkDB itself, shaped like the owner's own unit's file, and only marks each track as having art through the engine (`ot_track_set_artwork`), which libgpod then writes into `iTunesCDB` and the SQLite library. The files are written after the media and before the database, each read back, and put back with everything else if a step fails. The ArtworkDB is added to, never rebuilt: what is in it already is left byte for byte as it is. The app takes a cover from inside the file, else `cover.jpg` and its like in the folder, else one found online with the person's approval ([ART-LOOKUP.md](ART-LOOKUP.md)), decodes it with the browser's canvas and hands the pixels over. Photos are not built.
 
 **Backup (`engine/js/backup.ts`).** Copies the iPod's `iTunes`, `Device` and `Artwork` folders and the files directly in `iPod_Control` to a folder the person picks, reads each copy back, and writes a manifest with a SHA-256 per file and a README on how to put them back. It refuses a destination that holds an `iPod_Control` folder. It is the safety net before the first write.
 
@@ -81,4 +83,4 @@ Writing the database last means an interrupted sync leaves the iPod with its old
 - `app/`: the environment check page with its hands-on probes (USB, folder read and write), and the read-only iPod reader, which loads the engine in the browser, copies an iPod's database files into it, checks the signatures on them and shows what it finds. Demo iPods stand in when there is no hardware.
 - `engine/`: a reproducible Docker build of libgpod, a C interface of our own that handles all seven media kinds, playlists and chapters, typed bindings, and tests in Node.
 
-Also built since: offload (copy everything off the iPod), the folder guide and folder-name detection in Add music, and the About page. Not built yet: album artwork and the full library manager. See [ROADMAP.md](ROADMAP.md).
+Also built since: offload (copy everything off the iPod), the folder guide and folder-name detection in Add music, the About page, and album art (written and read back in tests, not yet tried on a real iPod). Not built yet: photos and the full library manager. See [ROADMAP.md](ROADMAP.md).

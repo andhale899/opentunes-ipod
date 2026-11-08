@@ -246,6 +246,119 @@ const SCENARIOS = [
     alert: false,
   },
   {
+    // Album art on a practice iPod: a cover picture in a folder is found and used, a file with no
+    // cover is looked up through a FAKE fetch (window.fetch is replaced, and the browser here resolves
+    // no host except localhost, so nothing can leave the page), the person approves the found cover,
+    // and the art is written and read back. Nothing is sent before the box is ticked and the button
+    // pressed, and only the artist and album names are sent.
+    name: 'album art on a practice iPod (cover.png from a folder, a looked-up cover through a fake fetch, written and read back)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        await page.waitFor('Practice iPod, held in memory');
+        await page.evaluate(`(() => {
+          window.__art = [];
+          const png = async () => {
+            const canvas = new OffscreenCanvas(64, 64);
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#c03030';
+            context.fillRect(0, 0, 64, 64);
+            context.fillStyle = '#3030c0';
+            context.fillRect(16, 16, 32, 32);
+            return new Uint8Array(await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer());
+          };
+          const real = window.fetch.bind(window);
+          window.fetch = async (url, init) => {
+            const address = String(url);
+            // The page's own files (the engine's wasm) still load. Everything else is the fake's.
+            if (new URL(address, location.href).hostname === 'localhost') return real(url, init);
+            window.__art.push({ url: address, method: init && init.method, headers: init && init.headers, credentials: init && init.credentials, body: init && init.body });
+            if (address.startsWith('https://musicbrainz.org/ws/2/release/')) {
+              const query = decodeURIComponent(new URL(address).searchParams.get('query'));
+              const known = query === 'release:"Plain Album" AND artist:"Smoke Band"';
+              return new Response(JSON.stringify({ created: 'x', count: known ? 1 : 0, offset: 0, releases: known ? [{ id: '1834eae1-741b-3c03-9ca5-0df3decb43ea', title: 'Plain Album', score: 100, status: 'Official', date: '2001', 'artist-credit': [{ name: 'Smoke Band' }] }] : [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+            }
+            if (address === 'https://coverartarchive.org/release/1834eae1-741b-3c03-9ca5-0df3decb43ea/front-500') {
+              const response = new Response(await png(), { status: 200, headers: { 'content-type': 'image/png' } });
+              Object.defineProperty(response, 'url', { value: 'https://dn1.ca.archive.org/0/items/mbid-x/cover_thumb500.png' });
+              return response;
+            }
+            throw new Error('The fake fetch was asked for an address it does not know: ' + address);
+          };
+        })()`);
+        await page.click('Backup');
+        await page.waitFor('Back up the database files');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        await page.click('Add music');
+        await page.waitFor('No files chosen yet');
+        await page.evaluate(`(() => {
+          const wav = () => { const b = new Uint8Array(44 + 400); const v = new DataView(b.buffer); const t = (o, x) => [...x].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+            t(0, 'RIFF'); v.setUint32(4, 36 + 400, true); t(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true); v.setUint32(24, 44100, true); v.setUint32(28, 176400, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); t(36, 'data'); v.setUint32(40, 400, true); return b; };
+          const file = (name) => ({ kind: 'file', name, getFile: async () => new File([wav()], name) });
+          const cover = (name) => ({ kind: 'file', name, getFile: async () => {
+            const canvas = new OffscreenCanvas(48, 48);
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#30a030';
+            context.fillRect(0, 0, 48, 48);
+            return new File([await canvas.convertToBlob({ type: 'image/png' })], name);
+          } });
+          const folder = (name, children) => ({ kind: 'directory', name, async *entries() { for (const [childName, child] of Object.entries(children)) yield [childName, child]; } });
+          window.showDirectoryPicker = async () => folder('Music', {
+            'Smoke Band': folder('Smoke Band', {
+              'Covered Album': folder('Covered Album', { 'Cover.PNG': cover('Cover.PNG'), '01 One.wav': file('01 One.wav'), '02 Two.wav': file('02 Two.wav') }),
+              'Plain Album': folder('Plain Album', { '01 Three.wav': file('01 Three.wav') }),
+            }),
+          });
+        })()`);
+        await page.click('Choose a folder');
+        await page.waitFor('3 of 3 can be added');
+        await page.waitFor('Cover: Cover.PNG from its folder');
+        await page.waitFor('Cover: none');
+        // The online step: nothing is sent before the box is ticked and the button pressed.
+        await page.evaluate(`document.querySelector('.art-finder').open = true`);
+        await page.waitFor('1 album has no cover picture');
+        await page.waitFor('What is sent: only the artist and album name of each album');
+        check((await page.evaluate('window.__art.length')) === 0, 'Something was sent before the box was ticked.');
+        check(await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Find covers').disabled`), 'Find covers must be off until the box is ticked.');
+        await page.evaluate(`document.querySelector('.art-finder input[type=checkbox]').click()`);
+        check((await page.evaluate('window.__art.length')) === 0, 'Something was sent when the box was ticked, before the button.');
+        await page.click('Find covers');
+        await page.waitFor('Found 1 of 1', 30_000);
+        await page.waitFor('freely accessible, to be used at your own risk');
+        await page.waitFor('Use the ticked covers (1)');
+        // Only the names went out: one search and one picture request, GET, no body, no cookies.
+        const sent = JSON.parse(await page.evaluate('JSON.stringify(window.__art)'));
+        check(sent.length === 2, 'Expected two requests, got ' + sent.length + ': ' + JSON.stringify(sent.map((call) => call.url)));
+        check(sent[0].url.startsWith('https://musicbrainz.org/ws/2/release/?query=') && sent[0].url.includes('fmt=json'), 'The search address is wrong: ' + sent[0].url);
+        check(sent[1].url === 'https://coverartarchive.org/release/1834eae1-741b-3c03-9ca5-0df3decb43ea/front-500', 'The picture address is wrong: ' + sent[1].url);
+        check(sent.every((call) => call.method === 'GET' && call.credentials === 'omit' && call.body === undefined), 'A request was not a plain GET without cookies or a body.');
+        check(!JSON.stringify(sent).match(/wav|One|Two|Three|Covered|iPod/), 'A request carried something besides the artist and album names: ' + JSON.stringify(sent));
+        // Nothing is added until it is approved.
+        check(!(await page.evaluate('document.body.textContent.includes("found online")')), 'The cover was used before it was approved.');
+        await page.click('Use the ticked covers (1)');
+        await page.waitFor('Covers chosen for 1 album');
+        await page.waitFor('Cover: found online (you approved it)');
+        await page.click('Convert and check');
+        await page.waitFor('Ready to copy 3 files', 90_000);
+        const planText = await page.evaluate('document.body.textContent');
+        check(planText.includes('Add album art to 3 tracks: 2 pictures'), 'The plan does not list the album art: ' + planText.slice(planText.indexOf('Ready to copy'), planText.indexOf('Ready to copy') + 600));
+        await page.click('Put on the iPod');
+        await page.waitFor('Copied 3 files and checked the iPod by reading it back', 90_000);
+        await page.waitFor('Album art was written for 3 tracks (2 pictures) and read back');
+        await page.waitFor('8 tracks');
+      },
+    },
+    expected: ['Album art was written for 3 tracks (2 pictures) and read back', '8 tracks'],
+    forbidden: ['did not finish', 'could not be put back', 'The fake fetch was asked'],
+    alert: false,
+  },
+  {
     // The AI assistant with a FAKE model: window.fetch is replaced, so nothing leaves the page
     // (the browser here resolves no host except localhost). It checks that nothing is sent before
     // the opt-in, what is sent after it, that the preview shows before and after, that one edit

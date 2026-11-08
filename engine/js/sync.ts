@@ -20,9 +20,11 @@
  *   already right, and `findOrphans` finds such files later.
  *
  * Where it writes: database files only under iPod_Control/iTunes and iPod_Control/Device, media
- * only directly inside iPod_Control/Music/Fxx. It never overwrites a file it did not create in
- * this run, and the only files it deletes are ones it created in this run, files of tracks it
- * removed from the library, and left-over files the person chose after a fresh check.
+ * only directly inside iPod_Control/Music/Fxx, and album art only in iPod_Control/Artwork (the
+ * ArtworkDB and the four F10xx_1.ithmb files, added to and put back as they were on a failure).
+ * It never overwrites a media file it did not create in this run, and the only files it deletes
+ * are ones it created in this run, files of tracks it removed from the library, and left-over
+ * files the person chose after a fresh check.
  *
  * libgpod picks a new file's name at random in one of the Music/Fxx folders, and checks its own
  * in-memory copy of that folder for a clash. That copy starts empty, so planning lists the real
@@ -30,10 +32,30 @@
  * name it picks against the real listing again. Applying checks once more before creating the
  * file, and refuses to write over anything.
  *
- * Album art is not written: this engine build cannot write artwork yet.
+ * Album art (artwork.ts) is written only when the caller passes `artwork.decode`, and only for
+ * tracks whose file carries a cover. The thumbnails and the ArtworkDB are written after the media
+ * and before the database, each read back, and put back with everything else on a failure. The
+ * track's art id and flags go into the database through the engine. A cover that cannot be used
+ * (a picture that will not decode, an ArtworkDB this code does not understand, the iPod's file
+ * size limit) is left off with a warning, and the sync goes on without it.
  */
 
 import { NUMBER_FIELDS, TEXT_FIELDS, type Engine, type Kind, type PlaylistInfo, type TrackFields, type TrackInfo } from './engine.ts';
+import {
+  ARTWORK_FILE_PATH,
+  ArtworkError,
+  artworkChangedSince,
+  coverSupport,
+  planArtwork,
+  readArtworkOnIpod,
+  renderCover,
+  verifyArtwork,
+  writeArtwork,
+  type ArtworkPlan,
+  type CoverRequest,
+  type PlannedImage,
+  type RgbaImage,
+} from './artwork.ts';
 import { isClutter, isNotNeeded, loadIpodFolder, type DirectoryEntry, type FileLike } from './folder.ts';
 import type { BackupReport } from './backup.ts';
 import { compareLibraries } from './rewrite.ts';
@@ -645,6 +667,19 @@ export interface SyncPlan extends LibraryPlan {
   bytesToCopy: number;
   /** Where each file is read from, by item id. */
   sources: Map<string, SyncData>;
+  /** The album art to write, or null when there is none to write. */
+  artwork: ArtworkPlan | null;
+  /** Which image each item with art gets: item id and the image's id in the ArtworkDB. */
+  artworkLinks: { itemId: string; imageId: number }[];
+}
+
+/** What planning needs to put album art on the iPod. Without it, covers are left off. */
+export interface SyncArtworkOptions {
+  /**
+   * Turns a cover picture (JPEG, PNG or whatever the browser reads) into pixels. The app does it
+   * with a canvas. Return null for a picture it cannot read: that cover is left off.
+   */
+  decode: (picture: { mime: string; data: Uint8Array }) => Promise<RgbaImage | null>;
 }
 
 export interface SyncPlanOptions extends LibraryPlanOptions {
@@ -652,6 +687,104 @@ export interface SyncPlanOptions extends LibraryPlanOptions {
   capacityBytes?: number;
   /** What to do with an item that is already on the iPod. Skipped unless told otherwise. */
   duplicates?: 'skip' | 'allow';
+  /** Album art. Covers are written only when this is given. */
+  artwork?: SyncArtworkOptions;
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes)));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+interface ArtworkEntry {
+  item: SyncItem;
+  handle: number;
+}
+
+/**
+ * Works out the album art for the new tracks: one image for each distinct picture (tracks with the
+ * same cover share it), thumbnails in the four formats, and where they go in the iPod's files.
+ * Anything that stops art from being written comes back as a warning and no plan, never as a failure:
+ * the music still goes on.
+ */
+async function planAlbumArt(
+  root: IpodRoot,
+  session: Session,
+  entries: ArtworkEntry[],
+  decode: SyncArtworkOptions['decode'],
+  warnings: string[],
+  onProgress?: (message: string) => void,
+): Promise<{ plan: ArtworkPlan; links: { itemId: string; handle: number; image: PlannedImage; sourceSize: number }[] } | null> {
+  const { engine, mount } = session;
+  if (!engine.canLinkArtwork) {
+    warnings.push(`${entries.length} of the files carry album art, which was left off: this engine build predates album art. Build the engine again.`);
+    return null;
+  }
+  const sysInfoPath = `${mount}/iPod_Control/Device/SysInfoExtended`;
+  const support = coverSupport(engine.fs.analyzePath(sysInfoPath).exists ? new TextDecoder().decode(engine.fs.readFile(sysInfoPath)) : null);
+  if (!support.ok) {
+    warnings.push(`${entries.length} of the files carry album art, which was left off: ${support.reason}`);
+    return null;
+  }
+
+  // The same picture on several tracks is one image, as iTunes does with an album's cover.
+  const dbids = new Map(engine.tracks().map((track) => [track.handle, track.dbid]));
+  const groups = new Map<string, ArtworkEntry[]>();
+  for (const entry of entries) {
+    const picture = entry.item.info.artwork as { mime: string; data: Uint8Array };
+    const key = await sha256Hex(picture.data);
+    groups.set(key, [...(groups.get(key) ?? []), entry]);
+  }
+
+  onProgress?.('Preparing the album art...');
+  const covers: CoverRequest[] = [];
+  const members = new Map<string, ArtworkEntry[]>();
+  for (const [key, group] of groups) {
+    const first = group[0] as ArtworkEntry;
+    const picture = first.item.info.artwork as { mime: string; data: Uint8Array };
+    const dbid = dbids.get(first.handle);
+    if (!dbid) {
+      warnings.push(`The album art of "${labelOf(first.item)}" was left off: the engine did not give the new track an id.`);
+      continue;
+    }
+    try {
+      const image = await decode(picture);
+      if (!image) {
+        warnings.push(`The cover of "${labelOf(first.item)}" could not be read as a picture, so it was left off.`);
+        continue;
+      }
+      covers.push({ key, songId: BigInt(dbid), trackCount: group.length, sourceSize: picture.data.length, thumbnails: renderCover(image) });
+      members.set(key, group);
+    } catch (error) {
+      warnings.push(`The cover of "${labelOf(first.item)}" was left off: ${messageOf(error)}`);
+    }
+  }
+  if (!covers.length) return null;
+
+  let plan: ArtworkPlan;
+  try {
+    plan = planArtwork(await readArtworkOnIpod(root), covers, support.maxThumbFileBytes);
+  } catch (error) {
+    if (!(error instanceof ArtworkError)) throw error;
+    warnings.push(`Album art was left off: ${error.message}`);
+    return null;
+  }
+  for (const gone of plan.left) {
+    const group = members.get(gone.key) as ArtworkEntry[];
+    warnings.push(`The cover of "${labelOf((group[0] as ArtworkEntry).item)}"${group.length > 1 ? ` and ${group.length - 1} more` : ''} was left off: ${gone.reason}`);
+  }
+  if (plan.createsDatabase && plan.images.length) {
+    warnings.push('This iPod has no ArtworkDB, so a new one is made. Only an iPod that already holds one has been compared with a real file.');
+  }
+  if (!plan.images.length) return null;
+
+  const links: { itemId: string; handle: number; image: PlannedImage; sourceSize: number }[] = [];
+  for (const image of plan.images) {
+    for (const entry of members.get(image.key) as ArtworkEntry[]) {
+      links.push({ itemId: entry.item.id, handle: entry.handle, image, sourceSize: (entry.item.info.artwork as { data: Uint8Array }).data.length });
+    }
+  }
+  return { plan, links };
 }
 
 /** How many times to ask libgpod for a name before giving up. A clash is rare, so this is plenty. */
@@ -769,13 +902,13 @@ export async function planSync(root: IpodRoot, newEngine: () => Promise<Engine>,
   } else if (accepted.length) {
     warnings.push("The iPod's free space was not checked, because its size was not given. If it fills up during the copy, everything this sync did is undone.");
   }
-  const withArt = accepted.filter((entry) => entry.item.info.artwork).length;
-  if (withArt) warnings.push(`${withArt} of the files carry album art, which is not put on the iPod yet: this engine build cannot write artwork.`);
-
   const summary: string[] = [];
+  const handles = new Map<string, number>();
   const files: PlannedFile[] = [];
   const sources = new Map<string, SyncData>();
   const playlistUse = new Map<string, { name: string; created: boolean; itemIds: string[] }>();
+  let artwork: ArtworkPlan | null = null;
+  let artworkLinks: { itemId: string; imageId: number }[] = [];
 
   if (accepted.length) {
     options.onProgress?.('Adding the new tracks in memory...');
@@ -793,6 +926,7 @@ export async function planSync(root: IpodRoot, newEngine: () => Promise<Engine>,
         if (error instanceof SyncError) throw error;
         throw new SyncError(`"${labelOf(item)}" could not be added to the library, so nothing was planned: ${messageOf(error)}`);
       }
+      handles.set(item.id, handle);
       const relative = destination.slice(mount.length + 1);
       files.push({
         itemId: item.id,
@@ -843,6 +977,23 @@ export async function planSync(root: IpodRoot, newEngine: () => Promise<Engine>,
     }
     summary.push(`Add ${files.length} ${files.length === 1 ? 'track' : 'tracks'}, ${formatBytes(newBytes)} of media.`);
     for (const use of playlistUse.values()) summary.push(`${use.created ? 'Create the playlist' : 'Add to the playlist'} "${use.name}" (${use.itemIds.length}).`);
+
+    const withArt = accepted.filter((entry) => entry.item.info.artwork);
+    if (withArt.length && !options.artwork) {
+      warnings.push(`${withArt.length} of the files carry album art, which is not written because this sync was not asked to.`);
+    } else if (withArt.length && options.artwork) {
+      const planned = await planAlbumArt(root, session, withArt.map((entry) => ({ item: entry.item, handle: handles.get(entry.item.id) as number })), options.artwork.decode, warnings, options.onProgress);
+      if (planned) {
+        try {
+          for (const link of planned.links) engine.setArtwork(link.handle, link.image.id, link.sourceSize);
+        } catch (error) {
+          throw new SyncError(`The engine could not link album art to a new track, so nothing was planned: ${messageOf(error)}`);
+        }
+        artwork = planned.plan;
+        artworkLinks = planned.links.map((link) => ({ itemId: link.itemId, imageId: link.image.id }));
+        summary.push(`Add album art to ${planned.links.length} ${planned.links.length === 1 ? 'track' : 'tracks'}: ${planned.plan.images.length} ${planned.plan.images.length === 1 ? 'picture' : 'pictures'}, ${formatBytes(planned.plan.thumbFiles.reduce((sum, file) => sum + file.append.length, 0))} of thumbnails.`);
+      }
+    }
   }
 
   let library: LibraryPlan;
@@ -857,6 +1008,10 @@ export async function planSync(root: IpodRoot, newEngine: () => Promise<Engine>,
     }
     const old = oldTracksDifference(session.tracksBefore, library.expectedTracks);
     if (old) throw new SyncError(`${old} This was found in memory, so nothing was planned.`);
+    if (artwork) {
+      const problem = artworkLinkProblem(session, library, files, artwork, artworkLinks);
+      if (problem) throw new SyncError(`${problem} This was found in memory, so nothing was planned.`);
+    }
   } else {
     library = {
       mount, fireWireId: session.fireWireId, database: [], databaseSkipped: [], summary: ['Nothing to add.'],
@@ -865,7 +1020,36 @@ export async function planSync(root: IpodRoot, newEngine: () => Promise<Engine>,
     };
   }
 
-  return { ...library, files, skipped, duplicates, playlists: [...playlistUse.values()], space, warnings, bytesToCopy: newBytes, sources };
+  return { ...library, files, skipped, duplicates, playlists: [...playlistUse.values()], space, warnings, bytesToCopy: newBytes, sources, artwork, artworkLinks };
+}
+
+/**
+ * Null when the library written in memory carries the album art links as planned: every track with
+ * art reads back with its image id and flag, and a nano's SQLite library holds the same id and
+ * status for the track's pid. A difference means libgpod did not write what was asked.
+ */
+function artworkLinkProblem(session: Session, library: LibraryPlan, files: PlannedFile[], artwork: ArtworkPlan, links: { itemId: string; imageId: number }[]): string | null {
+  const byPath = new Map(library.expectedTracks.map((track) => [(track.ipod_path ?? '').toLowerCase(), track]));
+  const wanted = new Map<string, number>(); // pid as signed decimal text -> image id
+  for (const link of links) {
+    const file = files.find((candidate) => candidate.itemId === link.itemId) as PlannedFile;
+    const track = byPath.get(file.ipodPath.toLowerCase());
+    if (!track || track.mhii_link !== link.imageId || track.has_artwork !== 1 || track.artwork_count !== 1) {
+      return `The library written in memory does not carry album art link ${link.imageId} for ${file.path}.`;
+    }
+    wanted.set(BigInt.asIntN(64, BigInt(track.dbid ?? '0')).toString(), link.imageId);
+  }
+  const library_itdb = `${session.mount}/iPod_Control/iTunes/iTunes Library.itlp/Library.itdb`;
+  if (session.engine.fs.analyzePath(library_itdb).exists) {
+    const rows = session.engine.sqlQuery(library_itdb, 'SELECT pid, artwork_status, artwork_cache_id FROM item WHERE artwork_cache_id <> 0').rows;
+    const found = new Map(rows.map((row) => [String(row[0]), { status: Number(row[1]), id: Number(row[2]) }]));
+    for (const [pid, id] of wanted) {
+      const row = found.get(pid);
+      if (!row || row.status !== 1 || row.id !== id) return `The SQLite library written in memory does not hold album art id ${id} for one of the new tracks.`;
+    }
+  }
+  if (artwork.images.some((image) => !links.some((link) => link.imageId === image.id))) return 'An image in the plan has no track.';
+  return null;
 }
 
 // --------------------------------------------------------------------- applying
@@ -892,6 +1076,8 @@ export interface LibraryReport {
 export interface SyncReport extends LibraryReport {
   copied: { itemId: string; path: string; size: number }[];
   skipped: SkippedItem[];
+  /** The album art files written, or null when none was planned. Set only after they were written and read back. */
+  artwork: { images: number; tracks: number; written: { path: string; size: number }[] } | null;
 }
 
 export interface ApplyLibraryOptions {
@@ -956,12 +1142,15 @@ function emptyReport(): LibraryReport {
 }
 
 /** Refuses a plan that would write or delete outside the places this module may touch. */
-function checkPlanPaths(plan: LibraryPlan, mediaPaths: string[]): void {
+function checkPlanPaths(plan: LibraryPlan, mediaPaths: string[], artwork: ArtworkPlan | null = null): void {
   for (const change of plan.database) {
     if (!DATABASE_PATH.test(change.path) || change.path.split('/').includes('..')) throw new SyncError(`The plan would change ${change.path}, which is outside the iPod's database folders. Nothing was written.`);
   }
   for (const path of mediaPaths) {
     if (!MEDIA_PATH.test(path)) throw new SyncError(`The plan would touch ${path}, which is not directly inside a Music/Fxx folder. Nothing was written.`);
+  }
+  for (const file of artwork?.thumbFiles ?? []) {
+    if (!ARTWORK_FILE_PATH.test(file.path)) throw new SyncError(`The plan would touch ${file.path}, which is not one of the album art files. Nothing was written.`);
   }
 }
 
@@ -1177,10 +1366,11 @@ async function runPlan<R extends LibraryReport>(
  */
 export async function applySync(plan: SyncPlan, root: IpodRoot, newEngine: () => Promise<Engine>, options: ApplySyncOptions): Promise<SyncReport> {
   requireBackup(options.backup, (message) => new SyncError(message));
-  checkPlanPaths(plan, plan.files.map((file) => file.path));
+  const artwork = plan.artwork ?? null;
+  checkPlanPaths(plan, plan.files.map((file) => file.path), artwork);
   const concurrency = Math.max(1, Math.min(MAX_CONCURRENCY, Math.floor(options.concurrency ?? DEFAULT_CONCURRENCY)));
   const chunkBytes = Math.max(1, Math.floor(options.chunkBytes ?? DEFAULT_CHUNK_BYTES));
-  const report: SyncReport = { ...emptyReport(), copied: [], skipped: plan.skipped };
+  const report: SyncReport = { ...emptyReport(), copied: [], skipped: plan.skipped, artwork: null };
   const meter = new Meter(plan.bytesToCopy, options.onProgress);
   const stopped = (): boolean => options.signal?.aborted === true;
 
@@ -1197,10 +1387,23 @@ export async function applySync(plan: SyncPlan, root: IpodRoot, newEngine: () =>
       const listing = await listMusicFiles(root, false);
       const onIpod = new Set(listing.files.map((file) => file.path.toLowerCase()));
       const clash = plan.files.find((file) => onIpod.has(file.path.toLowerCase()));
-      return clash ? `${clash.path} is already on the iPod, so nothing was written and nothing was overwritten. Plan again.` : null;
+      if (clash) return `${clash.path} is already on the iPod, so nothing was written and nothing was overwritten. Plan again.`;
+      return artwork ? artworkChangedSince(root, artwork) : null;
     },
-    // Media, a few at a time, each read back, before the database names any of it.
-    beforeDatabase: (state) => copyAll(plan, report, { root, state, meter, chunkBytes, shouldStop: stopped }, concurrency),
+    // Media, a few at a time, each read back, before the database names any of it. Then the album
+    // art, thumbnails first and the ArtworkDB last, each read back, also before the database.
+    beforeDatabase: async (state) => {
+      const copied = await copyAll(plan, report, { root, state, meter, chunkBytes, shouldStop: stopped }, concurrency);
+      if (copied || !artwork) return copied;
+      meter.emit('database', 'Writing the album art...');
+      const written = await writeArtwork(root, artwork, state.touched, {
+        onStep: (message) => meter.emit('database', message),
+        stopReason: () => (stopped() ? STOPPED : null),
+      });
+      if (written.failure) return { message: written.failure, aborted: written.failure === STOPPED };
+      report.artwork = { images: artwork.images.length, tracks: plan.artworkLinks?.length ?? 0, written: written.written };
+      return null;
+    },
     check: async (back) => {
       const byPath = new Map(back.tracks.map((track) => [(track.ipod_path ?? '').toLowerCase(), track]));
       for (const file of plan.files) {
@@ -1210,9 +1413,18 @@ export async function applySync(plan: SyncPlan, root: IpodRoot, newEngine: () =>
         const onIpod = await fileAt(root, file.path);
         if (!onIpod || onIpod.size !== file.size) return `${file.path} is not on the iPod with its full size after the sync.`;
       }
+      if (artwork) {
+        const problem = await verifyArtwork(root, artwork);
+        if (problem) return problem;
+        for (const link of plan.artworkLinks ?? []) {
+          const file = plan.files.find((candidate) => candidate.itemId === link.itemId) as PlannedFile;
+          const track = byPath.get(file.ipodPath.toLowerCase());
+          if (!track || track.mhii_link !== link.imageId || track.has_artwork !== 1) return `The track for ${file.path} does not read back with album art image ${link.imageId}.`;
+        }
+      }
       return oldTracksDifference(plan.tracksBefore, back.tracks);
     },
-    done: () => `Put ${report.copied.length} ${report.copied.length === 1 ? 'file' : 'files'} on the iPod and checked it.`,
+    done: () => `Put ${report.copied.length} ${report.copied.length === 1 ? 'file' : 'files'}${report.artwork ? ` and album art for ${report.artwork.tracks} ${report.artwork.tracks === 1 ? 'track' : 'tracks'}` : ''} on the iPod and checked it.`,
   });
   return result.report;
 }

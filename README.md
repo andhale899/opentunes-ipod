@@ -18,7 +18,7 @@ Not affiliated with or endorsed by Apple. iPod and iTunes are trademarks of Appl
 - **Restores** a backup, after checking its checksums.
 - **AI assistant (optional, off by default)**: with your own Claude or OpenAI-style API key, ask in plain words to tidy tags, group audiobook chapters or build playlists. It only proposes changes. You see a preview and approve, and every change goes through the same backup and read-back as everything else. Turning it on sends your tracks' titles, artists, albums and genres (no audio, no file paths) to the provider you choose. See [docs/AI-ORGANISER.md](docs/AI-ORGANISER.md).
 
-Nothing is uploaded unless you turn the AI assistant on, and nothing is downloaded from streaming services: OpenTunes only works with files you already have.
+Nothing is uploaded unless you turn the AI assistant on or use the optional online album art lookup (it sends artist and album names only), and nothing is downloaded from streaming services: OpenTunes only works with files you already have.
 
 ## How well is it tested?
 
@@ -26,7 +26,7 @@ Nothing is uploaded unless you turn the AI assistant on, and nothing is download
 | --- | --- |
 | iPod nano 7th generation (the owner's unit, macOS, Chrome) | Reading, signing, backup, a database rewrite, and a sync of songs, a podcast and videos all worked, as reported by the owner. Not recorded in more detail than that, see [docs/HARDWARE-TESTING.md](docs/HARDWARE-TESTING.md). |
 | Every other iPod model | Not tried. Listed from specifications in [docs/DEVICE-SUPPORT.md](docs/DEVICE-SUPPORT.md). |
-| Audiobooks with chapters, Apple Lossless, album art, photos | Built or planned, not confirmed on a device. Album art and photos are not written yet. |
+| Audiobooks with chapters, Apple Lossless, album art, photos | Built or planned, not confirmed on a device. Album art is written (see [docs/ARTWORK-RESEARCH.md](docs/ARTWORK-RESEARCH.md)) but has not been tried on a real iPod. Photos are not written. |
 | Windows, Linux, Android | Not tried. Chrome or Edge on a computer is what it is built for. |
 
 The code is covered by unit tests, engine tests and headless-Chrome checks that run a whole add, convert, remove and edit flow against an iPod held in memory. Those prove the logic, not that a particular iPod accepts the result.

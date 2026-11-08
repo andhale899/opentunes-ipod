@@ -20,7 +20,11 @@
  * - ot_sqlite_query_json reads the SQLite files of a nano 6G/7G library, read only, so a
  *   rewrite can be compared with what the iPod holds. It is independent of the open database.
  *
- * Not here yet: album artwork (libgpod needs gdk-pixbuf for it, which is not built).
+ * Album art: libgpod's own artwork writer needs gdk-pixbuf, which is not built, and it makes a
+ * different ArtworkDB from the one a nano 7G has (docs/ARTWORK-RESEARCH.md). So the thumbnails
+ * and the ArtworkDB are written from TypeScript (engine/js/artwork.ts), and this file only lets
+ * the caller set a track's art id and flags (ot_track_set_artwork), which libgpod then writes
+ * into the database it already writes. Photos are not supported.
  */
 
 #include <math.h>
@@ -357,6 +361,7 @@ static const Field FIELDS[] = {
     /* Set by the engine, not by callers. mediatype changes only through a kind. */
     RO(id, T_U32), RO(mediatype, T_U32), RO(ipod_path, T_STR), RO(transferred, T_BOOL),
     RO(has_artwork, T_U8), RO(artwork_count, T_U16), RO(filetype_marker, T_U32),
+    RO(artwork_size, T_U32), RO(mhii_link, T_U32),
 };
 
 static const Field *field_named(const char *name)
@@ -493,6 +498,17 @@ int ot_open(const char *mount)
     itdb_set_mountpoint(db, mountpoint);
     if (db->device) {
         itdb_device_read_sysinfo(db->device);
+    }
+
+    /* This build never reads the ArtworkDB (that needs gdk-pixbuf), so libgpod leaves every
+     * track's artwork id at 0. Its SQLite writer takes artwork_cache_id from that id, so a
+     * rewrite would cut the link of any track that has art. The link is also in the
+     * iTunesDB (mhii_link, which libgpod does read), so take the id from there. */
+    for (GList *t = db->tracks; t; t = t->next) {
+        Itdb_Track *track = t->data;
+        if (track->artwork && track->mhii_link != 0) {
+            track->artwork->id = track->mhii_link;
+        }
     }
     return 0;
 }
@@ -657,7 +673,9 @@ const char *ot_kinds_json(void)
 
 static void json_track(GString *s, Itdb_Track *track)
 {
-    g_string_append_printf(s, "{\"handle\":%d,\"kind\":", handle_of(&track_handles, track));
+    /* dbid is the track's persistent id (the pid in a nano 6G or 7G's SQLite library). It is
+     * a 64 bit number, so it goes out as text: a JavaScript number would round it. */
+    g_string_append_printf(s, "{\"handle\":%d,\"dbid\":\"%" G_GUINT64_FORMAT "\",\"kind\":", handle_of(&track_handles, track), track->dbid);
     json_string(s, kind_name_of(track->mediatype));
     for (gsize i = 0; i < G_N_ELEMENTS(FIELDS); i++) {
         g_string_append_c(s, ',');
@@ -886,6 +904,67 @@ int ot_track_commit(int handle, const char *dest_path, double size_bytes)
             track->filetype = g_strdup(description);
         }
     }
+    track->time_modified = time(NULL);
+    return 0;
+}
+
+/* Marks a track as having album art. The thumbnails and the ArtworkDB are written by the
+ * caller (engine/js/artwork.ts), because this build has no gdk-pixbuf and libgpod's own
+ * writer makes a different file from the one a nano 7G has. What libgpod does with these
+ * values is write them: the ids and flags in the track's database entry (mhii_link,
+ * artwork_count, artwork_size, has_artwork) and, for a nano 6G or 7G, item.artwork_status and
+ * item.artwork_cache_id in the SQLite library, then album.artwork_item_pid from a track of
+ * that album that has an id.
+ *
+ * image_id is the id of the image's record in the ArtworkDB (they start at 100). source_size is
+ * the size in bytes of the original picture, which iTunes records and libgpod calls artwork_size. */
+EMSCRIPTEN_KEEPALIVE
+int ot_track_set_artwork(int handle, double image_id, double source_size)
+{
+    clear_error();
+    REQUIRE_DB(-1);
+
+    Itdb_Track *track = track_of(handle);
+    if (!track) {
+        return -1;
+    }
+    if (isnan(image_id) || image_id < 1 || image_id > (double) G_MAXUINT32 || image_id != floor(image_id)) {
+        return fail("An artwork id is a whole number from 1 up.");
+    }
+    if (isnan(source_size) || source_size < 0 || source_size > (double) G_MAXUINT32) {
+        return fail("The picture size does not fit an iPod database entry.");
+    }
+    if (!track->artwork) {
+        return fail("The track has no artwork record.");
+    }
+    track->artwork->id = (guint32) image_id;
+    track->artwork->dbid = track->dbid;
+    track->mhii_link = (guint32) image_id;
+    track->artwork_count = 1;
+    track->artwork_size = (guint32) source_size;
+    track->has_artwork = 0x01;
+    track->time_modified = time(NULL);
+    return 0;
+}
+
+/* Marks a track as having no album art. The image stays in the ArtworkDB, unused. */
+EMSCRIPTEN_KEEPALIVE
+int ot_track_clear_artwork(int handle)
+{
+    clear_error();
+    REQUIRE_DB(-1);
+
+    Itdb_Track *track = track_of(handle);
+    if (!track) {
+        return -1;
+    }
+    if (track->artwork) {
+        track->artwork->id = 0;
+    }
+    track->mhii_link = 0;
+    track->artwork_count = 0;
+    track->artwork_size = 0;
+    track->has_artwork = 0x02; /* libgpod's value for "no artwork" */
     track->time_modified = time(NULL);
     return 0;
 }

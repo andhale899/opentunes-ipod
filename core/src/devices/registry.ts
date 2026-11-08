@@ -190,13 +190,22 @@ const nano7g: DeviceModel = {
         'Album art is not written by this engine build yet, so it was not part of this run.',
       ],
     },
+    {
+      date: '2026-11-07',
+      source: "A read-only look at the Artwork folder in the owner's backups (sizes and structure only, no picture or ID copied)",
+      facts: [
+        'iPod_Control/Artwork holds an ArtworkDB (2,120 bytes) and four thumbnail files: F1010_1.ithmb (115,200 bytes), F1013_1.ithmb (5,000), F1015_1.ithmb (6,728) and F1016_1.ithmb (6,612). That is exactly one image in four formats, at 240, 50, 58 and 57 pixels, and the track it was for is no longer in the library.',
+        'The thumbnails are 16-bit RGB565 little endian. Each row of the 57 pixel one is widened to 58 pixels (116 bytes) with two zero bytes. The device file declares a fifth format, 1011, that the ArtworkDB does not use.',
+        'The ArtworkDB is the layout in docs/ARTWORK-RESEARCH.md. The app\'s writer rebuilds this file byte for byte from the fields it reads out of it (a test, run on request). That is not a test on the iPod.',
+      ],
+    },
   ],
   verification: 'hardware-tested',
   sources: [APPLE_NANO_7G],
   notes: [
     'Screen is 240 by 432 pixels.',
     'The disk format is FAT32 according to the device template, so Android can mount it. Confirm on your unit.',
-    'Album art and photos use the newer ImageSpecifications2 and AlbumArt2 keys, which the 2012 libgpod does not read. Writing artwork needs that added.',
+    'Album art and photos are declared under the newer AlbumArt2 and ImageSpecifications2 keys, which libgpod does read. libgpod cannot write them here (it needs gdk-pixbuf and writes a different ArtworkDB), so the app writes album art with its own writer, shaped like this unit\'s own ArtworkDB. That writer has not been tried on a real nano 7G. Photos are not written: no file shows how a nano 7G stores them.',
     'Audio tops out at 48 kHz, so 96 kHz or 88.2 kHz files must be resampled.',
     'This family keeps its library in iTunesCDB and an iTunes Library.itlp folder of SQLite files. libgpod reads iTunesCDB first.',
     'The upstream project that the v1 engine came from calls 6th and 7th generation nano support beta.',

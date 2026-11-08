@@ -8,9 +8,14 @@ Built from pinned sources and tested in Node. **Not yet tested on hardware.** It
 
 Gaps, all recorded in [ROADMAP.md](ROADMAP.md):
 
-- **Album artwork and photos.** libgpod needs gdk-pixbuf for them, which is not built. The nano 7G also declares its image formats under newer keys (`AlbumArt2`, `ImageSpecifications2`) that this libgpod does not read.
+- **Album artwork.** libgpod needs gdk-pixbuf for it, which is not built, and the ArtworkDB it writes differs from the nano 7G's own. libgpod does read the nano 7G's newer image keys (`AlbumArt2`, `ImageSpecifications2`): an earlier note here said it did not, which was wrong (`itdb_sysinfo_extended_parser.c`). So album art is written from TypeScript (`engine/js/artwork.ts`), and the engine only sets a track's art id and flags. Tested in Node against in-memory iPods and against the shape of the owner's own ArtworkDB. Not tried on a real iPod.
+- **Photos** are not written. No file shows how a nano 7G stores them, see [ARTWORK-RESEARCH.md](ARTWORK-RESEARCH.md).
 - **Smart playlists** are written back untouched, but that has not been tested against a real one.
 - libgpod does not know the nano 7G's model number. Its checksum and capabilities come from the device's own `SysInfoExtended`, which works. What it costs elsewhere is untested.
+
+## Building under another image tag
+
+`npm run engine:build` names the Docker image `opentunes-engine:engine`. Set `OPENTUNES_ENGINE_TAG` to use another tag, so a branch can build without replacing the image another checkout uses: `OPENTUNES_ENGINE_TAG=artwork npm run engine:build`. The output is still written to this checkout's `engine/build/`.
 
 ## Build and test
 
@@ -91,7 +96,7 @@ From a SysInfoExtended dumped from a real nano 7G (`engine/data/`), which the de
 
 - libgpod picks the checksum from that file: `DBVersion` 5 means hashAB. No change to libgpod's model table is needed. The app should read the file from the iPod and use the templates only as a fallback.
 - The disk format is FAT32, so Android can mount it.
-- It declares photo support (a 480x864 full-screen format and an 80x80 thumbnail), podcasts, and these album art sizes: 240x240, 58x58, 57x57 and 50x50. All are RGB565.
+- It declares photo support (a 480x864 full-screen format and an 80x80 thumbnail), podcasts, and these album art sizes: 240x240 (twice, formats 1010 and 1011), 58x58, 57x57 and 50x50. All are RGB565. The unit's own ArtworkDB uses four of the five (1010, 1013, 1015, 1016), and widens each row of the 57 pixel one to 58 pixels.
 - Video: H.264 Baseline, Main and High at level 3.0 up to 720x576, and a separate Baseline entry capped at 640x480. Audio tops out at 48 kHz.
 - For this family libgpod writes an empty `iTunesDB`, a signed `iTunesCDB`, and an `iTunes Library.itlp` folder of SQLite files with a signed `Locations.itdb.cbk`.
 - libgpod reads `iTunesCDB` first and `iTunesDB` second, so an iPod with only an `iTunesCDB` opens fine (tested). An iPod whose only database is an empty `iTunesDB` is what a never-synced one looks like. libgpod fails on it without a reason, so the engine says so itself.
@@ -100,6 +105,6 @@ From a SysInfoExtended dumped from a real nano 7G (`engine/data/`), which the de
 
 ## Next
 
-1. Album artwork and photos: build gdk-pixbuf for WebAssembly, and teach libgpod the `*2` image keys.
-2. A hardware run on the nano 7G.
+1. A hardware run of album art on the nano 7G, then photos if a file from the unit shows how it stores them.
+2. A hardware run on the nano 7G of everything else.
 3. Run the engine tests in CI.

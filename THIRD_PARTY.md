@@ -55,6 +55,24 @@ Licences are the `license` field of each package's own `package.json`, read from
 
 Run `npm ls` and read each package's own licence for the full dependency list.
 
+## Online services, used only when you opt in
+
+The optional "Find missing album art" step calls these two public services from the page. It sends only the artist and album name of each album you ask about, and nothing happens until you tick its box. Details: [docs/ART-LOOKUP.md](docs/ART-LOOKUP.md). Read on 2026-11-07 from the services' own documents.
+
+| Service | Licence | Notes |
+| --- | --- | --- |
+| [MusicBrainz](https://musicbrainz.org) web service | Core data CC0, supplementary data CC BY-NC-SA 3.0 (its data licence page). Non-commercial use of the web service is free (its API page). | Release search, to find which release an artist and album name mean. Asks for no more than about one request a second per address and for a meaningful User-Agent, which a web page cannot set (see the note in docs/ART-LOOKUP.md). |
+| [Cover Art Archive](https://coverartarchive.org) | No single licence for the pictures. It says the images are freely accessible, to be used at your own risk and with respect for the rights of the artists and labels. | Serves the front cover of a release, redirecting to the picture on archive.org. States no rate limit. Pictures are shown to you first and are used only when you approve them. |
+
+## Sources read for the album art format
+
+Nothing was copied from these. They were read to understand the nano 7G's ArtworkDB, and the writer in `engine/js/artwork.ts` was written from the field list in [docs/ARTWORK-RESEARCH.md](docs/ARTWORK-RESEARCH.md), which the owner's own iPod files confirm.
+
+| Project | Licence | Notes |
+| --- | --- | --- |
+| [ipodsync](https://github.com/buldiei/ipodsync) (commit `28174c7`) | MIT (its LICENSE file) | A Python tool for the nano 6G and 7G. Its README says cover art is confirmed on a nano 7G. Used as a second opinion on the layout and on the SQLite columns. |
+| [iOpenPod](https://github.com/TheRealSavi/iOpenPod) | GPL-3.0-or-later (its COPYING.md) | Its `docs/research/` notes on the ArtworkDB and the Photo Database. |
+
 ## Test media
 
 The test files used by the owner during development (`testmedia`, not in this repository) were public-domain or Creative Commons works: LibriVox recordings, Big Buck Bunny (Blender Foundation, CC BY 3.0) and others. They are not redistributed here.
