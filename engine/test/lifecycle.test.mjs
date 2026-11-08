@@ -168,7 +168,7 @@ describe('tracks', () => {
   it('returns exactly the fields the TypeScript bindings know about', async () => {
     const engine = await newIpod();
     addFile(engine, 'music', { title: 'x' }, 'x.mp3');
-    const returned = Object.keys(engine.tracks()[0]).filter((key) => !['handle', 'kind', 'chapters'].includes(key));
+    const returned = Object.keys(engine.tracks()[0]).filter((key) => !['handle', 'dbid', 'kind', 'chapters'].includes(key));
     const known = [...TEXT_FIELDS, ...NUMBER_FIELDS, ...READ_ONLY_FIELDS];
     assert.deepEqual(returned.filter((key) => !known.includes(key)), [], 'fields the bindings do not declare');
     assert.deepEqual(known.filter((key) => !returned.includes(key)), [], 'fields the engine does not return');

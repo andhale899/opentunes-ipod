@@ -38,6 +38,7 @@ export type NumberField = (typeof NUMBER_FIELDS)[number];
 /** Fields only the engine sets. */
 export const READ_ONLY_FIELDS = [
   'id', 'mediatype', 'ipod_path', 'transferred', 'has_artwork', 'artwork_count', 'filetype_marker',
+  'artwork_size', 'mhii_link',
 ] as const;
 
 export type TrackFields = Partial<Record<TextField, string | null>> & Partial<Record<NumberField, number>>;
@@ -51,6 +52,11 @@ export interface Chapter {
 export type TrackInfo = Record<TextField, string | null> &
   Record<NumberField, number> & {
     handle: number;
+    /**
+     * The track's persistent id (the pid in a nano 6G or 7G's SQLite library) as decimal text, since
+     * it is a 64 bit number. An engine build from before album art does not return it.
+     */
+    dbid?: string;
     kind: string;
     id: number;
     mediatype: number;
@@ -59,6 +65,9 @@ export type TrackInfo = Record<TextField, string | null> &
     has_artwork: number;
     artwork_count: number;
     filetype_marker: number;
+    /** Size of the original picture, and the id of its image in the ArtworkDB. Absent from an older engine build. */
+    artwork_size?: number;
+    mhii_link?: number;
     chapters: Chapter[];
   };
 
@@ -265,6 +274,28 @@ export class Engine {
 
   removeTrack(handle: number): void {
     this.#number('ot_track_remove', ['number'], [handle]);
+  }
+
+  /**
+   * True when this engine build can set a track's album art id. A build from before album art
+   * lacks the function, and the app then leaves art out instead of failing.
+   */
+  get canLinkArtwork(): boolean {
+    return typeof (this.module as unknown as Record<string, unknown>)['_ot_track_set_artwork'] === 'function';
+  }
+
+  /**
+   * Marks a track as having album art: `imageId` is the id of its image record in the ArtworkDB
+   * and `sourceSize` the size in bytes of the original picture. libgpod then writes the link
+   * into the database. The thumbnails and the ArtworkDB themselves are written by artwork.ts.
+   */
+  setArtwork(handle: number, imageId: number, sourceSize: number): void {
+    this.#number('ot_track_set_artwork', ['number', 'number', 'number'], [handle, imageId, sourceSize]);
+  }
+
+  /** Marks a track as having no album art. */
+  clearArtwork(handle: number): void {
+    this.#number('ot_track_clear_artwork', ['number'], [handle]);
   }
 
   addChapter(handle: number, startMs: number, title: string): void {
