@@ -516,6 +516,8 @@ const SCENARIOS = [
         check((await page.evaluate(`document.querySelectorAll('.dupes input[type=password]').length`)) === 0, 'The duplicates tab must not have a key box.');
         await clickTab('Assistant');
         await page.waitFor('Ask a language model');
+        // The default service is a free one now. This scenario fakes Anthropic, so pick it first.
+        await page.evaluate(`(() => { const box = document.querySelector('select option[value=anthropic]').parentElement; box.value = 'anthropic'; box.dispatchEvent(new Event('change', { bubbles: true })); })()`);
         await page.evaluate(`(() => { const box = document.querySelector('input[type=password]'); box.value = 'sk-test-0000'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
         await clickTab('Library');
         await clickTab('Find duplicates');
