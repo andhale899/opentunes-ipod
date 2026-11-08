@@ -1,0 +1,47 @@
+name: Something went wrong
+description: A sync, backup, conversion or display problem
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. This is a hobby project and support is best effort.
+        **Never paste your iPod's serial number or FireWire ID.** The copied reports leave track titles out, but check what you paste anyway.
+  - type: input
+    id: ipod
+    attributes:
+      label: iPod model and generation
+      description: For example "iPod nano 7th generation, 16 GB, model MD480".
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and computer
+      description: For example "Chrome 130 on macOS 15".
+    validations:
+      required: true
+  - type: dropdown
+    id: backup
+    attributes:
+      label: Did you make a backup before writing?
+      options: ["Yes", "No"]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Copied report or error message
+      description: Use "Copy iPod report" or "Copy diagnostic report" on the Diagnostics tab, or paste the red error text.
+      render: json
+  - type: textarea
+    id: files
+    attributes:
+      label: The files involved
+      description: Formats and sizes (for example "FLAC, 40 MB" or "H.264 1080p video"). Please do not attach copyrighted files.
