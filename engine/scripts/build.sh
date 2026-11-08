@@ -15,12 +15,16 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-docker build -f "$here/Dockerfile" --target engine -t opentunes-engine:engine "$here"
+# The image tag defaults to "engine". Set OPENTUNES_ENGINE_TAG to build under another tag, so a
+# branch can build without replacing the image another checkout uses:
+#   OPENTUNES_ENGINE_TAG=artwork npm run engine:build
+tag=${OPENTUNES_ENGINE_TAG:-engine}
+docker build -f "$here/Dockerfile" --target engine -t "opentunes-engine:$tag" "$here"
 
 # engine/build holds only generated output, so start clean: no stale files from older builds.
 rm -rf "$out"
 mkdir -p "$out"
-container=$(docker create opentunes-engine:engine)
+container=$(docker create "opentunes-engine:$tag")
 trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
 docker cp "$container:/out/." "$out/"
 
