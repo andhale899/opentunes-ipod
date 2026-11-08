@@ -62,6 +62,77 @@ writeFileSync(COVER, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 writeTone(TONE_COPY, { rate: 44100, bits: 16, seconds: 2 });
 writeTone(TONE_CONVERT, { rate: 96000, bits: 24, seconds: 1 });
 
+// Files for the missing-cover scenarios: three untagged WAVs (two with a useless name, one named "Artist - Title"),
+// a real picture, and a file that is not a picture although it is named .jpg.
+const TRACK_ONE = join(toneFolder, 'Track 1.wav');
+const TRACK_TWO = join(toneFolder, 'Track 2.wav');
+const GUESS_FILE = join(toneFolder, 'Smoke Band - Smoke Song.wav');
+const PICTURE = join(toneFolder, 'my picture.png');
+const NOT_A_PICTURE = join(toneFolder, 'notes.jpg');
+for (const path of [TRACK_ONE, TRACK_TWO, GUESS_FILE]) writeTone(path, { rate: 44100, bits: 16, seconds: 1 });
+writeFileSync(PICTURE, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+writeFileSync(NOT_A_PICTURE, 'This is text, not a picture.');
+
+const RELEASE_FOUND = '1834eae1-741b-3c03-9ca5-0df3decb43ea';
+const RELEASE_SMOKE = '2a2a2a2a-0000-4000-8000-000000000002';
+const RELEASE_LONELY = '3b3b3b3b-0000-4000-8000-000000000003';
+
+/**
+ * Runs on the page, as text. Replaces window.fetch with a FAKE MusicBrainz and Cover Art Archive: the page's own
+ * files (the engine's wasm) still load, everything else is answered here and recorded in window.__art, so nothing
+ * can leave the page (the browser used here resolves no host except localhost). A different picture per release.
+ */
+const fakeCoverServices = () => {
+  window.__art = [];
+  const colours = { '1834eae1-741b-3c03-9ca5-0df3decb43ea': '#c03030', '2a2a2a2a-0000-4000-8000-000000000002': '#30a030', '3b3b3b3b-0000-4000-8000-000000000003': '#3030c0' };
+  const png = async (colour) => {
+    const canvas = new OffscreenCanvas(64, 64);
+    const context = canvas.getContext('2d');
+    context.fillStyle = colour;
+    context.fillRect(0, 0, 64, 64);
+    return new Uint8Array(await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer());
+  };
+  const real = window.fetch.bind(window);
+  const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  const release = (id, title) => ({ id, title, status: 'Official', date: '2001-05-01', 'release-group': { id: id.replace(/^\w/, '9'), 'primary-type': 'Album' } });
+  window.fetch = async (url, init) => {
+    const address = String(url);
+    if (new URL(address, location.href).hostname === 'localhost') return real(url, init);
+    window.__art.push({ url: address, method: init && init.method, credentials: init && init.credentials, body: init && init.body });
+    if (address.startsWith('https://musicbrainz.org/ws/2/release/')) {
+      const query = decodeURIComponent(new URL(address).searchParams.get('query'));
+      const known = query === 'release:"Found Album" AND artist:"Smoke Band"';
+      return json({ created: 'x', count: known ? 1 : 0, offset: 0, releases: known ? [{ id: '1834eae1-741b-3c03-9ca5-0df3decb43ea', title: 'Found Album', score: 100, status: 'Official', date: '2001', 'artist-credit': [{ name: 'Smoke Band' }] }] : [] });
+    }
+    if (address.startsWith('https://musicbrainz.org/ws/2/recording/')) {
+      const query = decodeURIComponent(new URL(address).searchParams.get('query'));
+      const recordings = [];
+      if (query === 'recording:"Smoke Song" AND artist:"Smoke Band"') {
+        recordings.push({ id: '4c4c4c4c-0000-4000-8000-000000000004', score: 100, title: 'Smoke Song', length: 1000, 'artist-credit': [{ name: 'Smoke Band' }], releases: [release('2a2a2a2a-0000-4000-8000-000000000002', 'Smoke Album')] });
+      } else if (query === 'recording:"Lonely Song"') {
+        recordings.push({ id: '5d5d5d5d-0000-4000-8000-000000000005', score: 100, title: 'Lonely Song', 'artist-credit': [{ name: 'Somebody' }], releases: [release('3b3b3b3b-0000-4000-8000-000000000003', 'Lonely Album')] });
+      }
+      return json({ created: 'x', count: recordings.length, offset: 0, recordings });
+    }
+    const match = /^https:\/\/coverartarchive\.org\/release\/([0-9a-f-]{36})\/front-500$/.exec(address);
+    if (match && colours[match[1]]) {
+      const response = new Response(await png(colours[match[1]]), { status: 200, headers: { 'content-type': 'image/png' } });
+      Object.defineProperty(response, 'url', { value: 'https://dn1.ca.archive.org/0/items/mbid-x/cover_thumb500.png' });
+      return response;
+    }
+    throw new Error('The fake fetch was asked for an address it does not know: ' + address);
+  };
+};
+
+/** In the page, as text: the table row of the file with this name. */
+const ROW = (name) => `[...document.querySelectorAll('tr')].find((tr) => tr.querySelector('td.cell-title') && tr.querySelector('td.cell-title').title === ${JSON.stringify(name)})`;
+const rowText = (page, name) => page.evaluate(`${ROW(name)}.querySelector('td.cell-title').innerText`);
+const rowButtons = async (page, name) => JSON.parse(await page.evaluate(`JSON.stringify([...${ROW(name)}.querySelectorAll('button')].map((b) => b.textContent.trim()))`));
+async function clickRow(page, name, label) {
+  const clicked = await page.evaluate(`(() => { const row = ${ROW(name)}; const b = row && [...row.querySelectorAll('button')].find((x) => x.textContent.trim() === ${JSON.stringify(label)} && !x.disabled); if (!b) return false; b.click(); return true; })()`);
+  if (!clicked) throw new Error(`No enabled button "${label}" on the row of ${name}. The row says: ${await rowText(page, name).catch(() => '(no such row)')}`);
+}
+
 /**
  * Not part of the normal run. With SMOKE_REAL_MEDIA=/path/to/folder it adds every file in that
  * folder (and its subfolders) to a practice iPod through the page, converts what needs it with the
@@ -363,12 +434,12 @@ const SCENARIOS = [
         })()`);
         await page.click('Choose a folder');
         await page.waitFor('3 of 3 can be added');
-        await page.waitFor('Cover: Cover.PNG from its folder');
-        await page.waitFor('Cover: none');
+        await page.waitFor('Cover: from the folder (Cover.PNG)');
+        await page.waitFor('No cover');
         // The online step: nothing is sent before the box is ticked and the button pressed.
-        await page.evaluate(`document.querySelector('.art-finder').open = true`);
-        await page.waitFor('1 album has no cover picture');
-        await page.waitFor('What is sent: only the artist and album name of each album');
+        // The finder is in the open by itself: nothing to unfold before the box and the button are there.
+        await page.waitFor('1 album has no cover.');
+        await page.waitFor('What is sent: only the album\'s name and artist, to musicbrainz.org and coverartarchive.org');
         check((await page.evaluate('window.__art.length')) === 0, 'Something was sent before the box was ticked.');
         check(await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Find covers').disabled`), 'Find covers must be off until the box is ticked.');
         await page.evaluate(`document.querySelector('.art-finder input[type=checkbox]').click()`);
@@ -388,7 +459,7 @@ const SCENARIOS = [
         check(!(await page.evaluate('document.body.textContent.includes("found online")')), 'The cover was used before it was approved.');
         await page.click('Use the ticked covers (1)');
         await page.waitFor('Covers chosen for 1 album');
-        await page.waitFor('Cover: found online (you approved it)');
+        await page.waitFor('Cover: found online');
         await page.click('Check and prepare');
         await page.waitFor('Ready to copy 3 files', 90_000);
         const planText = await page.evaluate('document.body.textContent');
@@ -400,6 +471,224 @@ const SCENARIOS = [
       },
     },
     expected: ['Album art was written for 3 tracks (2 pictures) and read back', '8 tracks'],
+    forbidden: ['did not finish', 'could not be put back', 'The fake fetch was asked'],
+    alert: false,
+  },
+  {
+    // Missing covers, part 1, on a practice iPod: files with no tags and no cover. Each row says "No cover".
+    // The two with a useless file name say they cannot be looked up and offer only "Choose a picture...".
+    // A file that is not a picture is refused with a plain message, a real picture becomes that file's cover
+    // and shows on the row, and a file name such as "Smoke Band - Smoke Song.wav" is offered as a guess that is
+    // looked up by title and artist (through a FAKE fetch: window.fetch is replaced, nothing leaves the page),
+    // approved, and written with the album name filled in. The plan and the written art match the rows.
+    name: 'missing covers: untagged files (No cover, no lookup message, a chosen picture, a file-name guess looked up by title)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        await page.waitFor('Practice iPod, held in memory');
+        await page.evaluate(`(${fakeCoverServices.toString()})()`);
+        await page.click('Backup');
+        await page.waitFor('What to include');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        await page.click('Add music');
+        await page.waitFor('No files chosen yet');
+        await page.chooseFiles([TRACK_ONE, TRACK_TWO, GUESS_FILE]);
+        await page.waitFor('3 of 3 can be added');
+
+        // Every row says what its cover is, and these have none.
+        await page.waitFor('2 files cannot be looked up because they have no album name, song title or usable file name.');
+        const NO_LOOKUP = 'This file has no album name and no song title, so it cannot be looked up. Choose a picture, or add the album name in the Library after adding.';
+        for (const name of ['Track 1.wav', 'Track 2.wav']) {
+          const text = await rowText(page, name);
+          check(text.includes('No cover') && text.includes(NO_LOOKUP), `${name} does not say it has no cover and cannot be looked up: ${text}`);
+          const buttons = await rowButtons(page, name);
+          check(buttons.includes('Choose a picture...') && !buttons.includes('Find a cover online'), `${name} has the wrong buttons: ${buttons}`);
+        }
+        const guessText = await rowText(page, 'Smoke Band - Smoke Song.wav');
+        check(guessText.includes('No cover') && guessText.includes('The file name looks like "Smoke Song" by Smoke Band.'), 'The file-name guess is not offered: ' + guessText);
+        const guessButtons = await rowButtons(page, 'Smoke Band - Smoke Song.wav');
+        check(guessButtons.includes('Use the file name as a guess') && guessButtons.includes('Choose a picture...') && !guessButtons.includes('Find a cover online'), 'The guess row has the wrong buttons: ' + guessButtons);
+        // Nothing here can be looked up until the guess is accepted, so the finder is not shown.
+        check(!(await page.evaluate(`Boolean(document.querySelector('[data-art-finder]'))`)), 'The finder showed with nothing to look up.');
+
+        // A file that is not a picture is refused in words, and the row keeps saying No cover.
+        await clickRow(page, 'Track 1.wav', 'Choose a picture...');
+        await page.chooseFiles([NOT_A_PICTURE], 'input[data-pick=cover]');
+        await page.waitFor('"notes.jpg" is not a JPEG, PNG or WebP picture, so it was not used.');
+        check((await rowText(page, 'Track 1.wav')).includes('No cover'), 'A file that is not a picture changed the cover.');
+        // A real picture is the file's cover, with a preview on the row. It is not shared: this file has no album.
+        await clickRow(page, 'Track 1.wav', 'Choose a picture...');
+        await page.chooseFiles([PICTURE], 'input[data-pick=cover]');
+        await page.waitFor('Cover: from the picture you chose');
+        const after = await rowText(page, 'Track 1.wav');
+        check(!after.includes('was not used'), 'The refusal stayed on the row after a good picture was chosen: ' + after);
+        const previewShown = await page.evaluate(`(async () => { const img = ${ROW('Track 1.wav')}.querySelector('img.cover-preview'); if (!img) return false; await img.decode().catch(() => {}); return img.naturalWidth > 0; })()`);
+        check(previewShown, 'There is no preview of the chosen picture on the row.');
+        check((await rowText(page, 'Track 2.wav')).includes('No cover'), 'A picture chosen for one file went to another file with no album.');
+        check((await rowButtons(page, 'Track 1.wav')).includes('Remove the picture I chose'), 'A row with a chosen picture should let the person take it back.');
+
+        // The guess: accept it, and the row can be looked up by title and artist.
+        await clickRow(page, 'Smoke Band - Smoke Song.wav', 'Use the file name as a guess');
+        await page.waitFor('Looked up as "Smoke Song" by Smoke Band, guessed from the file name.');
+        await page.waitFor('1 song with no album name can be looked up by title.');
+        await page.waitFor('Find missing album art online (optional)');
+        check((await page.evaluate('window.__art.length')) === 0, 'Something was sent before the box was ticked.');
+        await clickRow(page, 'Smoke Band - Smoke Song.wav', 'Find a cover online');
+        await page.waitFor('Only this one for now: Smoke Song by Smoke Band');
+        check(await page.evaluate(`document.activeElement && document.activeElement.type === 'checkbox' && Boolean(document.activeElement.closest('[data-art-finder]'))`), 'The finder\'s tick box did not take the cursor.');
+        check(await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Find covers').disabled`), 'Find covers must be off until the box is ticked.');
+        await page.waitFor('Would send 1 song title (with the artist, when there is one) to musicbrainz.org and coverartarchive.org.');
+        await page.evaluate(`document.querySelector('[data-art-finder] input[type=checkbox]').click()`);
+        await page.evaluate(`[...document.querySelectorAll('[data-art-finder] label.check')].find((l) => l.textContent.includes('Also fill in the album name')).querySelector('input').click()`);
+        check((await page.evaluate('window.__art.length')) === 0, 'Something was sent when the boxes were ticked, before the button.');
+        await page.click('Find covers');
+        await page.waitFor('Found 1 of 1', 30_000);
+        await page.waitFor('Matched: Smoke Song by Smoke Band, on Smoke Album (2001)');
+        await page.waitFor('Maybe');
+        await page.waitFor('The title and artist were guessed from the file name.');
+        await page.waitFor('The album name "Smoke Album" will be filled in if you use this cover.');
+        const sent = JSON.parse(await page.evaluate('JSON.stringify(window.__art)'));
+        check(sent.length === 2, 'Expected two requests, got ' + sent.length + ': ' + JSON.stringify(sent.map((call) => call.url)));
+        check(sent[0].url.startsWith('https://musicbrainz.org/ws/2/recording/?query=') && decodeURIComponent(sent[0].url).includes('recording:"Smoke Song" AND artist:"Smoke Band"') && sent[0].url.includes('fmt=json'), 'The recording search is wrong: ' + sent[0].url);
+        check(sent[1].url === `https://coverartarchive.org/release/${RELEASE_SMOKE}/front-500`, 'The picture address is wrong: ' + sent[1].url);
+        check(sent.every((call) => call.method === 'GET' && call.credentials === 'omit' && call.body === undefined), 'A request was not a plain GET without cookies or a body.');
+        check(!JSON.stringify(sent).match(/wav|Track|iPod|1000|262/), 'A request carried something besides the title and artist: ' + JSON.stringify(sent));
+        check(!(await rowText(page, 'Smoke Band - Smoke Song.wav')).includes('found online'), 'The cover was used before it was approved.');
+        await page.click('Use the ticked covers (1)');
+        await page.waitFor('Covers chosen for 1 album or song');
+        const found = await rowText(page, 'Smoke Band - Smoke Song.wav');
+        check(found.includes('Cover: found online') && found.includes('album name filled in from the online match: Smoke Album'), 'The row does not show the approved cover and the album name: ' + found);
+
+        // What the rows show is what is written: one picture you chose and one found online.
+        await page.click('Check and prepare');
+        await page.waitFor('Ready to copy 3 files', 90_000);
+        const planText = await page.evaluate('document.body.textContent');
+        check(planText.includes('Add album art to 2 tracks: 2 pictures'), 'The plan does not list the album art: ' + planText.slice(planText.indexOf('Ready to copy'), planText.indexOf('Ready to copy') + 600));
+        await page.click('Put on the iPod');
+        await page.waitFor('Copied 3 files and checked the iPod by reading it back', 90_000);
+        await page.waitFor('Album art was written for 2 tracks (2 pictures) and read back');
+      },
+    },
+    expected: ['Album art was written for 2 tracks (2 pictures) and read back'],
+    forbidden: ['did not finish', 'could not be put back', 'The fake fetch was asked'],
+    alert: false,
+  },
+  {
+    // Missing covers, part 2, on a practice iPod: files with tags from a folder. The online finder is open by itself
+    // whenever a row has no cover and can be looked up, with the opt-in box and the "would send" line. One picture
+    // chosen for one file of an album goes to every file of that album. "Find a cover online" on a row opens and
+    // focuses the finder for that album only. A cover found through the FAKE fetch is shown, approved, and shown
+    // on both rows. A song with no album name and no artist is looked up by title, marked low confidence and
+    // not ticked. The plan and the written art match.
+    name: 'missing covers: albums from a folder (finder open by itself, one picture for the whole album, find online for one album, low confidence song)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        await page.waitFor('Practice iPod, held in memory');
+        await page.evaluate(`(${fakeCoverServices.toString()})()`);
+        await page.click('Backup');
+        await page.waitFor('What to include');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        await page.click('Add music');
+        await page.waitFor('No files chosen yet');
+        await page.evaluate(`(() => {
+          const wav = () => { const b = new Uint8Array(44 + 400); const v = new DataView(b.buffer); const t = (o, x) => [...x].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+            t(0, 'RIFF'); v.setUint32(4, 36 + 400, true); t(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true); v.setUint32(24, 44100, true); v.setUint32(28, 176400, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); t(36, 'data'); v.setUint32(40, 400, true); return b; };
+          const file = (name) => ({ kind: 'file', name, getFile: async () => new File([wav()], name) });
+          const folder = (name, children) => ({ kind: 'directory', name, async *entries() { for (const [childName, child] of Object.entries(children)) yield [childName, child]; } });
+          window.showDirectoryPicker = async () => folder('Music', {
+            'Smoke Band': folder('Smoke Band', {
+              'Plain Album': folder('Plain Album', { '01 Three.wav': file('01 Three.wav'), '02 Four.wav': file('02 Four.wav') }),
+              'Found Album': folder('Found Album', { '01 Five.wav': file('01 Five.wav'), '02 Six.wav': file('02 Six.wav') }),
+            }),
+            '01 Lonely Song.wav': file('01 Lonely Song.wav'),
+          });
+        })()`);
+        await page.click('Choose a folder');
+        await page.waitFor('5 of 5 can be added');
+
+        // The summary above the list, and the finder in the open (not inside a collapsed section).
+        await page.waitFor('2 albums have no cover. 1 song with no album name can be looked up by title.');
+        await page.waitFor('Find missing album art online (optional)');
+        const open = await page.evaluate(`(() => { const finder = document.querySelector('[data-art-finder]'); const box = finder && finder.querySelector('input[type=checkbox]'); return Boolean(box) && box.offsetParent !== null && !box.closest('details') && ![...finder.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Find covers' && b.offsetParent === null); })()`);
+        check(open, 'The finder is not in the open with its tick box and button.');
+        await page.waitFor('Would send 2 album names (with the artist) and 1 song title (with the artist, when there is one) to musicbrainz.org and coverartarchive.org.');
+        await page.waitFor("A song's length is not sent");
+        check((await page.evaluate('window.__art.length')) === 0, 'Something was sent before the box was ticked.');
+        check(await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Find covers').disabled`), 'Find covers must be off until the box is ticked.');
+        for (const name of ['01 Three.wav', '01 Five.wav']) {
+          const buttons = await rowButtons(page, name);
+          check((await rowText(page, name)).includes('No cover') && buttons.includes('Find a cover online') && buttons.includes('Choose a picture...'), `${name} has the wrong state or buttons: ${buttons}`);
+        }
+        const lonely = await rowText(page, '01 Lonely Song.wav');
+        check(lonely.includes('No cover') && lonely.includes('no artist') && lonely.includes('low confidence'), 'The song with no album and no artist does not say so: ' + lonely);
+
+        // One picture for all files of the album, on by default.
+        const shared = await page.evaluate(`(() => { const box = [...${ROW('01 Three.wav')}.querySelectorAll('label.check')].find((l) => l.textContent.includes('Use this picture for all 2 files of this album')); return box ? box.querySelector('input').checked : null; })()`);
+        check(shared === true, 'The "Use this picture for all 2 files of this album" box is missing or not on by default: ' + shared);
+        await clickRow(page, '01 Three.wav', 'Choose a picture...');
+        await page.chooseFiles([PICTURE], 'input[data-pick=cover]');
+        await page.waitFor('1 album has no cover. 1 song with no album name can be looked up by title.');
+        for (const name of ['01 Three.wav', '02 Four.wav']) check((await rowText(page, name)).includes('Cover: from the picture you chose'), `${name} did not get the picture chosen for its album.`);
+        check((await rowText(page, '01 Five.wav')).includes('No cover'), 'A picture chosen for one album went to another album.');
+
+        // "Find a cover online" on one row: the finder takes the cursor and looks at that album only.
+        await clickRow(page, '01 Five.wav', 'Find a cover online');
+        await page.waitFor('Only this one for now: Found Album by Smoke Band');
+        check(await page.evaluate(`document.activeElement && document.activeElement.type === 'checkbox' && Boolean(document.activeElement.closest('[data-art-finder]'))`), 'The finder\'s tick box did not take the cursor.');
+        await page.waitFor('Would send 1 album name (with the artist) to musicbrainz.org and coverartarchive.org.');
+        await page.evaluate(`document.querySelector('[data-art-finder] input[type=checkbox]').click()`);
+        check((await page.evaluate('window.__art.length')) === 0, 'Something was sent when the box was ticked, before the button.');
+        await page.click('Find covers');
+        await page.waitFor('Found 1 of 1', 30_000);
+        await page.waitFor('Use the ticked covers (1)');
+        let sent = JSON.parse(await page.evaluate('JSON.stringify(window.__art)'));
+        check(sent.length === 2, 'Expected two requests for the one album, got ' + sent.length + ': ' + JSON.stringify(sent.map((call) => call.url)));
+        check(sent[0].url.startsWith('https://musicbrainz.org/ws/2/release/?query=') && decodeURIComponent(sent[0].url).includes('release:"Found Album" AND artist:"Smoke Band"'), 'The release search is wrong: ' + sent[0].url);
+        check(!(await rowText(page, '01 Five.wav')).includes('found online'), 'The cover was used before it was approved.');
+        await page.click('Use the ticked covers (1)');
+        for (const name of ['01 Five.wav', '02 Six.wav']) {
+          await page.waitFor('Covers chosen for 1 album or song');
+          check((await rowText(page, name)).includes('Cover: found online'), `${name} does not show the approved cover.`);
+        }
+
+        // A song with no album name and no artist: found, but low confidence, so it is not ticked for you.
+        await page.waitFor('Would send 1 song title (with the artist, when there is one) to musicbrainz.org and coverartarchive.org.');
+        await page.click('Find covers');
+        await page.waitFor('Found 1 of 1', 30_000);
+        await page.waitFor('Low confidence');
+        await page.waitFor('Use the ticked covers (0)');
+        check(await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Use the ticked covers (0)').disabled`), 'A low confidence match was ticked for the person.');
+        sent = JSON.parse(await page.evaluate('JSON.stringify(window.__art)'));
+        check(sent.length === 4 && decodeURIComponent(sent[2].url).includes('recording:"Lonely Song"') && !decodeURIComponent(sent[2].url).includes('artist:'), 'The title-only search is wrong: ' + JSON.stringify(sent.map((call) => call.url)));
+        check(!JSON.stringify(sent).match(/wav|Three|Four|Five|Six|iPod/), 'A request carried something besides names and titles: ' + JSON.stringify(sent));
+        await page.evaluate(`document.querySelector('.art-results input[type=checkbox]').click()`);
+        await page.click('Use the ticked covers (1)');
+        check((await rowText(page, '01 Lonely Song.wav')).includes('Cover: found online'), 'The song does not show the approved cover.');
+        await page.waitFor('Every file has a cover.', 5_000).catch(() => {});
+
+        await page.click('Check and prepare');
+        await page.waitFor('Ready to copy 5 files', 90_000);
+        const planText = await page.evaluate('document.body.textContent');
+        check(planText.includes('Add album art to 5 tracks: 3 pictures'), 'The plan does not list the album art: ' + planText.slice(planText.indexOf('Ready to copy'), planText.indexOf('Ready to copy') + 700));
+        await page.click('Put on the iPod');
+        await page.waitFor('Copied 5 files and checked the iPod by reading it back', 90_000);
+        await page.waitFor('Album art was written for 5 tracks (3 pictures) and read back');
+      },
+    },
+    expected: ['Album art was written for 5 tracks (3 pictures) and read back'],
     forbidden: ['did not finish', 'could not be put back', 'The fake fetch was asked'],
     alert: false,
   },

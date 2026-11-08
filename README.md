@@ -18,7 +18,7 @@ Not affiliated with or endorsed by Apple. iPod and iTunes are trademarks of Appl
 - **Restores** a backup, after checking its checksums.
 - **AI assistant (optional, off by default)**: with your own Claude or OpenAI-style API key, ask in plain words to tidy tags, group audiobook chapters or build playlists. It only proposes changes. You see a preview and approve, and every change goes through the same backup and read-back as everything else. Turning it on sends your tracks' titles, artists, albums and genres (no audio, no file paths) to the provider you choose. See [docs/AI-ORGANISER.md](docs/AI-ORGANISER.md).
 
-Nothing is uploaded unless you turn the AI assistant on or use the optional online album art lookup (it sends artist and album names only), and nothing is downloaded from streaming services: OpenTunes only works with files you already have.
+Nothing is uploaded unless you turn the AI assistant on or use the optional online album art lookup (it sends artist and album names, or a song's title and artist for a file with no album name, and nothing else), and nothing is downloaded from streaming services: OpenTunes only works with files you already have.
 
 ## How well is it tested?
 

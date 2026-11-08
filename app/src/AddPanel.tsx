@@ -12,9 +12,12 @@ import { useWriteReady } from './writeReady';
 import { allowWriting } from './WriteBackPanel';
 import { holdWork, startActivity, type ActivityHandle } from './activity';
 import { FolderGuide } from './FolderGuide';
-import { ArtFinder } from './ArtFinder';
-import { albumKey, albumRefOf, coverSource, findFolderCover, folderCoverRank, type OnlineCover } from './albumArt';
+import { ArtFinder, type FinderFocus, type UsedCovers } from './ArtFinder';
+import { albumKey, albumRefOf, coverSource, findFolderCover, folderCoverRank, songKey } from './albumArt';
 import { decodePicture } from './artDecode';
+import { itemKey } from './artLookup';
+import { CoverRow } from './CoverRow';
+import { applyChosenPicture, canTakeArt, coverSummary, coverWork, lookupFor, readChosenPicture, removeChosenPicture } from './coverRows';
 
 type Stage =
   | { phase: 'idle' }
@@ -104,6 +107,17 @@ export function AddPanel({
   /** Files the person chose to add although they are duplicates, without ticking the box for all of them. */
   const [allowIds, setAllowIds] = useState<ReadonlySet<string>>(new Set());
   const [putArt, setPutArt] = useState(true);
+  const coverPicker = useRef<HTMLInputElement>(null);
+  /** The row the picture picker was opened for. */
+  const coverTarget = useRef<string | null>(null);
+  /** Why the last picture chosen for a row was refused, by row. */
+  const [coverMessages, setCoverMessages] = useState<ReadonlyMap<string, string>>(new Map());
+  /** Rows whose "Use this picture for all N files of this album" the person turned off. It is on unless listed. */
+  const [sharedOff, setSharedOff] = useState<ReadonlySet<string>>(new Set());
+  /** Rows whose guess from the file name the person accepted. */
+  const [guesses, setGuesses] = useState<ReadonlySet<string>>(new Set());
+  /** Set when a row's "Find a cover online" is pressed, so the finder opens and takes the cursor. */
+  const [finderFocus, setFinderFocus] = useState<FinderFocus | null>(null);
 
   const { ready, backupOk, wait } = useWriteReady(backup);
   // Converted files are held in memory until they are copied. A reload would lose them, so say so before leaving.
@@ -120,6 +134,19 @@ export function AddPanel({
   /** What will be converted or copied: supported files that are not skipped as duplicates. */
   const addable = supported.filter((candidate) => !rows.get(candidate.id)?.skipped);
   const counts = countsOf(candidates, rows);
+  // Rows left out as duplicates never ask for a cover.
+  const skippedIds = useMemo(() => new Set(candidates.filter((candidate) => rows.get(candidate.id)?.skipped).map((candidate) => candidate.id)), [candidates, rows]);
+  const work = useMemo(() => coverWork(candidates, skippedIds, guesses), [candidates, skippedIds, guesses]);
+  /** How many files of each album have no cover, so a row can offer one picture for all of them. */
+  const albumFiles = useMemo(() => {
+    const counted = new Map<string, number>();
+    for (const candidate of candidates) {
+      const ref = albumRefOf(candidate.info.tags);
+      if (!ref || !canTakeArt(candidate, skippedIds.has(candidate.id)) || coverSource(candidate).from !== 'none') continue;
+      counted.set(albumKey(ref), (counted.get(albumKey(ref)) ?? 0) + 1);
+    }
+    return counted;
+  }, [candidates, skippedIds]);
   const convertBytes = sum(addable.filter((candidate) => candidate.decision.action === 'convert').map((candidate) => candidate.estimatedBytes));
   const capacityBytes = device && device.capacity_gb > 0 ? Math.round(device.capacity_gb * 1e9 * USABLE_SHARE) : undefined;
 
@@ -296,6 +323,72 @@ export function AddPanel({
   function remove(id: string) {
     setCandidates((previous) => previous.filter((candidate) => candidate.id !== id));
     setAllowIds((previous) => without(previous, id));
+    setGuesses((previous) => without(previous, id));
+    setSharedOff((previous) => without(previous, id));
+    setStage({ phase: 'idle' });
+  }
+
+  /** The row's own picture picker: "Choose a picture...", "Replace the cover". */
+  function openCoverPicker(id: string) {
+    coverTarget.current = id;
+    coverPicker.current?.click();
+  }
+
+  /** Reads, checks and decodes the picture chosen for a row (see readChosenPicture), then gives it to the row and, when ticked, its album. */
+  async function chooseCover(files: FileList | null) {
+    const id = coverTarget.current;
+    const file = files?.[0];
+    if (!id || !file) return;
+    const result = await readChosenPicture(file);
+    setCoverMessages((previous) => {
+      const next = new Map(previous);
+      if (result.ok) next.delete(id);
+      else next.set(id, result.message);
+      return next;
+    });
+    if (!result.ok) return;
+    setCandidates((previous) => applyChosenPicture(previous, id, result.cover, { all: !sharedOff.has(id), skipped: skippedIds }));
+    planChanged();
+  }
+
+  function removeCover(id: string) {
+    setCandidates((previous) => removeChosenPicture(previous, id));
+    planChanged();
+  }
+
+  function setGuess(id: string, accept: boolean) {
+    setGuesses((previous) => (accept ? new Set(previous).add(id) : without(previous, id)));
+  }
+
+  function setShared(id: string, on: boolean) {
+    setSharedOff((previous) => (on ? without(previous, id) : new Set(previous).add(id)));
+  }
+
+  /** "Find a cover online" on a row: open the finder, not collapsed, and point it at that row's album or song. */
+  function findCoverFor(candidate: Candidate) {
+    const how = lookupFor(candidate, guesses.has(candidate.id));
+    if (how.kind !== 'album' && how.kind !== 'song') return;
+    const key = itemKey(how.kind === 'album' ? { kind: 'album', ref: how.ref } : { kind: 'song', ref: how.ref });
+    setFinderFocus((previous) => ({ key, nonce: (previous?.nonce ?? 0) + 1 }));
+  }
+
+  /** Puts what the person approved from the online finder on the rows: albums by their names, songs by title and artist. */
+  function useOnlineCovers(covers: UsedCovers) {
+    setCandidates((previous) =>
+      previous.map((candidate) => {
+        if (coverSource(candidate).from !== 'none') return candidate;
+        const how = lookupFor(candidate, guesses.has(candidate.id));
+        if (how.kind === 'album') {
+          const cover = covers.albums.get(albumKey(how.ref));
+          return cover ? { ...candidate, onlineCover: cover } : candidate;
+        }
+        if (how.kind !== 'song') return candidate;
+        const hit = covers.songs.get(songKey(how.ref));
+        if (!hit) return candidate;
+        const withCover: Candidate = { ...candidate, onlineCover: hit.cover };
+        return hit.albumName ? { ...withCover, albumFromMatch: hit.albumName, info: { ...candidate.info, tags: { ...candidate.info.tags, album: hit.albumName } } } : withCover;
+      }),
+    );
     setStage({ phase: 'idle' });
   }
 
@@ -498,6 +591,19 @@ export function AddPanel({
             });
           }}
         />
+        <input
+          ref={coverPicker}
+          data-pick="cover"
+          type="file"
+          accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+          hidden
+          onChange={(event) => {
+            const input = event.target as HTMLInputElement;
+            void chooseCover(input.files).then(() => {
+              input.value = '';
+            });
+          }}
+        />
         {candidates.length ? (
           <button type="button" class="secondary" disabled={busy || clearing} onClick={() => setClearing(true)}>
             Clear the list
@@ -514,6 +620,9 @@ export function AddPanel({
             setClearing(false);
             setCandidates([]);
             setAllowIds(new Set());
+            setGuesses(new Set());
+            setSharedOff(new Set());
+            setCoverMessages(new Map());
             setProblems([]);
             setIgnored(0);
             setNotice('');
@@ -544,6 +653,12 @@ export function AddPanel({
       ) : null}
 
       {candidates.length ? (
+        <p class="cover-summary" data-cover-summary aria-live="polite">
+          {coverSummary(putArt, work)}
+        </p>
+      ) : null}
+
+      {candidates.length ? (
         <div class="table-wrap stack-wrap">
           <table class="library stack add-stack">
             <thead>
@@ -568,7 +683,26 @@ export function AddPanel({
                       {candidate.info.tags.title ?? candidate.file.name}
                       {candidate.folder ? <div class="path">{candidate.folder}</div> : null}
                       {candidate.filledFromFolders?.length ? <div class="path">{candidate.filledFromFolders.join(', ')} filled in from the folder and file names</div> : null}
-                      {putArt && !unsupported && !skipped ? <CoverNote candidate={candidate} /> : null}
+                      {candidate.albumFromMatch ? <div class="path">album name filled in from the online match: {candidate.albumFromMatch}</div> : null}
+                      {putArt ? (
+                        <CoverRow
+                          candidate={candidate}
+                          skipped={skipped}
+                          guessAccepted={guesses.has(candidate.id)}
+                          albumFiles={(() => {
+                            const ref = albumRefOf(candidate.info.tags);
+                            return ref ? albumFiles.get(albumKey(ref)) ?? 0 : 0;
+                          })()}
+                          sharedOn={!sharedOff.has(candidate.id)}
+                          message={coverMessages.get(candidate.id) ?? ''}
+                          busy={busy}
+                          onFind={findCoverFor}
+                          onChoose={(row) => openCoverPicker(row.id)}
+                          onRemove={(row) => removeCover(row.id)}
+                          onGuess={(row, accept) => setGuess(row.id, accept)}
+                          onShared={(row, on) => setShared(row.id, on)}
+                        />
+                      ) : null}
                       {dup?.label ? <DuplicateNote row={dup} /> : null}
                     </td>
                     <td data-label="Kind">
@@ -649,22 +783,7 @@ export function AddPanel({
             <input type="checkbox" checked={putArt} disabled={busy} onChange={(event) => setPutArt((event.target as HTMLInputElement).checked)} />
             Put cover pictures on the iPod (from inside the files, or cover.jpg and folder.jpg beside them). Writing cover art has not been tried on a real iPod yet.
           </label>
-          {putArt ? (
-            <ArtFinder
-              candidates={candidates}
-              disabled={busy}
-              onUse={(covers: Map<string, OnlineCover>) => {
-                setCandidates((previous) =>
-                  previous.map((candidate) => {
-                    const ref = albumRefOf(candidate.info.tags);
-                    const cover = ref ? covers.get(albumKey(ref)) : undefined;
-                    return cover && coverSource(candidate).from === 'none' ? { ...candidate, onlineCover: cover } : candidate;
-                  }),
-                );
-                setStage({ phase: 'idle' });
-              }}
-            />
-          ) : null}
+          {putArt ? <ArtFinder candidates={candidates} skipped={skippedIds} guesses={guesses} disabled={busy} focus={finderFocus} onUse={useOnlineCovers} /> : null}
           <label class="field">
             Put them in a playlist (optional)
             <input type="text" value={playlist} disabled={busy} onInput={(event) => setPlaylist((event.target as HTMLInputElement).value)} placeholder="Playlist name" />
@@ -872,15 +991,4 @@ function without(set: ReadonlySet<string>, id: string): Set<string> {
   const next = new Set(set);
   next.delete(id);
   return next;
-}
-
-/** Where a file's cover comes from, in the list: inside the file, a picture in its folder, one found online, or none. */
-function CoverNote({ candidate }: { candidate: Candidate }) {
-  const source = coverSource(candidate);
-  const text =
-    source.from === 'file' ? 'Cover: inside the file'
-    : source.from === 'folder' ? `Cover: ${source.name} from its folder`
-    : source.from === 'online' ? 'Cover: found online (you approved it)'
-    : 'Cover: none';
-  return <div class="path">{text}</div>;
 }

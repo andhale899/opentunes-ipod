@@ -11,7 +11,7 @@ import {
 } from '@opentunes/core';
 import { syncDataFromBlob, syncDataFromBytes, type SyncItem } from '@opentunes/engine';
 import { guessFromFolders, mergeMissingTags } from './folderRules';
-import { coverFor, type OnlineCover } from './albumArt';
+import { coverFor, type ChosenCover, type OnlineCover } from './albumArt';
 
 /** A file the person picked, what it is, and what will be done with it. */
 export interface Candidate {
@@ -33,6 +33,10 @@ export interface Candidate {
   folderCover?: { name: string; file: File };
   /** A cover found online and approved by the person. Used only when the file and its folder have none. */
   onlineCover?: OnlineCover;
+  /** A picture the person chose for this row. It wins over every other cover, and is only set on a row with no cover or after "Replace the cover". */
+  chosenCover?: ChosenCover;
+  /** The album name filled in from an approved online match, when the person ticked "Also fill in the album name". */
+  albumFromMatch?: string;
 }
 
 let counter = 0;
@@ -143,12 +147,12 @@ export async function prepareItem(candidate: Candidate, options: PrepareOptions 
   const converted = await convertMedia({ name: file.name, blob: file }, decision.conversion, {
     onProgress: options.onProgress,
     signal: options.signal,
-    artwork: candidate.info.artwork,
+    artwork: candidate.chosenCover ? artwork : candidate.info.artwork,
   });
   const after = await probeMedia(fileSourceFromBytes(converted.fileName, converted.bytes));
   // A field the converter could not carry is filled from the original, and the fields that say which
   // song this is always come from the original, so the duplicate check made before converting still holds.
-  const merged: MediaInfo = { ...after, tags: mergeConvertedTags(info.tags, after.tags), artwork: after.artwork ?? info.artwork };
+  const merged: MediaInfo = { ...after, tags: mergeConvertedTags(info.tags, after.tags), artwork: candidate.chosenCover ? info.artwork : after.artwork ?? info.artwork };
   return { id: candidate.id, kind: decision.kind, data: syncDataFromBytes(converted.bytes), extension, info: merged, name: file.name, playlists };
 }
 

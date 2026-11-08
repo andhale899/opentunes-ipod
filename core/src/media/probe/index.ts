@@ -13,6 +13,9 @@ import { Reader } from './reader';
 import { addWarning, createState, finalize, type ProbeState } from './state';
 import { probeWav } from './wav';
 
+/** The largest cover picture that is read, from inside a file or chosen by the person. */
+export { MAX_ARTWORK_BYTES } from './image';
+
 /**
  * Reads what a media file says about itself: container, codecs, length, tags, chapters, cover art.
  *
