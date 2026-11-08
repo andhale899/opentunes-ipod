@@ -54,7 +54,7 @@ Checksum basis: The SysInfoExtended of a real nano 7G declares database version 
 
 Declared by the device itself (`engine/data/7_nano_SysInfoExtended.plist`):
 
-- Dumped from a real nano 7G by the author of the upstream TunesReloaded project, not from your unit. Compare it with the SysInfoExtended on your own iPod in Phase 2.
+- The description file of a real nano 7G with its FireWire ID, serial number and MLBN scrubbed. The owner's own unit gives the identical file once those three values are replaced (checked 2026-11-07).
 - Disk format: FAT32
 - Up to 65534 tracks, files up to 4 GB
 - Features: podcasts, photos, voiceMemos, playlistFolders, genius

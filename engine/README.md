@@ -15,6 +15,6 @@ npm run engine:test     # Node tests against that build
 | `patches/libgpod/` | Our three changes to libgpod, applied in name order. |
 | `meson/` | The cross-compilation file used to build glib. |
 | `scripts/` | `build.sh` (Docker build and copy out) and `fetch.sh` (download with a checksum check). |
-| `data/` | SysInfoExtended templates for the nano 5G and 7G, for devices that do not carry their own. Device serial numbers are scrubbed and the FireWire ID is a placeholder. |
+| `data/` | SysInfoExtended template for the nano 7G, used by the demo iPods and tests. It is the owner's own unit's file with the FireWire ID, serial number and MLBN replaced by placeholders. |
 | `test/` | Node tests, and the hashAB known-answer vectors. |
 | `build/` | Generated output (`engine.js`, `engine.wasm`). Ignored by git. |
