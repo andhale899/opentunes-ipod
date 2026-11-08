@@ -1,6 +1,7 @@
 {
   "name": "opentunes",
   "version": "0.2.0-dev",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "description": "Chrome-only web app that puts music, video and podcasts on a classic iPod, with no backend.",
   "type": "module",

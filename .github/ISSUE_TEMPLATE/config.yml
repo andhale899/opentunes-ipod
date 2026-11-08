@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Not working on a model other than the nano 7th generation?
+    url: https://github.com/andhale899/opentunes-ipod/blob/main/docs/DEVICE-SUPPORT.md
+    about: Only the nano 7th generation has been tried on real hardware. Other models are listed from specifications and may not work.
