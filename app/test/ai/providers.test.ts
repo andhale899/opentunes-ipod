@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ModelError, callModel, checkBaseUrl, hostOf, parseJsonReply, scrub, type FetchLike, type ModelRequest, type ProviderConfig } from '../../src/ai/providers';
+import { ModelError, NOT_A_CHAT_MODEL, callModel, checkBaseUrl, hostOf, parseJsonReply, scrub, type FetchLike, type ModelRequest, type ProviderConfig } from '../../src/ai/providers';
 import { TOOLS } from '../../src/ai/schema';
 
 const KEY = 'sk-test-0000';
@@ -204,6 +204,36 @@ describe('errors in plain language', () => {
     expect((await failing(json({}, 413))).message).toMatch(/too big/);
     expect(await failing(json({ error: { message: 'overloaded' } }, 529))).toMatchObject({ kind: 'server' });
     expect(await failing(new Response('Bad gateway', { status: 502 }))).toMatchObject({ kind: 'server', message: expect.stringContaining('Bad gateway') });
+  });
+
+  it('a model that is not a chat model gets a plain message, without talking about addresses', async () => {
+    const bodies = [
+      'This is not a chat model and thus not supported in the v1/chat/completions endpoint. Did you mean to use v1/completions?',
+      'This model is only supported in v1/responses and not in v1/chat/completions.',
+      'The model `gpt-5-pro` only supports the v1/responses endpoint.',
+      'This model is not supported by this endpoint.',
+    ];
+    for (const status of [404, 400]) {
+      for (const message of bodies) {
+        const error = await failing(json({ error: { message } }, status), openai);
+        expect(error, `${status} ${message}`).toMatchObject({ kind: 'bad-request', status, toolsRefused: false });
+        expect(error.message).toBe(NOT_A_CHAT_MODEL);
+        expect(error.message).not.toMatch(/address|404|400/);
+      }
+    }
+  });
+
+  it('a real missing model and a tools refusal are not mistaken for a wrong-kind model', async () => {
+    const missing = await failing(json({ error: { message: 'The model `nope` does not exist or you do not have access to it.' } }, 404), openai);
+    expect(missing.message).toMatch(/does not exist/);
+    expect(missing.message).not.toBe(NOT_A_CHAT_MODEL);
+    // "not supported by this endpoint" about tools must still reach the JSON fallback.
+    const refusal = () => json({ error: { message: 'tools are not supported by this endpoint' } }, 400);
+    const { fetchImpl, calls } = fake(refusal, refusal);
+    const tools = await failure(callModel(openai, request, { fetchImpl }));
+    expect(calls).toHaveLength(2); // it asked again without tools
+    expect(tools.message).not.toBe(NOT_A_CHAT_MODEL);
+    expect(tools.message).toMatch(/rejected the request/);
   });
 
   it('a network or CORS failure says some endpoints do not allow browser calls', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ModelError, listModels, type FetchLike } from '../../src/ai/providers';
+import { ModelError, isOpenAiChatModel, listModels, type FetchLike } from '../../src/ai/providers';
 
 const KEY = 'sk-test-0000-model-list';
 
@@ -32,6 +32,23 @@ describe('asking a service which models a key can use', () => {
     expect(list.map((choice) => choice.id)).toEqual(['o3-mini', 'gpt-4o-mini', 'gpt-4o']);
     expect(calls[0]?.url).toBe('https://api.openai.com/v1/models');
     expect((calls[0]?.init.headers as Record<string, string>).Authorization).toBe(`Bearer ${KEY}`);
+  });
+
+  it('hides completion-only, Responses-only and non-text models from api.openai.com, and keeps chat models', async () => {
+    const hidden = [
+      'gpt-3.5-turbo-instruct', 'gpt-3.5-turbo-instruct-0914', 'davinci-002', 'babbage-002', 'text-davinci-003',
+      'gpt-5-codex', 'gpt-5.1-codex-max', 'codex-mini-latest', 'o3-deep-research', 'o4-mini-deep-research-2025-06-26',
+      'gpt-4o-search-preview', 'gpt-5-search-api', 'gpt-5-pro', 'gpt-5-pro-2025-10-06', 'o1-pro', 'o3-pro-2025-06-10',
+      'gpt-oss-120b', 'gpt-oss-20b', 'gpt-4o-audio-preview', 'gpt-audio', 'gpt-4o-realtime-preview', 'gpt-realtime',
+      'gpt-4o-transcribe', 'gpt-4o-transcribe-diarize', 'gpt-4o-mini-tts', 'gpt-image-1', 'chatgpt-image-latest',
+      'omni-moderation-latest', 'text-embedding-3-large', 'whisper-1', 'dall-e-3', 'computer-use-preview', 'sora-2',
+      'tts-1-hd', 'ft:gpt-4o-mini:acme::abc',
+    ];
+    const shown = ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-5', 'gpt-5-mini', 'gpt-5-chat-latest', 'gpt-3.5-turbo', 'o1', 'o3-mini', 'o4-mini', 'chatgpt-4o-latest'];
+    const { fetchImpl } = fake(200, { data: [...hidden, ...shown].map((id) => ({ id })) });
+    const list = await listModels({ provider: 'openai', apiKey: KEY, baseUrl: 'https://api.openai.com/v1' }, { fetchImpl });
+    expect(list.map((choice) => choice.id).sort()).toEqual([...shown].sort());
+    for (const id of hidden) expect(isOpenAiChatModel(id), id).toBe(false);
   });
 
   it('does not filter the list of another endpoint', async () => {
