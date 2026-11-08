@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Robustness (hardening/robustness; audit in `docs/audit/robustness.md`)
+- A Logs button in the corner opens a drawer of what the app has been doing (jobs started, steps, finished with the time taken, errors, the write note, backup, restore and reconnect). Capped at 500 entries, the last 300 kept across a reload and labelled "before the reload", Errors only, Copy, Download (.txt), Clear, Escape closes. Serial numbers, FireWire IDs and API keys are masked before anything is stored.
+- An interrupted-write note kept in the browser (operation, time, iPod folder name, backup folder name; never an ID or a title). If a change never finished, the next page load shows a calm banner with Dismiss and "Take me to Backup".
+- One change to the iPod at a time across every panel (and across browser tabs where Web Locks exist): a second write is refused with a plain message, every control is off while a write runs, and a plan is not made while a write runs or a write started while the iPod is being read.
+- The activity bar no longer says "Done" for a write that the engine reported as not verified and rolled back.
+- The leave-the-page warning now covers every long job. A running job keeps the screen on (Screen Wake Lock, asked for again when the tab comes back), the tab title says it is working, and the bar warns when the tab went to the background.
+- "Reconnect <folder>" on the landing page after a reload (the folder handle is kept in IndexedDB). "Use the backup I made earlier" after a reload, only if it passes the restore checks and the iPod's database files still match it exactly (decision in `app/src/backupReuse.ts`).
+- "Reload from the iPod" and a "Last read" time in the device header. If the iPod changed outside the page, the screens are reset and the earlier backup stops counting.
+- Selections, plans and the playlist view are cleaned up when the library is read again, and a restore now refreshes the library on screen.
+- Plain messages when the iPod is unplugged, ejected, locked or full ("The iPod was disconnected. Plug it in, then use Reconnect."), with what was undone when a write hit it. The page checks that the folder still answers every few seconds.
+- A global error handler: a small "Something went wrong" notice with a copy-report button (no titles, no IDs) instead of silence.
+- The AI assistant's unsent question survives a tab switch and a reload, and after a reload the page says what was cleared.
+
 ### Added
 - Environment check page with USB and folder probes.
 - Device registry with a verification status per model, and a generated `docs/DEVICE-SUPPORT.md`.

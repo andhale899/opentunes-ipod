@@ -1,5 +1,6 @@
 import { render } from 'preact';
 import { App } from './App';
+import { installGlobalErrorHandlers } from './errors';
 import { PanelBoundary } from './PanelBoundary';
 import './styles.css';
 
@@ -12,6 +13,9 @@ function Broken(): never {
 }
 
 const selftest = new URLSearchParams(window.location.search).get('selftest');
+
+// Errors nobody caught get a small notice and a log line instead of silence.
+installGlobalErrorHandlers();
 
 if (selftest === 'boundary') {
   render(

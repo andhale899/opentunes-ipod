@@ -12,7 +12,7 @@ const seconds = (since: number, now: number): string => {
  * iPod is safe to eject.
  */
 export function ActivityBar() {
-  const { active, finished } = useActivity();
+  const { active, finished, wake, wasHidden, hiddenMs } = useActivity();
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -38,7 +38,15 @@ export function ActivityBar() {
             </strong>
             {main.message ? <span class="activity-step">{main.message}</span> : null}
             {writing ? (
-              <span class="activity-warn">Do not unplug or eject the iPod, and do not close this tab, until this says it is done.</span>
+              <span class="activity-warn">Do not unplug or eject the iPod, and do not close this tab, until this says it is done. Keep this tab open and the screen on.</span>
+            ) : null}
+            {wasHidden ? (
+              <span class="activity-warn">
+                This tab was in the background for {Math.max(1, Math.round(hiddenMs / 1000))} s while this runs. Chrome on a phone can freeze a background tab, which stops the work. Keep this tab open and the screen on.
+              </span>
+            ) : null}
+            {!writing && !wasHidden && (wake === 'unsupported' || wake === 'refused') ? (
+              <span class="activity-step">This browser would not keep the screen awake. Keep it on yourself until this is done.</span>
             ) : null}
             {slow ? <span class="activity-step">Still working. Reading or writing an iPod over USB can be slow, especially from a phone. It has not stalled just because it takes a while.</span> : null}
           </div>

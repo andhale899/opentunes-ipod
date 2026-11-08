@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
 import { trackKey, type BackupReport, type DirectoryEntry, type IpodRoot, type OrphanReport, type PlaylistInfo, type RemovalPlan, type TrackEdit, type TrackInfo } from '@opentunes/engine';
 import { applyRemoval, editTracks, findOrphans, planRemoval, removeOrphans } from './tracked';
@@ -8,6 +8,7 @@ import { BackupGate } from './BackupGate';
 import { allowWriting } from './WriteBackPanel';
 import { BulkEdit } from './library/BulkEdit';
 import { rowsOf, selectedRows } from './library/organise';
+import { pruneSelection } from './staleness';
 import { PlaylistManager } from './library/PlaylistManager';
 import { TrackBrowser } from './library/TrackBrowser';
 
@@ -65,6 +66,25 @@ export function ManagePanel({
   const chosen = useMemo(() => selectedRows(rows, selected), [rows, selected]);
   const only = chosen.length === 1 ? chosen[0]?.track : undefined;
 
+  // The library was read again. Selected tracks that are gone are dropped, a plan made for the old
+  // library is thrown away, and an edit draft for a track that may have changed is cleared.
+  useEffect(() => {
+    setSelected((current) => pruneSelection(current, rows.map((row) => row.key)));
+    setStage((current) => (current.phase === 'removal' || current.phase === 'orphans' ? { phase: 'idle' } : current));
+    setDraft({});
+  }, [rows]);
+
+  /** Asks Chrome for write access. An iPod that is not there says so in plain words instead of throwing. */
+  async function allowed(refusal: string): Promise<boolean> {
+    try {
+      if (await allowWriting(root)) return true;
+      setStage({ phase: 'error', message: refusal });
+    } catch (error) {
+      setStage({ phase: 'error', message: describeError(error, { writing: true }) });
+    }
+    return false;
+  }
+
   function select(next: Set<string>) {
     setSelected(next);
     setDraft({});
@@ -89,10 +109,7 @@ export function ManagePanel({
   }
 
   async function remove(plan: RemovalPlan) {
-    if (!(await allowWriting(root))) {
-      setStage({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was changed.' });
-      return;
-    }
+    if (!(await allowed('Chrome was not allowed to change the iPod, so nothing was changed.'))) return;
     setStage({ phase: 'working', message: 'Removing...' });
     try {
       const report = await applyRemoval(plan, root as unknown as IpodRoot, newEngine, { backup, onProgress: (progress) => setStage({ phase: 'working', message: progress.message }) });
@@ -108,7 +125,7 @@ export function ManagePanel({
         onChanged();
       }
     } catch (error) {
-      setStage({ phase: 'error', message: describeError(error) });
+      setStage({ phase: 'error', message: describeError(error, { writing: true }) });
     }
   }
 
@@ -122,10 +139,7 @@ export function ManagePanel({
       setStage({ phase: 'error', message: 'Nothing was changed.' });
       return;
     }
-    if (!(await allowWriting(root))) {
-      setStage({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was changed.' });
-      return;
-    }
+    if (!(await allowed('Chrome was not allowed to change the iPod, so nothing was changed.'))) return;
     setStage({ phase: 'working', message: 'Saving the changes...' });
     try {
       const { report } = await editTracks(root as unknown as IpodRoot, newEngine, [{ key: trackKey(track), fields }], {
@@ -141,17 +155,14 @@ export function ManagePanel({
         onChanged();
       }
     } catch (error) {
-      setStage({ phase: 'error', message: describeError(error) });
+      setStage({ phase: 'error', message: describeError(error, { writing: true }) });
     }
   }
 
   /** Changes artist, album, album artist, genre and kind of many tracks, one edit per track, in one write. */
   async function applyBulk(edits: TrackEdit[]): Promise<boolean> {
     if (!edits.length) return false;
-    if (!(await allowWriting(root))) {
-      setStage({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was changed.' });
-      return false;
-    }
+    if (!(await allowed('Chrome was not allowed to change the iPod, so nothing was changed.'))) return false;
     setStage({ phase: 'working', message: `Saving changes to ${plural(edits.length, 'track')}...` });
     try {
       const { report } = await editTracks(root as unknown as IpodRoot, newEngine, edits, {
@@ -163,7 +174,7 @@ export function ManagePanel({
       if (ok) onChanged();
       return ok;
     } catch (error) {
-      setStage({ phase: 'error', message: describeError(error) });
+      setStage({ phase: 'error', message: describeError(error, { writing: true }) });
       return false;
     }
   }
@@ -178,10 +189,7 @@ export function ManagePanel({
   }
 
   async function clean(report: OrphanReport) {
-    if (!(await allowWriting(root))) {
-      setStage({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was deleted.' });
-      return;
-    }
+    if (!(await allowed('Chrome was not allowed to change the iPod, so nothing was deleted.'))) return;
     setStage({ phase: 'working', message: 'Deleting...' });
     try {
       const result = await removeOrphans(root as unknown as IpodRoot, newEngine, report.orphans);
@@ -192,7 +200,7 @@ export function ManagePanel({
         details: result.kept.map((kept) => `${kept.path}: ${kept.reason}`),
       });
     } catch (error) {
-      setStage({ phase: 'error', message: describeError(error) });
+      setStage({ phase: 'error', message: describeError(error, { writing: true }) });
     }
   }
 

@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { currentActivity, resetActivity, startActivity } from '../src/activity';
+import { memoryKv, useKv } from '../src/kv';
+import { resetLock } from '../src/writeLock';
 import { track } from '../src/tracked';
 
-beforeEach(() => resetActivity());
+beforeEach(() => {
+  useKv(memoryKv());
+  resetLock();
+  resetActivity();
+});
 
 describe('the activity store', () => {
   it('shows an activity while it runs and leaves a banner for a finished write', () => {

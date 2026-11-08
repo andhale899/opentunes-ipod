@@ -1,0 +1,65 @@
+# Robustness audit
+
+What happens when things go wrong or what the page shows has gone stale. Branch `hardening/robustness`. Severity: high means the person can lose data or be misled about the iPod, medium means a confusing or stuck screen, low means polish.
+
+The incident behind it: on an Android phone an AI playlist change seemed stuck, nothing on screen said otherwise, and the iPod was ejected two or three minutes in, mid-write.
+
+## Findings
+
+| # | What | How it failed | Severity | Status |
+| --- | --- | --- | --- | --- |
+| 1 | Reload, closed tab or crash during a write | An interrupted write left no trace. After a reload the backup report and the picked folder were gone too. | High | Fixed: interrupted-write note in IndexedDB (`app/src/journal.ts`), banner on the next load with Dismiss and "Take me to Backup". |
+| 2 | The activity bar said "Done, now eject" for a write the engine reported as failed and rolled back | `track()` only looked for a thrown error, but the engine reports a failed write instead of throwing. The person was told the iPod was fine. | High | Fixed: `judgeWrite` reads the report (`verified`, `rolledBack`, `rollbackFailures`). |
+| 3 | Restore did not refresh the library on screen | After "Restore these files" the Library and header still showed the library from before the restore. | High | Fixed: `RestorePanel` now calls back and the page reads the iPod again. |
+| 4 | Two writes at once | Two clicks, two panels, or two tabs could start two writes. Nothing stopped them. | High | Fixed: `app/src/writeLock.ts`, taken synchronously in `tracked.ts`; Web Locks across tabs; controls off while a write runs. |
+| 5 | Leave-the-page warning only for writes | Closing the tab during a conversion, offload, backup, restore or AI wait lost the work silently. | Medium | Fixed: any running job. |
+| 6 | Screen Wake Lock was only listed as a capability | A phone locking its screen mid-job froze the tab. Nothing kept it awake. | High on phones | Fixed: acquired for any job, asked for again when the tab is visible, released after. Not tested on a phone. |
+| 7 | Tab in the background during a write | Chrome on Android freezes background tabs. No warning. | High on phones | Partly fixed: the tab title says "Working...", and the bar says the tab was in the background when the person comes back. A frozen tab cannot show anything while hidden. |
+| 8 | iPod unplugged or ejected: raw browser errors | "A requested file or directory could not be found at the time an operation was processed", or "no iPod_Control folder" for an unplugged folder. | High | Fixed: plain messages (`friendlyError.ts`); failure lists in write reports are rewritten in place; the page checks the folder every 5 s and on tab focus and shows a Reconnect banner. Not tried with a real unplugged iPod. |
+| 9 | `allowWriting` outside a `try` | In the Library, playlist and AI apply handlers, a vanished handle became an unhandled rejection with no message. | Medium | Fixed in the three panels I could edit. Not fixed in `AddPanel.tsx` (see below); the global handler shows it there. |
+| 10 | A failed re-read after a change replaced the whole screen with an error | After a good write, if the re-read failed (iPod pulled), the panels and their results vanished. | Medium | Fixed: the screen stays, with a warning that it shows the last read. |
+| 11 | Stale screens: selection after a bulk edit, removal and playlist plans, edit draft, orphan list | Selected keys pointed at tracks that were gone; "N selected" counted ghosts; a plan made for the old library stayed on screen. | Medium | Fixed in `ManagePanel` and `PlaylistManager`. The Diagnostics panels (rewrite check, write-back plan) restart when the library changes. |
+| 12 | The iPod changed behind the page's back (iTunes, another computer) | Nothing noticed. The backup stayed "valid" for a different iPod. | High | Fixed: "Reload from the iPod" with "Last read" time. A different fingerprint resets every screen and drops the backup. Engine writes were already safe: they refuse a file that differs from the plan. |
+| 13 | AI assistant: `libraryRef` | Already marks a turn stale when the library array changes. Verified, no change needed. | Low | Already fine. |
+| 14 | A refresh loses the backup, the folder and the backup folder | A reload demanded a new backup. | Medium | Fixed: Reconnect, and "Use the backup I made earlier" (below). |
+| 15 | Unhandled errors and rejections: silence | A thrown error in a click handler left no trace. | Medium | Fixed: global handler, non-blocking notice, copy report. |
+| 16 | The AI key and opt-in vanish on reload with no explanation; the unsent question was lost on a tab switch or reload | The person paid for nothing and wondered why. | Low | Fixed: a note after a reload; the unsent question is kept in the tab. |
+| 17 | `restoreBackup` has no rollback | A restore that fails half way leaves a mix of old and new files. It reports this, but undoes nothing. | Medium | Not fixed: it is in `engine/` (another builder is there). Logged, and a failed or interrupted restore keeps the interrupted-write note. A rerun of the restore is the way forward. |
+| 18 | Converted files and the Add list live in `AddPanel` state | A reload loses the conversions. Only the running job is guarded, not "converted but not yet copied". | Medium | Not fixed: `AddPanel.tsx` is off limits. Suggested change below. |
+| 19 | Nothing shows what the app is doing | Cannot tell a stuck job from a quiet one. | Medium | Fixed: the Logs button. |
+
+## The decisions
+
+**Interrupted-write note.** Written before the first step of any write and removed when it ends cleanly or fails and is fully undone. It holds the operation label, the start time, the iPod folder name and the backup folder name. It never holds a serial number, FireWire ID or title: folder names are masked if one looks like an ID, and unknown fields are dropped when it is read back. A write that throws before any progress message leaves no note (nothing was written). A note for the practice iPod is dropped silently on the next load, because that iPod is gone with the page. A note marked "running" while another tab holds the write lock is not shown, since that tab is still working.
+
+**Re-using a backup after a reload.** Not always safe, so it is conditional. The backup exists so a bad write can be undone. If the iPod changed since, restoring would also undo that change. A remembered backup counts only if all of these hold: this browser made it and remembered where it is, with the creation time from its own `backup-info.json`; it was made from an iPod folder of the same name; it passes the checks a restore makes (complete, every file present at its size and matching its SHA-256); and the iPod's database files today match it (SHA-256 up to 8 MiB, size above that, nothing missing, nothing new). If the iPod differs, the page shows how old the backup is and what differs, and the person must make a new backup. There is no "use it anyway": a new backup takes seconds, a stale one silently throws away later work. The same rule drops the backup in memory when "Reload from the iPod" finds the iPod changed. After a write made here the backup is, as before, older than the iPod; restoring it undoes that write, which is the point.
+
+**Disconnect detection.** Chrome has no event for an unplugged volume. The page lists the folder's top level every 5 s while no job runs, on tab focus, and when a WebUSB device leaves (only for a device the person already allowed). A failure shows the Reconnect banner. During a job the write's own error is shown.
+
+**The lock.** One writer, any number of readers, and no write while a read is under way and no read while a write runs. Reads that load the iPod are refused during a write, so a plan is never built from half a write. The engine already refuses a plan whose files differ from what is on the iPod, so a stale plan cannot overwrite a change; the lock stops the confusion before that.
+
+## Logs viewer
+
+A pill button "Logs" in the bottom-right corner (at least 44 px tall, above the footer on phones), with a number when there are new errors. It opens a drawer (not a page): timestamped entries, newest at the bottom, auto scroll unless the person scrolled up; a mark and a word for done, step and error (not colour alone); Errors only; Copy log; Download log (.txt); Clear; Close; Escape closes and returns focus to the button. Fed by the activity store (started, steps throttled to one per job every 1.5 s with repeats dropped, finished with the time taken, failed with the plain reason), the global error handler, the write note, backup, restore and reconnect. At most 500 entries in memory, the last 300 kept in localStorage across a reload and labelled "before the reload". Masked before storing: 16-hex strings starting 000A27 or 000A95, `serial`/`FireWire ID` lines, API-key-shaped strings (reusing `scrub`). The panel says: "This log stays in your browser. It may contain file names, so look through it before you share it." Two tabs share one localStorage entry; the last to save wins.
+
+## Tested
+
+- Unit tests (`app/test/log.test.ts`, `write-lock.test.ts`, `robustness.test.ts`): the log store (cap, masking, throttling, persistence, broken storage), the lock (including the same-tick case and Web Locks with a fake), the journal (what it holds, found after a "reload", dismiss, failed, practice), `track` with lock and journal, plain messages, reconnect decisions, backup re-use against real backups made by `backupIpod`, fingerprints and selection pruning, wake lock and background watch with fakes, the global handler.
+- Smoke on the practice iPod (`SMOKE_PORT=4481`): a note planted the way the app writes it plus a reload shows the banner, Dismiss clears it for good, and the log keeps the earlier lines; two simultaneous Save clicks run one write and refuse the other; a change made behind the page's back is found by Reload from the iPod (5 to 4 tracks, backup dropped), and a second reload says nothing changed; the Logs button shows an entry, Copy and Download hold it, Errors only works, Escape closes and focus returns; Reconnect is offered after a reload for a stored folder handle (an OPFS folder standing in for the iPod).
+
+## Not tested
+
+- Nothing was run on a real iPod, on Android, or with a real unplug. The wording of the browser errors comes from what Chrome documents.
+- The Screen Wake Lock and the background-tab warning were tested with fakes, not on a phone.
+- Re-using a backup was tested on in-memory folders, not with a real backup folder and a real permission prompt.
+- The write-lock across tabs uses Web Locks and was tested with a fake, not with two real tabs.
+- The live disconnect check (every 5 s) is not covered by an automated test.
+
+## Not done, with exact changes
+
+- `app/src/AddPanel.tsx` (off limits): wrap the `allowWriting(root)` call near line 221 in the same `try` as the write, and use `describeError(error, { writing: true })` in its write `catch`. Call `holdWork('Converted files not yet copied')` (a small function to add to `activity.ts` that sets a leave warning while the Add list holds converted files) when conversions finish, and release it after the copy or "Clear the list". Reset the plan (`stage`) when `tracks` changes, as `ManagePanel` now does; the page already remounts the Add panel when Reload finds an outside change.
+- `engine/js/writeback.ts` (off limits): `restoreBackup` should keep the bytes it overwrites and put them back if a later file fails, as `applyWriteBack` does.
+- `engine/js/folder.ts`: `loadIpodFolder` reports an unplugged folder as "no iPod_Control folder". The page checks first now, but the engine should tell the two apart.
+- The Rewrite check panel's own result is not marked as old on screen; it restarts when the library changes.
+- No phone layout or button changes here: the other auditor owns them.
+- Merging: `IpodViewer.tsx`, `activity.ts`, `ActivityBar.tsx`, `tracked.ts`, `styles.css` (marked section at the end) and `smoke.mjs` (new scenarios after the AI assistant one; the "finding duplicates on a practice iPod" scenario was not on this branch) will conflict with main.

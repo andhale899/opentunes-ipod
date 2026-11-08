@@ -35,7 +35,41 @@ export const session: {
   optIn: boolean;
   turns: Turn[];
   nextId: number;
-} = { initialised: false, settings: defaultSettings(), keys: {}, optIn: false, turns: [], nextId: 1 };
+  /** The question typed but not sent. Kept while the page is open, and across a reload in this tab only. */
+  draft: string;
+  /** True when this tab used the assistant before the page was reloaded, so the clean start can be explained. */
+  afterReload: boolean;
+} = { initialised: false, settings: defaultSettings(), keys: {}, optIn: false, turns: [], nextId: 1, draft: '', afterReload: false };
+
+const TOUCHED = 'opentunes.ai.touched';
+const DRAFT = 'opentunes.ai.draft';
+
+function tabStorage(): Storage | null {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** Notes, for this tab only, that the assistant was used, so a reload can say what it cleared. */
+export function markTouched(): void {
+  try {
+    tabStorage()?.setItem(TOUCHED, '1');
+  } catch {
+    // nothing to do
+  }
+}
+
+/** Keeps the unsent question for this tab (cleared when the tab closes). It is the person's own text, and goes nowhere. */
+export function saveDraft(text: string): void {
+  try {
+    if (text) tabStorage()?.setItem(DRAFT, text);
+    else tabStorage()?.removeItem(DRAFT);
+  } catch {
+    // nothing to do
+  }
+}
 
 /** Loads saved settings once per page load. */
 export function initSession(): typeof session {
@@ -43,6 +77,12 @@ export function initSession(): typeof session {
     const loaded = loadSettings(browserStorage());
     session.settings = loaded.settings;
     session.keys = loaded.keys;
+    try {
+      session.afterReload = tabStorage()?.getItem(TOUCHED) === '1';
+      session.draft = tabStorage()?.getItem(DRAFT) ?? '';
+    } catch {
+      session.afterReload = false;
+    }
     session.initialised = true;
   }
   return session;

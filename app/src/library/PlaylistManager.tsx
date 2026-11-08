@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { type BackupReport, type DirectoryEntry, type IpodRoot, type LibraryPlan, type PlaylistChange, type PlaylistInfo } from '@opentunes/engine';
 import { changePlaylists, planPlaylistChanges } from '../tracked';
 import { describeError } from '../describeError';
@@ -50,6 +50,11 @@ export function PlaylistManager({
 
   const ready = backup !== null && backup.complete;
   const busy = step.phase === 'working';
+
+  // The playlists or tracks were read again: a plan made for the old ones must not be applied.
+  useEffect(() => {
+    setStep((now) => (now.phase === 'plan' ? { phase: 'idle' } : now));
+  }, [rows, playlists]);
   const current = viewing === null ? undefined : playlists.find((playlist, index) => keyOf(playlist, index) === viewing);
   const rule = current ? playlistRule(current, playlists) : null;
   const inside = useMemo(() => (current ? playlistRows(current, rows) : []), [current, rows]);
@@ -73,8 +78,13 @@ export function PlaylistManager({
   }
 
   async function apply(changes: PlaylistChange[], after: () => void) {
-    if (!(await allowWriting(root))) {
-      setStep({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was changed.' });
+    try {
+      if (!(await allowWriting(root))) {
+        setStep({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was changed.' });
+        return;
+      }
+    } catch (error) {
+      setStep({ phase: 'error', message: describeError(error, { writing: true }) });
       return;
     }
     setStep({ phase: 'working', message: 'Writing the playlist change...' });
@@ -90,7 +100,7 @@ export function PlaylistManager({
         onChanged();
       }
     } catch (error) {
-      setStep({ phase: 'error', message: describeError(error) });
+      setStep({ phase: 'error', message: describeError(error, { writing: true }) });
     }
   }
 

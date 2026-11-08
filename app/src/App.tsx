@@ -2,6 +2,8 @@ import { useMemo, useState } from 'preact/hooks';
 import { detectCapabilities, devices, type EnvLike } from '@opentunes/core';
 import { About, RiskNotice } from './About';
 import { ActivityBar } from './ActivityBar';
+import { ErrorNotices } from './Banners';
+import { LogViewer } from './LogViewer';
 import { Environment } from './Environment';
 import { IpodViewer } from './IpodViewer';
 
@@ -52,6 +54,9 @@ export function App() {
           About, credits and risk
         </button>
       </footer>
+
+      <ErrorNotices />
+      <LogViewer />
     </>
   );
 }
