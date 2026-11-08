@@ -69,7 +69,9 @@ export async function inspectFile(
   folder = '',
   folders?: string[],
   folderCover?: { name: string; file: File },
+  signal?: AbortSignal,
 ): Promise<Candidate> {
+  signal?.throwIfAborted();
   const probed = await probeMedia(fileSourceFromBlob(file.name, file));
   let info = probed;
   let kind = userKind;
@@ -117,6 +119,7 @@ export interface PrepareOptions {
  */
 export async function prepareItem(candidate: Candidate, options: PrepareOptions = {}): Promise<SyncItem | null> {
   const { decision, file } = candidate;
+  options.signal?.throwIfAborted();
   if (decision.action === 'unsupported') return null;
   const playlists = options.playlist ? [options.playlist] : undefined;
   const extension = decision.outputExtension.replace(/^\./, '');

@@ -2526,3 +2526,45 @@ fieldset.write-lock:disabled {
     min-height: 2.75rem;
   }
 }
+
+/* ---- Add music on a phone: each file is a card, each cell under its own label ---- */
+.tree {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+@media (max-width: 40rem) {
+  .tree {
+    font-size: 0.8rem;
+  }
+
+  .library.stack.add-stack tr {
+    grid-template-columns: 1fr;
+    row-gap: 0.45rem;
+  }
+
+  .library.stack.add-stack td {
+    grid-column: 1 / -1;
+  }
+
+  .library.stack.add-stack td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.1rem;
+    color: var(--faint);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .library.stack.add-stack td.cell-title::before {
+    display: none;
+  }
+
+  .library.stack.add-stack td select {
+    width: 100%;
+  }
+
+  .library.stack.add-stack td.cell-action {
+    text-align: right;
+  }
+}
