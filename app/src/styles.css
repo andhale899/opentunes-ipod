@@ -2748,3 +2748,119 @@ p.last-backup button {
   }
 }
 /* ---- end of duplicates checked before converting ---- */
+
+/* ===== cover on every row of Add music, and the online finder in the open (marked section, keep at the end) ===== */
+.cover-summary {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.cover-summary:empty {
+  display: none;
+}
+
+.cover-row {
+  margin-top: 0.4rem;
+  font-weight: 400;
+}
+
+.cover-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.cover-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.cover-row[data-cover='none'] .cover-line {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.cover-row:not([data-cover='none']) .cover-line {
+  color: var(--ok);
+}
+
+.cover-preview {
+  flex: none;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  object-fit: cover;
+}
+
+.cover-note {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: normal;
+}
+
+.cover-note.cover-problem {
+  color: var(--no);
+  font-weight: 600;
+}
+
+.cover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.cover-actions:empty {
+  display: none;
+}
+
+.cover-shared {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+}
+
+.art-finder .art-more {
+  margin: 0.5rem 0;
+}
+
+.art-finder .art-more > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.art-finder h4 {
+  margin: 0 0 0.4rem;
+}
+
+.art-finder .confidence {
+  font-weight: 700;
+}
+
+.art-finder .confidence.low {
+  color: var(--no);
+}
+
+.art-finder .confidence.maybe {
+  color: var(--warn);
+}
+
+.art-finder .confidence.good {
+  color: var(--ok);
+}
+
+@media (max-width: 40rem) {
+  .library.stack.add-stack .cover-actions button {
+    min-height: 2.75rem;
+  }
+}
+/* ---- end of cover on every row ---- */

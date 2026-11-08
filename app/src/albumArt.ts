@@ -73,16 +73,27 @@ export interface OnlineCover {
   releaseId: string;
 }
 
+/** A picture the person chose from their own files for a row. Read and checked when it was chosen. */
+export interface ChosenCover {
+  mime: string;
+  data: Uint8Array;
+  /** The picture's file name, for the row. */
+  name: string;
+}
+
 /** What a track's cover will be and where it comes from, for showing in the list. */
-export type CoverSource = { from: 'file' } | { from: 'folder'; name: string } | { from: 'online'; releaseId: string } | { from: 'none' };
+export type CoverSource = { from: 'file' } | { from: 'folder'; name: string } | { from: 'online'; releaseId: string } | { from: 'chosen'; name: string } | { from: 'none' };
 
 export interface CoverCandidate {
   info: Pick<MediaInfo, 'artwork'>;
   folderCover?: { name: string; file: { arrayBuffer(): Promise<ArrayBuffer> } } | undefined;
   onlineCover?: OnlineCover | undefined;
+  /** A picture the person chose. It is only ever set on a row with no cover, or after "Replace the cover", so it wins over the rest. */
+  chosenCover?: ChosenCover | undefined;
 }
 
 export function coverSource(candidate: CoverCandidate): CoverSource {
+  if (candidate.chosenCover) return { from: 'chosen', name: candidate.chosenCover.name };
   if (candidate.info.artwork) return { from: 'file' };
   if (candidate.folderCover) return { from: 'folder', name: candidate.folderCover.name };
   if (candidate.onlineCover) return { from: 'online', releaseId: candidate.onlineCover.releaseId };
@@ -91,6 +102,7 @@ export function coverSource(candidate: CoverCandidate): CoverSource {
 
 /** The picture a track will get, read from where it comes from. Null when it has none. */
 export async function coverFor(candidate: CoverCandidate): Promise<Artwork | null> {
+  if (candidate.chosenCover) return { mime: candidate.chosenCover.mime, data: candidate.chosenCover.data };
   if (candidate.info.artwork) return candidate.info.artwork;
   if (candidate.folderCover) {
     const data = new Uint8Array(await candidate.folderCover.file.arrayBuffer());
@@ -117,3 +129,19 @@ export function albumRefOf(tags: Pick<MediaInfo['tags'], 'artist' | 'albumArtist
 
 /** The same album, spelled the same up to case and spacing, gets the same key. */
 export const albumKey = (ref: AlbumRef): string => `${ref.artist.toLowerCase()}\u0000${ref.album.toLowerCase()}`;
+
+/**
+ * One song to look up when its file names no album: the title, the artist when there is one, and the
+ * file's length, which is used on this computer to tell versions apart and is not sent anywhere.
+ */
+export interface SongRef {
+  title: string;
+  /** Empty when the file names no artist. A lookup without one is marked low confidence. */
+  artist: string;
+  lengthMs: number | null;
+  /** True when the title and artist were guessed from the file name and the person accepted the guess. */
+  fromFileName: boolean;
+}
+
+/** Two files of the same song (same title and artist, lengths in the same three-second step) get the same key. Only used to look a song up once; a near miss is looked up twice, which is harmless. */
+export const songKey = (ref: SongRef): string => `${ref.title.toLowerCase()}\u0000${ref.artist.toLowerCase()}\u0000${ref.lengthMs === null ? 'x' : Math.round(ref.lengthMs / 3000)}`;

@@ -87,7 +87,7 @@ export function About({ onClose }: { onClose: () => void }) {
         </li>
         <li>OpenTunes is not affiliated with, or endorsed by, Apple. iPod is a trademark of Apple Inc.</li>
         <li>
-          Nothing is uploaded unless you turn on one of two optional steps. The AI assistant sends your library's titles, artists, albums and genres to the model service you choose. The album art lookup sends the artist and album name of each album you ask about to musicbrainz.org and coverartarchive.org (the pictures come from archive.org). Both are off until you tick their box, and neither sends audio, file names or paths. Your files and your iPod's contents otherwise stay in this browser tab and on your own disks.
+          Nothing is uploaded unless you turn on one of two optional steps. The AI assistant sends your library's titles, artists, albums and genres to the model service you choose. The album art lookup sends the artist and album name of each album you ask about (or, for a file with no album name, the song's title and artist) to musicbrainz.org and coverartarchive.org (the pictures come from archive.org). Both are off until you tick their box, and neither sends audio, file names or paths. Your files and your iPod's contents otherwise stay in this browser tab and on your own disks.
         </li>
         <li>
           Cover pictures found online come from the Cover Art Archive, which says its images are freely accessible, to be used at your own risk, and to be used with respect for the rights of the artists and labels. You see each picture before it is used, and nothing is added until you approve it.
