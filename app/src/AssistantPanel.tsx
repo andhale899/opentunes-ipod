@@ -1,25 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import {
-  changePlaylists,
-  editTracks,
-  planEdits,
-  planPlaylistChanges,
-  type BackupReport,
-  type DirectoryEntry,
-  type IpodRoot,
-  type LibraryReport,
-  type PlaylistInfo,
-  type TrackInfo,
-} from '@opentunes/engine';
+import { type BackupReport, type DirectoryEntry, type IpodRoot, type LibraryReport, type PlaylistInfo, type TrackInfo } from '@opentunes/engine';
+import { changePlaylists, editTracks, planEdits, planPlaylistChanges } from './tracked';
 import { BackupGate } from './BackupGate';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 import { allowWriting } from './WriteBackPanel';
+import { startActivity } from './activity';
 import { assertSafe, buildEdits, buildPlaylistChanges } from './ai/apply';
 import { ask, scopeText, summaryOf } from './ai/assistant';
 import { AssistantSettings } from './ai/AssistantSettings';
 import { MAX_TRACKS_PER_REQUEST, buildDigest, digestPart, selectIds } from './ai/digest';
-import { ModelError, cleanKey, hostOf, keyProblem, scrub, type ProviderConfig } from './ai/providers';
+import { ModelError, cleanKey, hostOf, keyProblem, listModels, scrub, type ProviderConfig } from './ai/providers';
 import { ProposalPreview } from './ai/ProposalPreview';
 import { browserStorage, forgetKeys, saveSettings, type Settings } from './ai/settings';
 import { initSession, session, type Turn } from './ai/session';
@@ -35,6 +26,9 @@ const plural = (count: number, word: string): string => `${count} ${word}${count
 const formatCount = (count: number): string => count.toLocaleString('en');
 const labelOf = (track: { title: string | null; artist: string | null }): string => `${track.title || '(no title)'}${track.artist ? `, ${track.artist}` : ''}`;
 const succeeded = (report: LibraryReport): boolean => report.verified && !report.rolledBack && !report.failures.length;
+
+/** How long to wait for a model before stopping, in milliseconds. */
+const ASK_LIMIT_MS = 5 * 60_000;
 
 /**
  * Ask a language model to tidy the library. The model only proposes: it never touches the iPod.
@@ -144,6 +138,14 @@ export function AssistantPanel({
     setPrompt('');
     setBusy(true);
     bump();
+    // Nothing else tells the person the model is thinking, so say so, with the time it has taken.
+    const activity = startActivity(`Asking ${host as string}`, { message: `Sent ${part.tracks} tracks. Waiting for the model. A large library can take a minute or two.` });
+    let timedOut = false;
+    const limit = setTimeout(() => {
+      timedOut = true;
+      abort.abort();
+    }, ASK_LIMIT_MS);
+    let answered = false;
     try {
       const sent = new Set(part.ids);
       const known = new Map([...digest.known].filter(([knownId]) => sent.has(knownId)));
@@ -156,11 +158,18 @@ export function AssistantPanel({
         const track = known.get(wanted);
         if (track) labels[wanted] = labelOf(track);
       }
+      answered = true;
       updateTurn(id, (previous) => ({ ...previous, status: 'done', result, labels, selectedEdits: result.edits.map((edit) => edit.id), selectedPlaylists: result.playlists.map((playlist) => playlist.name) }));
     } catch (error) {
-      const message = error instanceof ModelError ? error.message : scrub(describeError(error), apiKey);
+      const message = timedOut
+        ? `No answer after ${ASK_LIMIT_MS / 60_000} minutes, so it was stopped. Nothing was changed. Try a smaller part of the library, or a faster model.`
+        : error instanceof ModelError
+          ? error.message
+          : scrub(describeError(error), apiKey);
       updateTurn(id, (previous) => ({ ...previous, status: 'error', error: message }));
     } finally {
+      clearTimeout(limit);
+      activity.end(answered);
       if (controller.current === abort) controller.current = null;
       setBusy(false);
     }
@@ -268,6 +277,7 @@ export function AssistantPanel({
         }}
         host={host}
         storageFailed={storageFailed}
+        onLoadModels={() => listModels({ provider, apiKey, baseUrl: settings.baseUrl })}
       />
 
       {tracks.length === 0 ? (

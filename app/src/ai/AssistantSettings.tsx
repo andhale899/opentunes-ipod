@@ -1,4 +1,5 @@
-import { checkBaseUrl, type ProviderId } from './providers';
+import { useState } from 'preact/hooks';
+import { checkBaseUrl, type ModelChoice, type ProviderId } from './providers';
 import type { Settings } from './settings';
 
 /**
@@ -16,6 +17,7 @@ export function AssistantSettings({
   onOptIn,
   host,
   storageFailed,
+  onLoadModels,
 }: {
   settings: Settings;
   onSettings: (patch: Partial<Settings>) => void;
@@ -28,7 +30,12 @@ export function AssistantSettings({
   onOptIn: (on: boolean) => void;
   host: string | null;
   storageFailed: boolean;
+  /** Asks the service for the models this key can use. Rejects with a plain message. */
+  onLoadModels?: () => Promise<ModelChoice[]>;
 }) {
+  const [choices, setChoices] = useState<ModelChoice[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const { provider } = settings;
   const address = provider === 'openai' ? checkBaseUrl(settings.baseUrl) : null;
 
@@ -53,11 +60,50 @@ export function AssistantSettings({
           API key
           <input key={keyBox} type="password" name="opentunes-ai-key" autocomplete="off" spellcheck={false} placeholder={keyIsSet ? 'A key is set (not shown)' : 'Paste your key'} onInput={(event) => onKey((event.target as HTMLInputElement).value)} />
         </label>
-        <label class="field">
+        <div class="field">
           Model
-          <input type="text" value={settings.models[provider]} spellcheck={false} autocomplete="off" placeholder={provider === 'openai' ? 'The model name your endpoint uses' : 'claude-sonnet-5-5'} onInput={(event) => onSettings({ models: { ...settings.models, [provider]: (event.target as HTMLInputElement).value } })} />
-          {provider === 'anthropic' ? <span class="note">claude-sonnet-5-5 by default. claude-haiku-5-5 is cheaper for simple tidy-ups.</span> : null}
-        </label>
+          <div class="model-row">
+            {choices.length ? (
+              <select
+                aria-label="Model"
+                value={choices.some((choice) => choice.id === settings.models[provider]) ? settings.models[provider] : ''}
+                onChange={(event) => {
+                  const picked = (event.target as HTMLSelectElement).value;
+                  if (picked) onSettings({ models: { ...settings.models, [provider]: picked } });
+                }}
+              >
+                <option value="">Pick a model...</option>
+                {choices.map((choice) => (
+                  <option key={choice.id} value={choice.id}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            <button
+              type="button"
+              class="secondary small"
+              disabled={!keyIsSet || loading || !onLoadModels}
+              onClick={() => {
+                if (!onLoadModels) return;
+                setLoading(true);
+                setLoadError('');
+                onLoadModels()
+                  .then((list) => setChoices(list))
+                  .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : 'Could not load the list.'))
+                  .finally(() => setLoading(false));
+              }}
+            >
+              {loading ? 'Loading...' : choices.length ? 'Reload the list' : 'Load the list from the service'}
+            </button>
+          </div>
+          <input type="text" aria-label="Model name" value={settings.models[provider]} spellcheck={false} autocomplete="off" placeholder={provider === 'openai' ? 'Or type the model name your endpoint uses' : 'Or type a model name, for example claude-sonnet-5-5'} onInput={(event) => onSettings({ models: { ...settings.models, [provider]: (event.target as HTMLInputElement).value } })} />
+          {loadError ? <span class="ai-problem">{loadError}</span> : null}
+          <span class="note">
+            {keyIsSet ? 'The list is read from the service with your key. It costs nothing and sends no library data.' : 'Paste a key first, then the list can be loaded.'}
+            {provider === 'anthropic' ? ' A Haiku model is cheaper for simple tidy-ups.' : ''}
+          </span>
+        </div>
       </div>
 
       <p class="note" role="status">

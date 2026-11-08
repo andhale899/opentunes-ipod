@@ -1,6 +1,6 @@
 # OpenTunes working rules
 
-Personal hobby project. A Chrome-only web app that puts music, video and podcasts on a classic iPod, with no backend. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/ROADMAP.md](docs/ROADMAP.md) before changing anything.
+Personal hobby project. A Chrome-only web app that puts music, video and podcasts on an iPod (tested on the nano 7th generation only), with no backend. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/ROADMAP.md](docs/ROADMAP.md) before changing anything.
 
 ## Rules
 

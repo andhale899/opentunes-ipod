@@ -1,6 +1,7 @@
 import { useRef, useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
-import { ScratchFolder, offloadIpod, type DirectoryEntry, type OffloadProgress, type OffloadReport, type WritableDirectory } from '@opentunes/engine';
+import { ScratchFolder, type DirectoryEntry, type OffloadProgress, type OffloadReport, type WritableDirectory } from '@opentunes/engine';
+import { offloadIpod } from './tracked';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 

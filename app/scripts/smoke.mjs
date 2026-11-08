@@ -186,6 +186,7 @@ const SCENARIOS = [
         await page.click('Put on the iPod');
         await page.waitFor('Copied 2 files and checked the iPod by reading it back', 90_000);
         await page.waitFor('7 tracks');
+        await page.waitFor('Now eject the iPod from your computer before you unplug it');
         // A picture next to the music, as in a chosen folder, is left out without a fuss.
         await page.click('Add music');
         // Stand in for Chrome's folder picker with a folder that has an album, a subfolder and a cover picture.
@@ -266,6 +267,10 @@ const SCENARIOS = [
           const real = window.fetch.bind(window);
           window.fetch = async (url, init) => {
             if (!String(url).startsWith('https://api.anthropic.com/')) return real(url, init);
+            // Listing models is a plain GET with no library data in it.
+            if (init.method === 'GET' && String(url).includes('/v1/models')) {
+              return new Response(JSON.stringify({ data: [{ id: 'claude-sonnet-5-5', display_name: 'Claude Sonnet 5.5' }, { id: 'claude-haiku-5-5', display_name: 'Claude Haiku 5.5' }] }), { status: 200 });
+            }
             const body = JSON.parse(init.body);
             window.__ai.push({ url: String(url), headers: init.headers, body });
             const library = body.messages[body.messages.length - 1].content;
@@ -293,6 +298,12 @@ const SCENARIOS = [
         check(optIn === "Send my library's titles, artists, albums and genres (no audio, no file paths) to api.anthropic.com when I ask the assistant something.", 'The opt-in wording is wrong: ' + optIn);
         check(await page.evaluate(`document.querySelector('.ai-optin input').checked === false`), 'The opt-in must start off.');
         await page.evaluate(`(() => { const box = document.querySelector('input[type=password]'); box.value = 'sk-test-0000'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        // The model list comes from the service, so nobody has to type a model name.
+        await page.click('Load the list from the service');
+        await page.waitFor('Claude Haiku 5.5 (claude-haiku-5-5)');
+        await page.evaluate(`(() => { const box = document.querySelector('select[aria-label="Model"]'); box.value = 'claude-haiku-5-5'; box.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        const modelNow = await page.evaluate(`document.querySelector('input[aria-label="Model name"]').value`);
+        check(modelNow === 'claude-haiku-5-5', 'Picking a model from the list did not fill the model name: ' + modelNow);
         await page.evaluate(`(() => { const box = document.querySelector('textarea'); box.value = 'Change the artist of Morning Light and make a mix'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
         await page.waitFor('Tick the box above to allow sending the library.');
         check(await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Ask').disabled`), 'Ask must be off before the opt-in.');
