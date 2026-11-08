@@ -34,7 +34,7 @@ export function FolderGuide({ open = false }: { open?: boolean }) {
         <p>
           You can pick a whole folder in "Choose a folder". OpenTunes reads the folder names to guess what each file is and to fill in names the file does not have. Arrange the folder like this:
         </p>
-        <pre class="tree" aria-label="Folder layout">
+        <pre class="tree" aria-label="Folder layout" tabIndex={0}>
           {FOLDER_TREE}
         </pre>
         <p class="muted">

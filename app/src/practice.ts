@@ -1,4 +1,5 @@
 import { newEngine } from './engineLoader';
+import { beginWrite } from './writeLock';
 import { ScratchFolder, applyRemoval, buildSignedDemoIpod, loadIpodFolder, mediaPathOf, planRemoval, trackKey, withCoverFormats, type Engine, type IpodRoot } from '@opentunes/engine';
 
 const ITUNES = 'iPod_Control/iTunes';
@@ -57,8 +58,28 @@ export async function buildPracticeIpod(engine: Engine, mount: string): Promise<
  * would, to check that Reload from the iPod notices it. Not linked from anywhere in the page.
  */
 export function exposePracticeForTests(ipod: ScratchFolder): void {
+  let releaseLock: (() => void) | null = null;
   (window as unknown as { __opentunesPractice?: unknown }).__opentunesPractice = {
     root: ipod,
+    /** Takes the write lock, as a running write would, so the test can look at what the page turns off. */
+    holdWriteLock(): boolean {
+      if (releaseLock) return false;
+      releaseLock = beginWrite('Test write');
+      return true;
+    },
+    /** Asks for the write lock a second time, the way a second write would, and says what happened. */
+    tryAnotherWrite(): string {
+      try {
+        beginWrite('Another test write')();
+        return 'ran';
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    },
+    releaseWriteLock(): void {
+      releaseLock?.();
+      releaseLock = null;
+    },
     /** Removes the first track through the engine directly, without telling the page. */
     async removeFirstTrackBehindTheBack(): Promise<number> {
       const engine = await newEngine();
@@ -69,7 +90,7 @@ export function exposePracticeForTests(ipod: ScratchFolder): void {
       const key = trackKey(first);
       const plan = await planRemoval(ipod as unknown as IpodRoot, newEngine, [key]);
       const report = await applyRemoval(plan, ipod as unknown as IpodRoot, newEngine, {
-        backup: { folder: 'test', files: 1, bytes: 1, verified: 1, failures: [], left: [], complete: true },
+        backup: { folder: 'test', files: 1, bytes: 1, verified: 1, failures: [], left: [], complete: true, stopped: false },
       });
       return report.verified ? 1 : 0;
     },

@@ -226,6 +226,7 @@ export function reportFromManifest(folder: string, manifest: Manifest): BackupRe
     failures: [],
     left: manifest.left,
     complete: true,
+    stopped: false,
   };
 }
 

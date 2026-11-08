@@ -34,6 +34,8 @@ export interface BackupOptions {
   /** Write into a folder of this exact name inside the destination (made if it is not there), instead of a new dated one. The offload uses it for its database folder. */
   folderName?: string;
   onProgress?: (message: string) => void;
+  /** Stops the backup between files. The report then has `stopped` set and `complete` false. Only the computer is written to. */
+  signal?: AbortSignal;
 }
 
 export interface LeftOut {
@@ -55,6 +57,8 @@ export interface BackupReport {
   left: LeftOut[];
   /** True when every file that belongs in the backup is there and was read back identical. */
   complete: boolean;
+  /** True when the person stopped the backup. The folder holds only some of the files and is marked incomplete. */
+  stopped: boolean;
 }
 
 const DEFAULT_MAX_FILE_BYTES = 256 * 1024 * 1024;
@@ -196,7 +200,13 @@ export async function backupIpod(source: DirectoryEntry, destination: WritableDi
   let bytes = 0;
   let verified = 0;
 
+  let stopped = false;
   for (const item of plan) {
+    if (options.signal?.aborted) {
+      stopped = true;
+      failures.push('The backup was stopped before it finished, so it is not complete and cannot be used.');
+      break;
+    }
     options.onProgress?.(`Copying ${item.path}`);
     try {
       const original = new Uint8Array(await (await item.file.getFile()).arrayBuffer());
@@ -217,7 +227,7 @@ export async function backupIpod(source: DirectoryEntry, destination: WritableDi
     }
   }
 
-  const complete = failures.length === 0 && !left.some((file) => file.reason === 'too large');
+  const complete = !stopped && failures.length === 0 && !left.some((file) => file.reason === 'too large');
   const createdAt = now.toISOString();
   try {
     await writeText(folder, 'backup-info.json', JSON.stringify({ app: 'opentunes', kind: 'ipod-database-backup', createdAt, complete, files: manifest, left, failures }, null, 2));
@@ -226,5 +236,5 @@ export async function backupIpod(source: DirectoryEntry, destination: WritableDi
     failures.push(`The backup notes could not be written: ${messageOf(error)}`);
   }
 
-  return { folder: folder.name, files: plan.length, bytes, verified, failures, left, complete: complete && failures.length === 0 };
+  return { folder: folder.name, files: plan.length, bytes, verified, failures, left, complete: complete && failures.length === 0, stopped };
 }

@@ -1,6 +1,9 @@
 import { BackupError, EngineError, IpodFolderError } from '@opentunes/engine';
 import { EngineUnavailableError } from './engineLoader';
 import { IpodAccessError, UNDONE_ADVICE, classifyFsError, plainFailure, problemMessage } from './friendlyError';
+import { isStopped } from './stopped';
+
+export { isStopped };
 
 /**
  * One plain sentence for whatever went wrong. A browser error about the iPod's folder (it was
@@ -18,6 +21,7 @@ function describeOnly(error: unknown): string {
   if (error instanceof EngineUnavailableError || error instanceof IpodFolderError || error instanceof BackupError || error instanceof EngineError) {
     return plainFailure(error.message);
   }
+  if (isStopped(error)) return 'Stopped. Nothing was changed.';
   const problem = classifyFsError(error);
   if (problem) return problemMessage(problem);
   if (error instanceof DOMException) {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { type BackupReport, type DirectoryEntry, type IpodRoot, type LibraryPlan, type PlaylistChange, type PlaylistInfo } from '@opentunes/engine';
 import { changePlaylists, planPlaylistChanges } from '../tracked';
+import { Notice, useOnce } from '../controls';
 import { describeError } from '../describeError';
 import { newEngine } from '../engineLoader';
 import { allowWriting } from '../WriteBackPanel';
@@ -42,6 +43,7 @@ export function PlaylistManager({
   onChanged: () => void;
 }) {
   const [step, setStep] = useState<Step>({ phase: 'idle' });
+  const once = useOnce();
   const [viewing, setViewing] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [withSelected, setWithSelected] = useState(true);
@@ -77,7 +79,12 @@ export function PlaylistManager({
     }
   }
 
+  /** The permission prompt Chrome shows before a write leaves time to click twice, so a second click does nothing. */
   async function apply(changes: PlaylistChange[], after: () => void) {
+    await once(() => applyNow(changes, after));
+  }
+
+  async function applyNow(changes: PlaylistChange[], after: () => void) {
     try {
       if (!(await allowWriting(root))) {
         setStep({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was changed.' });
@@ -242,9 +249,9 @@ export function PlaylistManager({
         </p>
       ) : null}
       {step.phase === 'error' ? (
-        <div class="result no" role="alert">
+        <Notice tone="no">
           <p>{step.message}</p>
-        </div>
+        </Notice>
       ) : null}
       {step.phase === 'plan' ? (
         <div class="plan">
@@ -257,7 +264,7 @@ export function PlaylistManager({
                 <li key={line}>{line}</li>
               ))}
             </ul>
-            <p>{plural(step.plan.database.length, 'database file')} would be rewritten. No music files are touched.</p>
+            <p>{plural(step.plan.database.length, 'database file')} would be rewritten. No music files are touched, and every track stays on the iPod, whatever happens to a playlist.</p>
           </div>
           <div class="actions">
             <button type="button" disabled={!ready || busy} onClick={() => void apply(step.changes, step.after)}>
@@ -271,9 +278,9 @@ export function PlaylistManager({
       ) : null}
       {step.phase === 'done' ? (
         <>
-          <div class={`result ${step.ok ? 'ok' : 'no'}`} role={step.ok ? 'status' : 'alert'}>
+          <Notice tone={step.ok ? 'ok' : 'no'}>
             <p>{step.message}</p>
-          </div>
+          </Notice>
           {step.details.length ? (
             <ul class="files">
               {step.details.map((line) => (

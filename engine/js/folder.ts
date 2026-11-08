@@ -38,6 +38,8 @@ export interface LoadOptions {
   /** Stop if the database files add up to more than this. */
   maxBytes?: number;
   onProgress?: (message: string) => void;
+  /** Stops the read. It throws an AbortError and nothing has been changed, because reading changes nothing. */
+  signal?: AbortSignal;
 }
 
 /** A file that was read, with its path from the top of the iPod. */
@@ -105,7 +107,7 @@ interface Totals {
   listing: ListedFile[];
 }
 
-interface CopyOptions extends Pick<LoadOptions, 'onProgress'> {
+interface CopyOptions extends Pick<LoadOptions, 'onProgress' | 'signal'> {
   maxBytes: number;
   /** The engine path of iPod_Control followed by a slash, to turn a path into one from iPod_Control. */
   controlPrefix: string;
@@ -114,6 +116,7 @@ interface CopyOptions extends Pick<LoadOptions, 'onProgress'> {
 async function copyDirectory(source: DirectoryEntry, fs: Engine['fs'], target: string, totals: Totals, options: CopyOptions): Promise<void> {
   makeDirectories(fs, target);
   for await (const [name, entry] of source.entries()) {
+    options.signal?.throwIfAborted();
     const path = `${target}/${name}`;
     if (isClutter(name)) {
       totals.skipped.push(path);
@@ -151,7 +154,7 @@ export async function loadIpodFolder(root: DirectoryEntry, engine: Engine, optio
   }
 
   const totals: Totals = { files: 0, bytes: 0, skipped: [], notNeeded: [], listing: [] };
-  const copyOptions: CopyOptions = { maxBytes, onProgress: options.onProgress, controlPrefix: `${mount}/iPod_Control/` };
+  const copyOptions: CopyOptions = { maxBytes, onProgress: options.onProgress, signal: options.signal, controlPrefix: `${mount}/iPod_Control/` };
   makeDirectories(fs, `${mount}/iPod_Control`);
 
   const iTunes = await findDirectory(control, 'iTunes');

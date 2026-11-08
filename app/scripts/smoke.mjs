@@ -88,7 +88,7 @@ const SCENARIOS = [
   {
     name: 'a demo iPod, diagnostics tab',
     url: `http://localhost:${port}/?demo=1&tab=diagnostics`,
-    expected: ['Device details', 'Files read from the iPod', 'Check what a rewrite would change', 'Copy iPod report'],
+    expected: ['Device details', 'Files read from the iPod', 'Run the test (nothing is written)', 'Copy iPod report'],
     forbidden: ['Signature on', 'Back up the database files'],
     alert: false,
   },
@@ -118,7 +118,7 @@ const SCENARIOS = [
       'Signature on iTunesCDB after the rewrite',
       'Copy rewrite report',
     ],
-    forbidden: ['Does not match', 'Could not be checked', 'differences found. A sync'],
+    forbidden: ['Does not match', 'Could not be checked', 'differences found. Adding music'],
     alert: false,
   },
   {
@@ -181,7 +181,7 @@ const SCENARIOS = [
         await page.waitFor('2 of 2 can be added');
         await page.waitFor('Copy as it is');
         await page.waitFor('Convert to AAC');
-        await page.click('Convert and check');
+        await page.click('Check and prepare');
         await page.waitFor('Ready to copy 2 files', 90_000);
         await page.click('Put on the iPod');
         await page.waitFor('Copied 2 files and checked the iPod by reading it back', 90_000);
@@ -205,10 +205,12 @@ const SCENARIOS = [
         await page.waitFor('3 of 3 can be added');
         await page.waitFor('1 other file was left out');
         await page.waitFor('Album / Disc 2');
-        const order = await page.evaluate(`[...document.querySelectorAll('td.cell-title')].map((cell) => cell.firstChild.textContent.trim()).join('|')`);
+        const order = await page.evaluate(`[...document.querySelectorAll('.pane:not([hidden]) td.cell-title')].map((cell) => cell.firstChild.textContent.trim()).join('|')`);
         if (order !== '01 First.wav|02 Second.wav|03 Third.wav') throw new Error('The folder files came in the wrong order: ' + order);
         // A folder named for a kind: the kind is set from the folder name and missing tags are filled from the names.
         await page.click('Clear the list');
+        await page.waitFor('files from the list?');
+        await page.click('Yes, clear the list');
         await page.evaluate(`(() => {
           const wav = () => { const b = new Uint8Array(44 + 400); const v = new DataView(b.buffer); const t = (o, x) => [...x].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
             t(0, 'RIFF'); v.setUint32(4, 36 + 400, true); t(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true); v.setUint32(24, 44100, true); v.setUint32(28, 176400, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); t(36, 'data'); v.setUint32(40, 400, true); return b; };
@@ -344,7 +346,7 @@ const SCENARIOS = [
         await page.click('Use the ticked covers (1)');
         await page.waitFor('Covers chosen for 1 album');
         await page.waitFor('Cover: found online (you approved it)');
-        await page.click('Convert and check');
+        await page.click('Check and prepare');
         await page.waitFor('Ready to copy 3 files', 90_000);
         const planText = await page.evaluate('document.body.textContent');
         check(planText.includes('Add album art to 3 tracks: 2 pictures'), 'The plan does not list the album art: ' + planText.slice(planText.indexOf('Ready to copy'), planText.indexOf('Ready to copy') + 600));
@@ -447,6 +449,9 @@ const SCENARIOS = [
         check(library.includes('|Morning Light|The Demo Band|Samples|Rock|2021|track 1') && !/iPod_Control|\.m4a|F\d\d/.test(library), 'The library text is wrong or holds a path.');
         // Apply the edit and the playlist.
         await page.click('Apply selected');
+        await page.waitFor('Apply these changes to the iPod?');
+        await page.waitFor('restore this session');
+        await page.click('Apply to the iPod');
         await page.waitFor('Applied 1 edit and 1 new playlist', 90_000);
         await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
         await page.waitFor('Smoke Artist');
@@ -497,7 +502,8 @@ const SCENARIOS = [
         await page.waitFor('Folk');
         const groups = await page.evaluate(`[...document.querySelectorAll('.group-name')].map((name) => name.textContent).join('|')`);
         if (groups !== 'Folk') throw new Error('Grouping by genre gave: ' + groups);
-        // Collapse the group: its header stays and its rows go.
+        // Collapse the group: its header stays and its rows go. Let the page settle first, or its own reset of the groups can undo the click.
+        await new Promise((resolve) => setTimeout(resolve, 400));
         await page.evaluate(`document.querySelector('.group-toggle').click()`);
         await page.waitFor('Showing 0 of 0 tracks');
         await page.evaluate(`document.querySelector('.group-toggle').click()`);
@@ -557,11 +563,16 @@ const SCENARIOS = [
         const addTone = async (paths, expectedLine, readyLine, copiedLine) => {
           await clickTab('Add music');
           await page.waitFor('Add music, podcasts');
-          await page.evaluate(`(() => { const clear = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Clear the list'); if (clear) clear.click(); })()`);
+          const hasClear = await page.evaluate(`[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Clear the list' && b.offsetParent !== null)`);
+          if (hasClear) {
+            await page.click('Clear the list');
+            await page.waitFor('from the list?');
+            await page.click('Yes, clear the list');
+          }
           await page.chooseFiles(paths);
           await page.waitFor(expectedLine);
           await page.evaluate(`(() => { const box = [...document.querySelectorAll('label.check')].find((l) => l.textContent.includes('Add files even if')).querySelector('input'); if (!box.checked) box.click(); })()`);
-          await page.click('Convert and check');
+          await page.click('Check and prepare');
           await page.waitFor(readyLine, 90_000);
           await page.click('Put on the iPod');
           await page.waitFor(copiedLine, 90_000);
@@ -612,6 +623,13 @@ const SCENARIOS = [
         await page.waitFor('1 track ticked');
         await page.click('Remove ticked duplicates');
         await page.waitFor('Ready to remove 1 track and delete 1 file');
+        // The duplicate finder asks first, and says the music cannot come back from the backup.
+        await page.click('Remove from the iPod...');
+        await page.waitFor('Remove 1 track from the iPod?');
+        await page.waitFor('This cannot be undone from the backup');
+        await page.click('Do not remove');
+        check(await page.evaluate(`document.querySelectorAll('.dup-group').length`) === 1, 'Backing out of the removal changed the groups.');
+        await page.click('Remove from the iPod...');
         await page.click('Remove from the iPod');
         await page.waitFor('Removed 1 track and deleted 1 file');
         await page.waitFor('No duplicates found');
@@ -623,7 +641,8 @@ const SCENARIOS = [
         await clickTab('Library');
         await clickTab('Find duplicates');
         await page.waitFor('1 group, 1 track that could go');
-        await page.evaluate(`document.querySelector('.dup-ai > summary').click()`);
+        // The panels stay mounted, so the section may still be open from the last visit.
+        await page.evaluate(`(() => { const box = document.querySelector('.dup-ai'); if (!box.open) box.querySelector('summary').click(); })()`);
         // Not set up yet: it says so and points to the Assistant tab, and has no key box of its own.
         await page.waitFor('The AI is not set up. Open the Assistant tab');
         check((await page.evaluate(`document.querySelectorAll('.dupes input[type=password]').length`)) === 0, 'The duplicates tab must not have a key box.');
@@ -634,7 +653,8 @@ const SCENARIOS = [
         await page.evaluate(`(() => { const box = document.querySelector('input[type=password]'); box.value = 'sk-test-0000'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
         await clickTab('Library');
         await clickTab('Find duplicates');
-        await page.evaluate(`document.querySelector('.dup-ai > summary').click()`);
+        // The panels stay mounted, so the section may still be open from the last visit.
+        await page.evaluate(`(() => { const box = document.querySelector('.dup-ai'); if (!box.open) box.querySelector('summary').click(); })()`);
         await page.waitFor('This request would send 1 group (2 tracks');
         check(await page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Ask AI to review').disabled`), 'Ask AI to review must be off before the opt-in.');
         const wording = await page.evaluate(`document.querySelector('.dup-ai .ai-optin span').textContent`);
@@ -663,6 +683,7 @@ const SCENARIOS = [
         await page.waitFor('8 tracks');
         await page.click('Remove ticked duplicates');
         await page.waitFor('Ready to remove 1 track and delete 1 file');
+        await page.click('Remove from the iPod...');
         await page.click('Remove from the iPod');
         await page.waitFor('Removed 1 track and deleted 1 file');
         await page.waitFor('7 tracks');
@@ -671,6 +692,205 @@ const SCENARIOS = [
     },
     expected: ['No duplicates found', 'Removed 1 track and deleted 1 file', '7 tracks'],
     forbidden: ['sk-test-0000', 'did not finish', 'could not be put back', 'did not finish'],
+    alert: false,
+  },
+  {
+    // Controls and clarity on a practice iPod: tabs keep what they hold, removing and choosing another
+    // iPod ask first and say what cannot be undone, and a backup folder is not taken for an iPod.
+    name: 'controls and confirm steps on a practice iPod (kept tabs, remove asks first, choose another iPod asks first)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        const visibleButton = (text) => page.evaluate(`[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === ${JSON.stringify(text)} && b.offsetParent !== null)`);
+        await page.waitFor('Practice iPod, held in memory');
+        await page.click('Backup');
+        await page.waitFor('Back up the database files');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        // Files picked in Add music survive a visit to another tab.
+        await page.click('Add music');
+        await page.waitFor('No files chosen yet');
+        await page.chooseFiles([TONE_COPY]);
+        await page.waitFor('1 of 1 can be added');
+        await page.click('Backup');
+        await page.waitFor('Back up the database files');
+        await page.click('Add music');
+        await page.waitFor('1 of 1 can be added');
+        // The tab list is a proper tab list: one tab stop, panels named by their tabs.
+        const aria = await page.evaluate(`JSON.stringify({ tabindex: [...document.querySelectorAll('.tabs button[role=tab]')].filter((t) => t.tabIndex === 0).length, panels: [...document.querySelectorAll('[role=tabpanel]:not([hidden])')].length })`);
+        check(aria === '{"tabindex":1,"panels":1}', 'The tabs are not a single tab stop with one visible panel: ' + aria);
+        // Removing asks first and says it cannot be undone from the backup. Backing out changes nothing.
+        await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.trim().startsWith('Library')).click()`);
+        await page.waitFor('Your library');
+        await page.evaluate(`document.querySelector('input[aria-label="Select Morning Light"]').click()`);
+        await page.waitFor('1 track selected');
+        await page.click('Remove selected');
+        await page.waitFor('Remove 1 track from the iPod?');
+        await page.waitFor('This cannot be undone from the backup');
+        check(await visibleButton('Remove from the iPod'), 'The confirm step has no Remove button.');
+        await page.click('Do not remove');
+        check(!(await visibleButton('Remove from the iPod')), 'Backing out of the removal left the Remove button on screen.');
+        // Choosing another iPod asks, says what goes away, and Stay keeps everything.
+        await page.click('Choose another iPod');
+        await page.waitFor('Choose another iPod?');
+        await page.waitFor('The practice iPod lives only in memory');
+        await page.click('Stay with this iPod');
+        await page.waitFor('Your library');
+        check(!(await page.evaluate(`document.body.innerText.includes('Stay with this iPod')`)), 'The confirm step stayed open after Stay.');
+        // A job in progress is stoppable from the bar, and the bar has a place for Pause.
+        await page.click('Look for leftover files');
+        await page.waitFor('No leftover files');
+      },
+    },
+    expected: ['No leftover files'],
+    forbidden: ['did not finish', 'could not be put back'],
+    alert: false,
+  },
+  {
+    // The pieces of Add music that need both the controls and the robustness work to be there: Pause
+    // after a file while converting, a leave-the-page warning for converted files that are held, a
+    // confirm on Clear the list, the file table as cards on a phone, and Stop while reading.
+    name: 'Add music controls (pause while converting, held-work warning, clear asks first, phone cards, stop while reading)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        const leaveAsks = () => page.evaluate(`(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })()`);
+        await page.waitFor('Practice iPod, held in memory');
+        await page.click('Backup');
+        await page.waitFor('Back up the database files');
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        await page.click('Add music');
+        await page.waitFor('No files chosen yet');
+        check(!(await leaveAsks()), 'The page asked before leaving with nothing held.');
+        await page.chooseFiles([TONE_CONVERT, TONE_COPY]);
+        await page.waitFor('2 of 2 can be added');
+        // The list is a table on a wide screen and one card per file on a phone, each cell under its label.
+        await page.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+        const phone = JSON.parse(
+          String(
+            await page.evaluate(`JSON.stringify({
+              cells: [...document.querySelectorAll('.add-stack tbody tr:first-child td')].map((td) => getComputedStyle(td).display),
+              label: getComputedStyle(document.querySelector('.add-stack tbody tr:first-child td[data-label="What happens"]'), '::before').content,
+              overflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+            })`),
+          ),
+        );
+        check(phone.cells.every((display) => display === 'block'), 'The Add music rows are not stacked cards on a phone: ' + phone.cells.join(','));
+        check(phone.label.includes('What happens'), 'A card cell has no label: ' + phone.label);
+        check(!phone.overflow, 'The Add music list scrolls sideways on a phone.');
+        await page.send('Emulation.clearDeviceMetricsOverride');
+        // Pause after the file being converted. The bar says paused and offers Resume.
+        await page.click('Check and prepare');
+        await page.waitFor('Converting 1 of 2');
+        await page.click('Pause after this file');
+        await page.waitFor('Paused before the next file');
+        await page.waitFor('Paused: Preparing files');
+        await page.click('Resume');
+        await page.waitFor('Ready to copy 2 files', 90_000);
+        // Converted files are held: leaving asks. Clear the list asks first, and Keep keeps them.
+        check(await leaveAsks(), 'The page did not ask before leaving while converted files are held.');
+        await page.click('Clear the list');
+        await page.waitFor('Clear 2 files from the list?');
+        await page.waitFor('the files converted so far are thrown away');
+        await page.click('Keep the list');
+        await page.waitFor('Ready to copy 2 files');
+        check(await leaveAsks(), 'Keeping the list released the held files.');
+        await page.click('Clear the list');
+        await page.click('Yes, clear the list');
+        await page.waitFor('No files chosen yet');
+        // The held files are released once the page has drawn again.
+        for (let i = 0; i < 30 && (await leaveAsks()); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+        check(!(await leaveAsks()), 'The page still asks before leaving after the list was cleared.');
+        // Stop while reading the files: a folder whose listing never ends is stopped from the bar, and the list stays empty.
+        await page.evaluate(`(() => {
+          const never = { kind: 'directory', name: 'Slow', async *entries() { for (let i = 0; i < 1000; i += 1) { await new Promise((resolve) => setTimeout(resolve, 20)); yield ['file' + i + '.txt', { kind: 'file', name: 'file' + i + '.txt', getFile: async () => new File([], 'x') }]; } } };
+          window.showDirectoryPicker = async () => never;
+        })()`);
+        await page.click('Choose a folder');
+        await page.waitFor('Reading the folder');
+        await page.click('Stop reading (nothing is changed)');
+        await page.waitFor('Stopped: reading the folder');
+        await page.waitFor('Nothing was added and nothing on the iPod was changed');
+        await page.waitFor('No files chosen yet');
+      },
+    },
+    expected: ['No files chosen yet', 'Stopped: reading the folder'],
+    forbidden: ['did not finish', 'could not be put back'],
+    alert: false,
+  },
+  {
+    // Kept tabs and the write lock together: while a write runs (the lock is taken the way a running
+    // write takes it), every control in every panel is off, hidden panels too, the tab list still
+    // works with the arrow keys so the running job's tab can be looked at, and everything comes back
+    // when the lock is released.
+    name: 'kept tabs and the write lock (hidden panels are off during a write, the tab list still works)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        const run = async (expression) => (await page.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result?.result?.value;
+        await page.waitFor('Practice iPod, held in memory');
+        // Open Add music so it is mounted, then go back to the library: Add music is now hidden but alive.
+        await page.click('Add music');
+        await page.waitFor('No files chosen yet');
+        await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.trim().startsWith('Library')).click()`);
+        await page.waitFor('Your library');
+        const shape = JSON.parse(
+          String(
+            await page.evaluate(`JSON.stringify({
+              fieldset: Boolean(document.querySelector('fieldset.write-lock')),
+              panelsInside: [...document.querySelectorAll('[role=tabpanel]')].every((panel) => panel.closest('fieldset.write-lock')),
+              tabsOutside: [...document.querySelectorAll('.tabs button[role=tab]')].every((tab) => !tab.closest('fieldset.write-lock')),
+              panels: document.querySelectorAll('[role=tabpanel]').length,
+              visible: document.querySelectorAll('[role=tabpanel]:not([hidden])').length,
+            })`),
+          ),
+        );
+        check(shape.fieldset && shape.panelsInside && shape.tabsOutside, 'The panels are not all inside the write-lock fieldset, or the tabs are: ' + JSON.stringify(shape));
+        check(shape.panels >= 2 && shape.visible === 1, 'Add music was not kept mounted behind the library: ' + JSON.stringify(shape));
+        const choose = `[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Choose files')`;
+        check(await page.evaluate(`!${choose}.matches(':disabled')`), 'Choose files is off with no write running.');
+        // A write is running.
+        check((await run('window.__opentunesPractice.holdWriteLock()')) === true, 'Could not take the write lock.');
+        await page.waitFor('The iPod is being changed (Test write)');
+        check(await page.evaluate(`${choose}.matches(':disabled')`), 'Choose files, in the hidden Add music panel, is still on while a write runs.');
+        check(await page.evaluate(`document.querySelector('fieldset.write-lock').disabled`), 'The fieldset is not disabled during a write.');
+        // A second write is refused by the lock itself, with a plain message.
+        const refused = await run(`window.__opentunesPractice.tryAnotherWrite()`);
+        check(String(refused).includes('Another change to the iPod is already running (test write)'), 'The lock did not refuse a second write: ' + refused);
+        check(await page.evaluate(`[...document.querySelectorAll('.tabs button[role=tab]')].every((tab) => !tab.disabled)`), 'The tabs were turned off, so a running job cannot be looked at.');
+        // The arrow keys still move between tabs, and the panel that was hidden shows, still off.
+        await page.evaluate(`document.querySelector('.tabs button[role=tab][aria-selected=true]').focus()`);
+        await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+        await page.waitFor('No files chosen yet');
+        const focusOnSelectedTab = () => page.evaluate(`document.activeElement.getAttribute('role') === 'tab' && document.activeElement.getAttribute('aria-selected') === 'true'`);
+        // Focus moves in a timer after the tab changes, so give it a moment.
+        for (let i = 0; i < 30 && !(await focusOnSelectedTab()); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+        check(await focusOnSelectedTab(), 'Focus did not follow the arrow key to the new tab.');
+        check(await page.evaluate(`${choose}.matches(':disabled')`), 'Choose files came back on while the write still runs.');
+        // The write ends and everything comes back.
+        await run('window.__opentunesPractice.releaseWriteLock()');
+        for (let i = 0; i < 40 && (await page.evaluate(`${choose}.matches(':disabled')`)); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+        check(!(await page.evaluate(`${choose}.matches(':disabled')`)), 'Choose files stayed off after the write ended.');
+      },
+    },
+    expected: ['No files chosen yet'],
+    forbidden: ['The iPod is being changed'],
     alert: false,
   },
   {
@@ -837,6 +1057,8 @@ const SCENARIOS = [
         await page.waitFor('holds 5 media files');
         await page.waitFor('4 of the media files are already on this iPod');
         await page.waitFor('This replaces the iPod\'s library');
+        await page.click('Restore everything to the iPod...');
+        await page.waitFor('Put everything back on the iPod?');
         await page.click('Restore everything to the iPod');
         await page.waitFor('1 file was copied back to the iPod, 4 files were already there and left alone', 60_000);
         await page.waitFor('The saved library was put back, read back and checked');
@@ -937,7 +1159,7 @@ const SCENARIOS = [
     // moment: one write runs, the second is refused with a plain message. Then the practice iPod is
     // changed outside the page (as iTunes would) and Reload from the iPod must notice, reset the
     // screens and stop counting the old backup.
-    name: 'the write lock refuses a second write, and Reload from the iPod picks up a change made behind the back',
+    name: 'a double click on Save is held back by the panel, and Reload from the iPod picks up a change made behind the back',
     url: `http://localhost:${port}/?demo=practice`,
     devtools: {
       doneSelector: 'body',
@@ -963,9 +1185,11 @@ const SCENARIOS = [
         await page.waitFor('Saved.', 90_000);
         const titles = String(await page.evaluate(`[...document.querySelectorAll('td.cell-title')].map((cell) => cell.textContent.trim()).join('|')`));
         check(titles.split('Morning Light (twice)').length === 2, 'The edit should be on the iPod once: ' + titles);
+        // The panel's once-only guard swallows the second click, so the lock is not even asked. The lock's
+        // own refusal is checked in the kept tabs scenario below and in write-lock.test.ts.
         await page.evaluate("document.querySelector('.log-button').click()");
-        await page.waitFor('Another change to the iPod is already running');
         await page.waitFor('Finished: Saving changes to the iPod');
+        check(!String(await page.evaluate('document.body.innerText')).includes('Another change to the iPod is already running'), 'The second click reached the lock, so the panel guard did not hold it back.');
         await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
         // A change made outside the page: the first track is removed through the engine, without telling the page.
         check((await run(`window.__opentunesPractice.removeFirstTrackBehindTheBack()`)) === 1, 'The change behind the back did not work.');
@@ -1091,7 +1315,7 @@ const SCENARIOS = [
               await page.click('Add music');
               await page.chooseFiles(REAL_MEDIA);
               await page.waitFor(' can be added', 120_000);
-              await page.click('Convert and check');
+              await page.click('Check and prepare');
               const until = Date.now() + 900_000;
               for (;;) {
                 const text = String(await page.evaluate('document.body.innerText'));
@@ -1182,9 +1406,9 @@ async function dumpWithDevTools(chromePath, url, { doneSelector, timeoutMs, driv
           }
           throw new Error(`Waited ${ms / 1000}s for "${text}". The page shows: ${await shown()}`);
         },
-        /** Clicks the button whose text is exactly `text`. */
+        /** Clicks the button whose text is exactly `text`, among the buttons that are on screen and not disabled (tabs stay mounted, so a hidden panel may hold one with the same text). */
         async click(text) {
-          const clicked = await evaluate(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === ${JSON.stringify(text)} && !x.disabled); if (!b) return false; b.click(); return true; })()`);
+          const clicked = await evaluate(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === ${JSON.stringify(text)} && !x.matches(':disabled') && x.offsetParent !== null); if (!b) return false; b.click(); return true; })()`);
           if (!clicked) throw new Error(`No enabled button "${text}". The page shows: ${await shown()}`);
         },
         async chooseFiles(paths, selector = 'input[data-pick=files]') {

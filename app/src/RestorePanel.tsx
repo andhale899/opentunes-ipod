@@ -1,15 +1,16 @@
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
 import { describeBackup, isOffloadFolder, type BackupSource, type BackupSummary, type DirectoryEntry, type IpodRoot, type RestoreReport } from '@opentunes/engine';
 import { restoreBackup } from './tracked';
-import { describeError } from './describeError';
+import { ConfirmBox, Notice, useOnce } from './controls';
+import { describeError, isStopped } from './describeError';
 import { newEngine } from './engineLoader';
 import { allowWriting } from './WriteBackPanel';
 import { logError, logOk } from './log';
 
 type State =
   | { phase: 'idle' }
-  | { phase: 'working'; message: string }
+  | { phase: 'working'; message: string; writing: boolean }
   | { phase: 'chosen'; folder: BackupSource; summary: BackupSummary }
   | { phase: 'done'; report: RestoreReport }
   | { phase: 'error'; message: string };
@@ -18,53 +19,70 @@ type Picker = (options?: { mode?: 'read' | 'readwrite' }) => Promise<unknown>;
 
 /**
  * Puts a backup's files back on the iPod, one by one. Every file is checked against its
- * checksum first, so a damaged backup changes nothing. Nothing on the iPod is deleted.
+ * checksum first, so a damaged backup changes nothing. Nothing on the iPod is deleted. It can be
+ * stopped while the backup is being checked, but not once files are being written, because a stop
+ * half way would leave a mix of old and restored files.
  */
 export function RestorePanel({ root, onRestored }: { root: DirectoryEntry; /** Called after a restore, so the library on screen is read again. */ onRestored?: () => void }) {
   const [state, setState] = useState<State>({ phase: 'idle' });
+  const abort = useRef<AbortController | null>(null);
+  const once = useOnce();
 
   async function choose() {
     const picker = (window as unknown as { showDirectoryPicker?: Picker }).showDirectoryPicker;
     if (!picker) {
-      setState({ phase: 'error', message: 'This browser has no folder picker.' });
+      setState({ phase: 'error', message: 'This browser has no folder picker. Use Chrome or Edge on a computer.' });
       return;
     }
-    let handle: unknown;
-    try {
-      handle = await picker.call(window, { mode: 'read' });
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setState({ phase: 'error', message: describeError(error) });
-      return;
-    }
-    setState({ phase: 'working', message: 'Reading the backup...' });
-    try {
-      const folder = handle as BackupSource;
-      if (await isOffloadFolder(folder)) {
-        setState({ phase: 'error', message: `"${folder.name}" is an offload folder, not a backup folder. An offload folder holds everything (music, video, spreadsheets and the library files), and a backup holds only the database files. To put an offload folder back, use "Restore everything from an offload folder" below.` });
+    await once(async () => {
+      let handle: unknown;
+      try {
+        handle = await picker.call(window, { mode: 'read' });
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) setState({ phase: 'error', message: describeError(error) });
         return;
       }
-      setState({ phase: 'chosen', folder, summary: await describeBackup(folder) });
-    } catch (error) {
-      setState({ phase: 'error', message: describeError(error) });
-    }
+      setState({ phase: 'working', message: 'Reading the backup...', writing: false });
+      try {
+        const folder = handle as BackupSource;
+        if (await isOffloadFolder(folder)) {
+          setState({ phase: 'error', message: `"${folder.name}" is an offload folder, not a backup folder. An offload folder holds everything (music, video, spreadsheets and the library files), and a backup holds only the database files. To put an offload folder back, use "Restore everything from an offload folder" below.` });
+          return;
+        }
+        setState({ phase: 'chosen', folder, summary: await describeBackup(folder) });
+      } catch (error) {
+        setState({ phase: 'error', message: describeError(error) });
+      }
+    });
   }
 
   async function restore(folder: BackupSource) {
-    try {
-      if (!(await allowWriting(root))) {
-        setState({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was restored.' });
-        return;
+    await once(async () => {
+      try {
+        // Chrome only shows its permission prompt straight from a click, so ask before anything else.
+        if (!(await allowWriting(root))) {
+          setState({ phase: 'error', message: 'Chrome was not allowed to change the iPod, so nothing was restored.' });
+          return;
+        }
+        const controller = new AbortController();
+        abort.current = controller;
+        setState({ phase: 'working', message: 'Restoring...', writing: false });
+        const report = await restoreBackup(root as unknown as IpodRoot, folder, {
+          newEngine,
+          signal: controller.signal,
+          onProgress: (message, phase) => setState({ phase: 'working', message, writing: phase === 'writing' || phase === 'verifying' }),
+        });
+        setState({ phase: 'done', report });
+        if (report.verified) logOk('restore', `Restored ${report.restored} files and the iPod reads back.`);
+        else logError('restore', `The restore did not finish cleanly: ${report.failures[0] ?? 'see the list'}`);
+        // The restore changed the iPod's library, so what the page shows must be read again.
+        onRestored?.();
+      } catch (error) {
+        setState({ phase: 'error', message: isStopped(error) ? 'Stopped before anything was written. The iPod is exactly as it was.' : describeError(error, { writing: true }) });
+      } finally {
+        abort.current = null;
       }
-      setState({ phase: 'working', message: 'Restoring...' });
-      const report = await restoreBackup(root as unknown as IpodRoot, folder, { newEngine, onProgress: (message) => setState({ phase: 'working', message }) });
-      setState({ phase: 'done', report });
-      if (report.verified) logOk('restore', `Restored ${report.restored} files and the iPod reads back.`);
-      else logError('restore', `The restore did not finish cleanly: ${report.failures[0] ?? 'see the list'}`);
-      // The restore changed the iPod's library, so what the page shows must be read again.
-      onRestored?.();
-    } catch (error) {
-      setState({ phase: 'error', message: describeError(error, { writing: true }) });
-    }
+    });
   }
 
   const working = state.phase === 'working';
@@ -80,34 +98,54 @@ export function RestorePanel({ root, onRestored }: { root: DirectoryEntry; /** C
       </button>
 
       {state.phase === 'working' ? (
-        <p class="note" role="status">
-          {state.message}
-        </p>
+        <>
+          <p class="note" role="status">
+            {state.message}
+          </p>
+          {state.message !== 'Reading the backup...' ? (
+            <div class="actions">
+              <button type="button" class="secondary small" disabled={state.writing} onClick={() => abort.current?.abort()}>
+                Stop (nothing is restored yet)
+              </button>
+              {state.writing ? <span class="note">This part cannot be stopped safely: stopping halfway would leave a mix of old and restored files. It takes a few seconds.</span> : null}
+            </div>
+          ) : null}
+        </>
       ) : null}
       {state.phase === 'error' ? (
-        <div class="result no" role="alert">
+        <Notice tone="no">
           <p>{state.message}</p>
-        </div>
+        </Notice>
       ) : null}
       {state.phase === 'chosen' ? (
-        <>
+        <ConfirmBox
+          title="Put this backup back on the iPod?"
+          confirmLabel="Restore these files to the iPod"
+          cancelLabel="Do not restore"
+          danger
+          onConfirm={() => void restore(state.folder)}
+          onCancel={() => setState({ phase: 'idle' })}
+        >
           <p>
             "{state.folder.name}" holds {state.summary.files} files ({formatBytes(state.summary.bytes)}), made {state.summary.createdAt ? new Date(state.summary.createdAt).toLocaleString() : 'at an unknown time'}.
           </p>
-          <button type="button" onClick={() => void restore(state.folder)} disabled={working}>
-            Restore these files to the iPod
-          </button>
-        </>
+          <p>
+            This puts the iPod's library back to how it was at that time. Songs, playlists, ratings and play counts changed since then go back too. Songs added since then stay on the iPod but are no longer listed. Nothing is deleted and no music is touched.
+          </p>
+          <p>
+            It cannot be undone by itself. To keep a way back, make a backup of the iPod as it is now first (the button above), and restore that one if you change your mind. Once it starts writing it cannot be stopped, but it only takes a few seconds.
+          </p>
+        </ConfirmBox>
       ) : null}
       {state.phase === 'done' ? (
         <>
-          <div class={`result ${state.report.verified ? 'ok' : 'no'}`} role={state.report.verified ? 'status' : 'alert'}>
+          <Notice tone={state.report.verified ? 'ok' : 'no'}>
             <p>
               {state.report.verified
-                ? `Restored ${state.report.restored} files (${formatBytes(state.report.bytes)}). Each was read back and matched, and the iPod's database reads back. Eject it and check it.`
+                ? `Restored ${state.report.restored} files (${formatBytes(state.report.bytes)}). Each was read back and matched, and the iPod's library reads back. Eject it and check it.`
                 : 'The restore did not finish cleanly. See below.'}
             </p>
-          </div>
+          </Notice>
           {state.report.failures.length ? (
             <ul class="files">
               {state.report.failures.map((line) => (
