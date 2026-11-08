@@ -85,3 +85,19 @@ Titles, artists and albums are text from files and tags, and can contain words t
 Tested (see the changelog for how): the digest, the checks, request shapes, headers and tool definitions for both providers, error messages (wrong key, rate limit, bad request, network failure, abort), that the key never appears in a thrown message even when the service echoes it, the JSON fallback, saving and forgetting settings, and the whole tab in headless Chrome on a practice iPod with `fetch` replaced by a fake model.
 
 Not tested: a real call to any service (the build had no key and made none), how well any real model follows the instructions or how good its proposals are, an endpoint that really blocks browser calls, or apply on the owner's real iPod. The practice iPod is held in memory. Field changes and new playlists are the same engine code as the Library tab, which has not yet been run on the owner's iPod either.
+
+## Choosing a service
+
+The Service box lists ready-made choices. The assistant starts on a free one, **Groq (free tier)**, with its address and a model already filled in. You still paste your own key (each free service gives one with no card): the app cannot ship a shared key, because anyone could take it from the page and use it up.
+
+| Choice | Cost | Notes |
+| --- | --- | --- |
+| Groq | free tier | About 8,000 tokens a minute on the free plan, so the assistant sends about 100 tracks at a time. |
+| OpenRouter | free models | Models whose names end in `:free`. About 20 requests a minute, 50 a day. The free list changes often: load it and pick one. |
+| Google Gemini | free tier | Key from AI Studio. On the free tier Google may use what you send to improve its products. |
+| Ollama | free, on your computer | Nothing leaves your computer. Start Ollama with `OLLAMA_ORIGINS` set to the page's address, and use a model that supports tools. |
+| Anthropic (Claude), OpenAI | paid | Best at the structured steps. |
+| Any other OpenAI-style address | depends | Type the address and the model name. |
+
+Limits and prices of free tiers change, and they are from public comparisons read on 2026-11-07, not tested with this app. Free models follow the structured steps less reliably, so expect more proposals to be dropped. Whatever you choose, nothing is sent until you tick the opt-in box, and it shows which host will receive the titles, artists, albums and genres.
+

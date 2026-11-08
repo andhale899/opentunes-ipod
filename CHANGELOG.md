@@ -56,6 +56,8 @@
 - An activity bar under the top bar for everything the page does: a spinner, what it is doing, the time taken, a note when it is slow, and during any write to the iPod a warning not to unplug, eject or close the tab. After a write it says to eject the iPod from the computer, or that it did not finish and the backup can restore it. The AI assistant shows how long it has waited for the model and stops after five minutes.
 - A model picker for the AI assistant: it loads the models a key can use from the service (a free read-only call) so no model name has to be typed. Typing one still works.
 - The model list in Add music marks which iPod models are tested (only the nano 7th generation) and which are not, and the landing page says so.
+- A Service box for the AI assistant with ready-made choices (Groq, OpenRouter, Gemini, Ollama, Anthropic, OpenAI, any other address). It starts on a free one, Groq, with the address and a model filled in and a link to get a free key. Each free service sends a smaller part of the library per request, because they allow few tokens a minute.
+- Time left under the activity bar: a progress bar and an estimate worked out from the pace so far, or from the copy speed during a sync or offload. Steps that cannot say how long they take show a moving bar instead.
 
 ### Changed
 - The wording no longer calls the iPod "classic" (that is a different model). The stylesheet merge had cut a rule in half and left the organiser and phone styles nested inside it, which is repaired.

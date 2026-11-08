@@ -9,7 +9,8 @@ import { startActivity } from './activity';
 import { assertSafe, buildEdits, buildPlaylistChanges } from './ai/apply';
 import { ask, scopeText, summaryOf } from './ai/assistant';
 import { AssistantSettings } from './ai/AssistantSettings';
-import { MAX_TRACKS_PER_REQUEST, buildDigest, digestPart, selectIds } from './ai/digest';
+import { buildDigest, digestPart, selectIds } from './ai/digest';
+import { presetFor } from './ai/presets';
 import { ModelError, cleanKey, hostOf, keyProblem, listModels, scrub, type ProviderConfig } from './ai/providers';
 import { ProposalPreview } from './ai/ProposalPreview';
 import { browserStorage, forgetKeys, saveSettings, type Settings } from './ai/settings';
@@ -65,6 +66,8 @@ export function AssistantPanel({
 
   const { settings } = state;
   const provider = settings.provider;
+  // Free services allow only a few thousand tokens a minute, so each one sends a smaller part of the library.
+  const MAX_TRACKS_PER_REQUEST = presetFor(settings).maxTracks;
   const apiKey = state.keys[provider] ?? '';
   const config: ProviderConfig = { provider, apiKey, model: settings.models[provider], baseUrl: settings.baseUrl };
   const host = hostOf(config);
@@ -82,7 +85,7 @@ export function AssistantPanel({
 
   const digest = useMemo(() => buildDigest(tracks), [tracks]);
   const ids = useMemo(() => selectIds(digest, filter), [digest, filter]);
-  const { part, parts } = digestPart(digest, ids, partIndex);
+  const { part, parts } = digestPart(digest, ids, partIndex, MAX_TRACKS_PER_REQUEST);
   const shownPart = Math.min(partIndex, parts - 1);
   const problem = keyProblem(apiKey);
   const canAsk = state.optIn && !problem && settings.models[provider].trim() !== '' && host !== null && part.tracks > 0 && prompt.trim() !== '' && !busy;
@@ -268,7 +271,7 @@ export function AssistantPanel({
         onSettings={changeSettings}
         keyIsSet={apiKey !== ''}
         onKey={setKey}
-        keyBox={`${provider}-${keyVersion}`}
+        keyBox={`${provider}-${settings.baseUrl}-${keyVersion}`}
         onForget={forget}
         optIn={state.optIn}
         onOptIn={(on) => {
