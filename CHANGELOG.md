@@ -90,6 +90,8 @@
 - "Ask AI to review" in Find duplicates (opt-in, same key, provider and opt-in as the Assistant tab). Sends only the candidate groups (short ids, kind, title, artist, album, year, length, bitrate) and, for fuzzy candidates, the similar pairs. The new `review_duplicates` tool is checked by a hand-written validator that drops unknown ids and anything else and reports it. "Apply the AI's verdicts" only changes tick boxes. Tested with a fake `fetch` (unit tests and headless Chrome). Not tried against a real model.
 
 ### Changed
+- Backup and Offload are one tab, with a short note on the difference (a backup saves only the library files, an offload copies everything). A saved link to the old Offload tab still lands there.
+- The device card no longer squeezes the iPod's name into one letter per line while a job runs: its buttons and notes sit on their own row.
 - The wording no longer calls the iPod "classic" (that is a different model). The stylesheet merge had cut a rule in half and left the organiser and phone styles nested inside it, which is repaired.
 - The landing text and the footer now say "Nothing is uploaded unless you turn the AI assistant on", because the assistant is the one feature that can send text off the computer.
 - libgpod now runs the lowest SQL command set a nano 6G or 7G offers, not the highest. The rewritten library gets the `is_home_video` column and library version 26, as the library iTunes wrote has. A fourth libgpod patch, found by the rewrite check on the owner's nano 7G.

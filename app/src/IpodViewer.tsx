@@ -313,7 +313,7 @@ function Library({ tracks }: { tracks: TrackInfo[] }) {
   );
 }
 
-type Tab = 'library' | 'add' | 'assistant' | 'backup' | 'offload' | 'diagnostics';
+type Tab = 'library' | 'add' | 'assistant' | 'backup' | 'diagnostics';
 
 export function IpodViewer({
   canPickFolder,
@@ -328,7 +328,9 @@ export function IpodViewer({
 }) {
   const [tab, setTab] = useState<Tab>(() => {
     const asked = new URLSearchParams(window.location.search).get('tab');
-    return asked === 'add' || asked === 'backup' || asked === 'offload' || asked === 'diagnostics' ? asked : 'library';
+    // The old Offload tab now lives inside Backup, so a saved link to it still lands in the right place.
+    if (asked === 'offload') return 'backup';
+    return asked === 'add' || asked === 'backup' || asked === 'diagnostics' ? asked : 'library';
   });
   const [view, setView] = useState<View>({ phase: 'idle' });
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -614,7 +616,7 @@ export function IpodViewer({
   const ready = view.phase === 'ready' ? view.snapshot : null;
   const writable = ready !== null && ready.source !== 'demo';
   const tabs: [Tab, string][] = writable
-    ? [['library', 'Library'], ['add', 'Add music'], ['assistant', 'Assistant'], ['backup', 'Backup'], ['offload', 'Offload'], ['diagnostics', 'Diagnostics']]
+    ? [['library', 'Library'], ['add', 'Add music'], ['assistant', 'Assistant'], ['backup', 'Backup'], ['diagnostics', 'Diagnostics']]
     : [['library', 'Library'], ['diagnostics', 'Diagnostics']];
   const current: Tab = tabs.some(([id]) => id === tab) ? tab : 'library';
   const refreshed = () => (ready ? readIpod(ready.root, ready.source, true) : undefined);
@@ -1004,8 +1006,14 @@ export function IpodViewer({
                     <ReuseBackup ipodRoot={snapshot.root} ipodName={snapshot.folderName} backup={backup} onUse={setBackup} />
                   </PanelBoundary>
                 ) : null}
+                <p class="callout info">
+                  <strong>Two kinds of safety copy.</strong> A <strong>backup</strong> saves only the library files, so a bad change can be undone. It is small and quick, and it is needed before the app changes anything. An <strong>offload</strong> copies everything, the music and videos too, plus the library, so one folder can put the whole iPod back.
+                </p>
                 <PanelBoundary name="Backup" key={`backup-${epoch}`}>
                   <BackupPanel source={snapshot.root} onDone={onBackupDone} inMemory={snapshot.source === 'practice'} />
+                </PanelBoundary>
+                <PanelBoundary name="Offload" key={`offload-${epoch}`}>
+                  <OffloadPanel source={snapshot.root} inMemory={snapshot.source === 'practice'} />
                 </PanelBoundary>
                 {snapshot.source === 'folder' ? (
                   <PanelBoundary name="Restore" key={`restore-${epoch}`}>
@@ -1016,14 +1024,6 @@ export function IpodViewer({
                   <RestoreEverythingPanel root={snapshot.root} backup={backup} onChanged={() => void refreshed()} />
                 </PanelBoundary>
               </>
-            ))
-          : null}
-
-        {writable
-          ? pane('offload', () => (
-              <PanelBoundary name="Offload" key={`offload-${epoch}`}>
-                <OffloadPanel source={snapshot.root} inMemory={snapshot.source === 'practice'} />
-              </PanelBoundary>
             ))
           : null}
 
