@@ -14,9 +14,11 @@
  *  4. the iPod's database files today are byte for byte what the backup holds (SHA-256 for files
  *     up to 8 MiB, size for larger ones such as artwork), with nothing missing and nothing new.
  *
- * If 4 fails the person is told how old the backup is and what changed, and must make a new
- * backup. There is no "use it anyway": a new backup takes seconds, and a stale one would quietly
- * throw away whatever changed in between when it is restored.
+ * If 4 fails the person is told how old the backup is and what changed, and chooses: a new backup
+ * (the recommended one) or that older backup anyway, which is only ever used after an explicit
+ * confirm that says what a restore from it would lose (see lastBackup.ts). Nothing that does not
+ * match is ever accepted on its own. A backup whose iPod identity files (SysInfo, SysInfoExtended)
+ * differ from the iPod's is treated as another iPod's and cannot be used anyway.
  *
  * The pure decision is in `decideReuse`. The reads are in `checkEarlierBackup`.
  */
@@ -161,6 +163,13 @@ export async function compareWithIpod(root: DirectoryEntry, manifest: Manifest, 
 
 export type ReuseReason = 'ok' | 'different-ipod' | 'different-backup' | 'incomplete' | 'damaged' | 'ipod-changed';
 
+/** The device files that say which iPod this is. If they differ from a backup's, the backup is another iPod's. */
+const IDENTITY_FILE = /^iPod_Control\/Device\/SysInfo(Extended)?$/;
+
+export function identityDiffers(comparison: IpodComparison): boolean {
+  return [...comparison.changed, ...comparison.missing].some((path) => IDENTITY_FILE.test(path));
+}
+
 export interface ReuseDecision {
   allowed: boolean;
   reason: ReuseReason;
@@ -200,6 +209,9 @@ export function decideReuse(input: {
   if (problems.length) {
     return { allowed: false, reason: 'damaged', message: `That backup does not pass the checks a restore makes (${problems[0]}). Make a new backup.` };
   }
+  if (identityDiffers(comparison)) {
+    return { allowed: false, reason: 'different-ipod', message: `The files that identify an iPod are not the same as the ones in that backup, so it looks like it was made from a different iPod. It is not used. Make a new backup.` };
+  }
   const differences = comparison.changed.length + comparison.missing.length + comparison.added.length;
   if (differences) {
     const parts = [
@@ -210,7 +222,7 @@ export function decideReuse(input: {
     return {
       allowed: false,
       reason: 'ipod-changed',
-      message: `The iPod has changed since that backup was made (${age}): ${parts.join(', ')}. Restoring it would undo those changes. Make a new backup.`,
+      message: `The iPod has changed since that backup was made (${age}): ${parts.join(', ')}. Restoring it would undo those changes.`,
     };
   }
   return { allowed: true, reason: 'ok', message: `The backup made ${age} passed every check and the iPod's database files are exactly what it holds, so it can be used as the backup for changes.` };
@@ -232,20 +244,37 @@ export function reportFromManifest(folder: string, manifest: Manifest): BackupRe
 
 export interface EarlierBackupResult {
   decision: ReuseDecision;
+  /** The report to use, only when the decision allows it. */
   report: BackupReport | null;
+  /** When the iPod changed since an otherwise good backup: the report it would give if the person chose it anyway. Null for any other refusal, which can never be chosen. */
+  olderReport: BackupReport | null;
+  /** What differs on the iPod now. Empty when the backup could not be compared. */
+  comparison: IpodComparison;
   /** When the backup was made, from this browser's own record. */
   madeAt: number;
+}
+
+/** Opens a folder given as a path of names below `parent`, such as "opentunes-offload-2026-11-07-1804/database". */
+export async function openFolderPath(parent: { getDirectoryHandle(name: string): Promise<BackupSource> }, path: string): Promise<BackupSource> {
+  let folder = parent as unknown as BackupSource;
+  for (const part of path.split('/').filter(Boolean)) folder = await folder.getDirectoryHandle(part);
+  return folder;
 }
 
 /** Runs every read: the backup's manifest and files, then the iPod. Throws a plain Error when the folder is not readable. */
 export async function checkEarlierBackup(record: SavedBackup, ipodRoot: DirectoryEntry, now: number, options: { onProgress?: (message: string) => void } = {}): Promise<EarlierBackupResult> {
   const onProgress = options.onProgress;
-  const destination = record.destination as { getDirectoryHandle(name: string): Promise<BackupSource> };
-  const folder = await destination.getDirectoryHandle(record.folder);
+  const folder = await openFolderPath(record.destination as { getDirectoryHandle(name: string): Promise<BackupSource> }, record.folder);
   onProgress?.('Reading the backup...');
   const manifest = await readManifest(folder);
   const problems = await verifyBackupFiles(folder, manifest, onProgress);
   const comparison = await compareWithIpod(ipodRoot, manifest, onProgress);
   const decision = decideReuse({ record, ipodName: ipodRoot.name, manifest, problems, comparison, now });
-  return { decision, report: decision.allowed ? reportFromManifest(record.folder, manifest) : null, madeAt: record.madeAt };
+  return {
+    decision,
+    report: decision.allowed ? reportFromManifest(record.folder, manifest) : null,
+    olderReport: decision.reason === 'ipod-changed' ? reportFromManifest(record.folder, manifest) : null,
+    comparison,
+    madeAt: record.madeAt,
+  };
 }

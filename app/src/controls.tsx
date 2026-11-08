@@ -51,6 +51,7 @@ export function ConfirmBox({
   cancelLabel = 'Cancel',
   danger = false,
   disabled = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: {
@@ -62,6 +63,8 @@ export function ConfirmBox({
   danger?: boolean;
   /** True while the action runs, so a second click does nothing. */
   disabled?: boolean;
+  /** Turns off only the confirm button, so the person can still back out. For a change that cannot be made right now. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -76,7 +79,7 @@ export function ConfirmBox({
       <h4>{title}</h4>
       <div class="confirm-body">{children}</div>
       <div class="actions">
-        <button type="button" class={danger ? 'danger' : ''} disabled={disabled} onClick={onConfirm}>
+        <button type="button" class={danger ? 'danger' : ''} disabled={disabled || confirmDisabled} onClick={onConfirm}>
           {confirmLabel}
         </button>
         <button ref={cancel} type="button" class="secondary" disabled={disabled} onClick={onCancel}>

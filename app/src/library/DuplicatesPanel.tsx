@@ -3,7 +3,9 @@ import { formatBytes, formatDuration } from '@opentunes/core';
 import { type BackupReport, type DirectoryEntry, type IpodRoot, type PlaylistInfo, type RemovalPlan, type TrackInfo } from '@opentunes/engine';
 import { applyRemoval, changePlaylists, planRemoval } from '../tracked';
 import { startActivity } from '../activity';
+import { WriteWait } from '../BackupGate';
 import { ConfirmBox, Notice, useOnce } from '../controls';
+import { useWriteReady } from '../writeReady';
 import { describeError } from '../describeError';
 import { newEngine } from '../engineLoader';
 import { allowWriting } from '../WriteBackPanel';
@@ -98,7 +100,7 @@ export function DuplicatesPanel({
   const once = useOnce();
   useEffect(() => () => controller.current?.abort(), []);
 
-  const ready = backup !== null && backup.complete;
+  const { ready, backupOk, wait } = useWriteReady(backup);
   const busy = stage.phase === 'working' || asking;
 
   // Fuzzy candidates appear only once the AI has looked at them.
@@ -440,7 +442,7 @@ export function DuplicatesPanel({
           <button type="button" class="secondary" disabled={busy || !ready || !ticked.keys.length} onClick={() => void plan()}>
             Remove ticked duplicates
           </button>
-          {!ready ? <span class="note">Make the backup first (Backup tab).</span> : null}
+          {!backupOk ? <span class="note">Make the backup first (Backup tab).</span> : <WriteWait wait={wait} />}
         </div>
       </div>
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { type BackupReport, type DirectoryEntry, type IpodRoot, type LibraryReport, type PlaylistInfo, type TrackInfo } from '@opentunes/engine';
 import { changePlaylists, editTracks, planEdits, planPlaylistChanges } from './tracked';
 import { BackupGate } from './BackupGate';
+import { useWriteReady } from './writeReady';
 import { ConfirmBox, useOnce } from './controls';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
@@ -85,7 +86,7 @@ export function AssistantPanel({
   const apiKey = state.keys[provider] ?? '';
   const config: ProviderConfig = { provider, apiKey, model: settings.models[provider], baseUrl: settings.baseUrl };
   const host = hostOf(config);
-  const ready = backup !== null && backup.complete;
+  const { ready } = useWriteReady(backup);
 
   // Settings are saved as they change. The key is saved only when "Remember" is ticked.
   useEffect(() => {
@@ -289,7 +290,7 @@ export function AssistantPanel({
       <p class="card-lead">
         Ask a language model to tidy tags or build playlists. It can only propose: you see every change first, tick what you want, and what you apply goes through the same backup and read-back checks as the Library tab. This is the one part of OpenTunes that sends anything off this computer, and only if you allow it below.
       </p>
-      <BackupGate ready={ready} onGo={onNeedBackup} />
+      <BackupGate backup={backup} onGo={onNeedBackup} />
       {state.afterReload && !state.optIn && !state.turns.length ? (
         <p class="callout info" role="note">
           This page was reloaded since you last used the assistant. The permission to send the library, the conversation and the key (unless you ticked Remember) are kept in memory only, so they were cleared. Tick the box and paste the key again to continue.
@@ -415,6 +416,7 @@ export function AssistantPanel({
                         confirmLabel="Apply to the iPod"
                         cancelLabel="Not yet"
                         disabled={busy}
+                        confirmDisabled={!ready}
                         onConfirm={() => void apply(turn)}
                         onCancel={() => setConfirming(null)}
                       >

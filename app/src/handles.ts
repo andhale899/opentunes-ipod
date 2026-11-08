@@ -18,7 +18,7 @@ export interface SavedBackup {
   /** The folder the person chose to keep backups in. */
   destination: unknown;
   destinationName: string;
-  /** The folder the backup made inside it (opentunes-backup-...). */
+  /** The folder the backup made inside it (opentunes-backup-...), or for a full copy the path to its library folder (opentunes-offload-.../database). */
   folder: string;
   /** The iPod folder name the backup was made from. */
   ipod: string;
@@ -29,7 +29,9 @@ export interface SavedBackup {
 }
 
 const IPOD_KEY = 'ipod-handle';
+/** One record per iPod folder name, so each iPod finds its own last backup. The older single record is still read. */
 const BACKUP_KEY = 'backup-record';
+const backupKeyFor = (ipod: string): string => `${BACKUP_KEY}:${ipod}`;
 
 async function guarded<T>(what: string, action: () => Promise<T>, fallback: T): Promise<T> {
   try {
@@ -78,29 +80,38 @@ export const saveBackupRecord = (record: SavedBackup): Promise<void> =>
     async () => {
       const db = await kv();
       if (!db.handles) return;
-      await db.set(BACKUP_KEY, record);
-      logStep('backup', 'The backup folder was remembered in this browser.');
+      await db.set(backupKeyFor(record.ipod), record);
+      logStep('backup', 'The backup folder was remembered in this browser, for the next time this iPod is opened.');
     },
     undefined,
   );
 
-export const loadBackupRecord = (): Promise<SavedBackup | null> =>
+const usable = (value: Partial<SavedBackup> | undefined): value is SavedBackup =>
+  Boolean(value && value.destination && typeof value.folder === 'string' && typeof value.madeAt === 'number' && typeof value.manifestCreatedAt === 'string' && typeof value.ipod === 'string');
+
+/** The backup remembered for the iPod folder with this name, or null. */
+export const loadBackupRecord = (ipod: string): Promise<SavedBackup | null> =>
   guarded(
     'Looking for a remembered backup',
     async () => {
-      const value = (await (await kv()).get(BACKUP_KEY)) as Partial<SavedBackup> | undefined;
-      return value && value.destination && typeof value.folder === 'string' && typeof value.madeAt === 'number' && typeof value.manifestCreatedAt === 'string' && typeof value.ipod === 'string'
-        ? (value as SavedBackup)
-        : null;
+      const db = await kv();
+      const own = (await db.get(backupKeyFor(ipod))) as Partial<SavedBackup> | undefined;
+      if (usable(own) && own.ipod === ipod) return own;
+      // Before there was one record per iPod, a single one was kept.
+      const old = (await db.get(BACKUP_KEY)) as Partial<SavedBackup> | undefined;
+      return usable(old) && old.ipod === ipod ? old : null;
     },
     null,
   );
 
-export const forgetBackupRecord = (): Promise<void> =>
+export const forgetBackupRecord = (ipod: string): Promise<void> =>
   guarded(
     'Forgetting the backup folder',
     async () => {
-      await (await kv()).delete(BACKUP_KEY);
+      const db = await kv();
+      await db.delete(backupKeyFor(ipod));
+      const old = (await db.get(BACKUP_KEY)) as Partial<SavedBackup> | undefined;
+      if (old && old.ipod === ipod) await db.delete(BACKUP_KEY);
     },
     undefined,
   );

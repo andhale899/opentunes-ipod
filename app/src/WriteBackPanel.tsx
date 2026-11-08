@@ -2,7 +2,9 @@ import { useRef, useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
 import { type BackupReport, type DirectoryEntry, type IpodRoot, type WriteBackPlan, type WriteBackReport } from '@opentunes/engine';
 import { applyWriteBack, planWriteBack } from './tracked';
+import { WriteWait } from './BackupGate';
 import { Notice, useOnce } from './controls';
+import { useWriteReady } from './writeReady';
 import { describeError, isStopped } from './describeError';
 import { newEngine } from './engineLoader';
 import { allowWriting } from './ipodAccess';
@@ -25,7 +27,7 @@ export { allowWriting };
 export function WriteBackPanel({ root, backup }: { root: DirectoryEntry; backup: BackupReport | null }) {
   const [state, setState] = useState<State>({ phase: 'idle' });
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
-  const ready = backup !== null && backup.complete;
+  const { ready, backupOk, wait } = useWriteReady(backup);
   const once = useOnce();
   const stopper = useRef<AbortController | null>(null);
 
@@ -91,7 +93,7 @@ export function WriteBackPanel({ root, backup }: { root: DirectoryEntry; backup:
           </button>
         ) : null}
       </div>
-      {!ready ? <p class="muted">Make the backup in the Backup tab first. Nothing can be written until a complete backup has been made on this page.</p> : null}
+      {!backupOk ? <p class="muted">Make the backup in the Backup tab first. Nothing can be written until a complete backup has been made on this page.</p> : <WriteWait wait={wait} />}
 
       {state.phase === 'working' ? (
         <p class="note" role="status">

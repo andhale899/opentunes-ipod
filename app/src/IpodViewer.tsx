@@ -19,7 +19,6 @@ import {
   type SignatureCheck,
   type SignatureStatus,
   type TrackInfo,
-  type WritableDirectory,
 } from '@opentunes/engine';
 import { AddPanel } from './AddPanel';
 import { AssistantPanel } from './AssistantPanel';
@@ -27,19 +26,20 @@ import { BackupPanel } from './BackupPanel';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
 import { ManagePanel } from './ManagePanel';
-import { OffloadPanel } from './OffloadPanel';
 import { PanelBoundary } from './PanelBoundary';
 import { currentActivity, startActivity, useActivity } from './activity';
 import { JournalBanner } from './Banners';
 import { ConfirmBox, Notice, reveal, useOnce } from './controls';
 import { IpodAccessError, DISCONNECTED } from './friendlyError';
-import { forgetIpodHandle, loadIpodHandle, saveBackupRecord, saveIpodHandle, type SavedIpod } from './handles';
+import { forgetIpodHandle, loadIpodHandle, saveIpodHandle, type SavedIpod } from './handles';
 import { checkFolderAlive, isFolderAlive, regainAccess } from './ipodAccess';
 import { loadLeftBehind, setJournalContext } from './journal';
 import { logError, logOk, logStep } from './log';
 import { watchOtherTabs, type TabWatcher } from './otherTab';
 import { buildPracticeIpod, exposePracticeForTests } from './practice';
-import { ReuseBackup, rememberBackup } from './ReuseBackup';
+import { BackupActionsContext } from './BackupGate';
+import { LastBackupLine, useLastBackup } from './LastBackupLine';
+import { chipText, type BackupInfo } from './lastBackup';
 import { RestoreEverythingPanel } from './RestoreEverythingPanel';
 import { fingerprintOf, reloadMessage } from './staleness';
 import { isStopped } from './stopped';
@@ -336,6 +336,8 @@ export function IpodViewer({
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
   /** The backup made on this page, which the write-back needs before it will start. */
   const [backup, setBackup] = useState<BackupReport | null>(null);
+  /** Which backup that is, for the header chip and the Backup tab: made now, found again and still matching, or an older one chosen anyway. */
+  const [backupInfo, setBackupInfo] = useState<BackupInfo | null>(null);
   /** The iPod folder remembered from an earlier visit, offered as Reconnect. */
   const [saved, setSaved] = useState<SavedIpod | null>(null);
   /** Bumped to throw away every panel's own state, when the iPod changed behind the page's back. */
@@ -466,6 +468,7 @@ export function IpodViewer({
     progress('Loading the engine...');
     if (!refresh) {
       setBackup(null);
+      setBackupInfo(null);
       setReadProblem('');
       setReloadNote('');
     }
@@ -508,6 +511,7 @@ export function IpodViewer({
           // Something else changed the iPod, so what the panels hold and the earlier backup are out of date.
           setEpoch((value) => value + 1);
           setBackup(null);
+          setBackupInfo(null);
           logError('page', `The iPod changed outside this page (${before?.tracks.length ?? 0} tracks before, ${next.tracks.length} now). The screens were reset and the backup no longer counts.`);
         }
         setReloadNote(reloadMessage({ changed, before: before?.tracks.length ?? 0, after: next.tracks.length, readAtText }));
@@ -632,9 +636,10 @@ export function IpodViewer({
     if (writable) goTo('backup', true);
     else wantTab.current = 'backup';
   };
-  const onBackupDone = (report: BackupReport, destination?: WritableDirectory) => {
+  /** A backup or full copy was made here: it counts, and the panel has already remembered its folder. */
+  const onBackupDone = (report: BackupReport) => {
     setBackup(report);
-    if (destination && ready && ready.source === 'folder') void rememberBackup(report, destination, ready.folderName);
+    setBackupInfo({ kind: 'made', madeAt: Date.now() });
   };
   const onTabKey = (event: KeyboardEvent) => {
     const keys = ['ArrowRight', 'ArrowLeft', 'Home', 'End'];
@@ -654,6 +659,30 @@ export function IpodViewer({
     watcher.current?.announce(hasIpod);
     if (!hasIpod) setOtherTab(false);
   }, [hasIpod]);
+
+  // When an iPod is opened, look for the backup remembered for it and check it, with no click if Chrome allows.
+  const lastBackup = useLastBackup(
+    ready ? { root: ready.root, folderName: ready.folderName, source: ready.source } : null,
+    epoch,
+    backup,
+    (report, info) => {
+      setBackup(report);
+      setBackupInfo(info);
+    },
+  );
+  /** What "Back up now" in the notice that stands where a change is off needs, so it can make the backup right there. */
+  const backupActions = ready
+    ? {
+        source: ready.root,
+        inMemory: ready.source === 'practice',
+        onDone: onBackupDone,
+        accept: (report: BackupReport, info: BackupInfo) => {
+          setBackup(report);
+          setBackupInfo(info);
+        },
+        last: lastBackup,
+      }
+    : null;
 
   const loadingNote =
     view.phase === 'working' ? (
@@ -866,7 +895,7 @@ export function IpodViewer({
               {snapshot.source === 'demo' ? <span class="pill info">Demo data</span> : null}
               {snapshot.source === 'practice' ? <span class="pill info">Practice iPod, held in memory</span> : null}
               {signatureNews ? <span class={`pill ${signaturesOk ? 'ok' : 'no'}`}>{signaturesOk ? 'Signatures verified' : 'Signature problem'}</span> : null}
-              {writable ? <span class={`pill ${backedUp ? 'ok' : 'warn'}`}>{backedUp ? 'Backup made' : 'No backup yet'}</span> : null}
+              {writable ? <span class={`pill ${backedUp ? 'ok' : 'warn'}`}>{backedUp ? chipText(backupInfo) : 'No backup yet'}</span> : null}
             </div>
           </div>
           <div class="actions">
@@ -948,6 +977,7 @@ export function IpodViewer({
       {/* One fieldset round every panel, hidden ones too, so no control that touches the iPod can be
           used while a write runs, whichever tab it sits on. The tab list is outside it, so you can
           still go and look at a running job's tab. */}
+      <BackupActionsContext.Provider value={backupActions}>
       <fieldset class="write-lock" disabled={changing}>
         {pane('library', () => (
           <>
@@ -1006,18 +1036,15 @@ export function IpodViewer({
                     1. Protect the iPod before you change it
                   </h3>
                   <p class="section-lead">
-                    <strong>A backup is required</strong>: the app will not change the iPod until one exists. A <strong>full copy</strong> (also called an offload) is optional: it keeps the music and videos too.
+                    <strong>A backup is required</strong>: the app will not change the iPod until one exists. When you open an iPod it looks for your last backup of it and checks it for you, so you only make a new one when you need to. You can copy the music and videos too, by tick box below: that is optional.
                   </p>
                   {snapshot.source === 'folder' ? (
-                    <PanelBoundary name="Earlier backup" key={`reuse-${epoch}`}>
-                      <ReuseBackup ipodRoot={snapshot.root} ipodName={snapshot.folderName} backup={backup} onUse={setBackup} />
+                    <PanelBoundary name="Last backup" key={`last-${epoch}`}>
+                      <LastBackupLine controls={lastBackup} backup={backup} info={backupInfo} />
                     </PanelBoundary>
                   ) : null}
                   <PanelBoundary name="Backup" key={`backup-${epoch}`}>
-                    <BackupPanel source={snapshot.root} onDone={onBackupDone} inMemory={snapshot.source === 'practice'} />
-                  </PanelBoundary>
-                  <PanelBoundary name="Offload" key={`offload-${epoch}`}>
-                    <OffloadPanel source={snapshot.root} inMemory={snapshot.source === 'practice'} />
+                    <BackupPanel source={snapshot.root} tracks={tracks} onDone={onBackupDone} inMemory={snapshot.source === 'practice'} />
                   </PanelBoundary>
                 </section>
 
@@ -1077,6 +1104,7 @@ export function IpodViewer({
           </>
         ))}
       </fieldset>
+      </BackupActionsContext.Provider>
     </>
   );
 }

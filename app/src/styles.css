@@ -2603,3 +2603,94 @@ fieldset.write-lock:disabled {
 .howto-details > .howto {
   margin-top: 0.5rem;
 }
+
+/* ---- one backup panel: what to include, and the last-backup line (feature/one-backup) ---- */
+
+fieldset.include {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+fieldset.include > legend {
+  padding: 0 0.4rem;
+  font-weight: 600;
+}
+
+fieldset.include p {
+  margin: 0.25rem 0;
+}
+
+.include-title {
+  margin-top: 0.6rem;
+  color: var(--muted);
+}
+
+.include-list {
+  list-style: none;
+  margin: 0.35rem 0;
+  padding: 0;
+}
+
+.include-list li {
+  margin: 0;
+}
+
+.include-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  min-height: 44px;
+  padding: 0.35rem 0;
+  cursor: pointer;
+}
+
+.include-list input[type='checkbox'] {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.15rem;
+}
+
+.include-selected {
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+
+.include-summary {
+  margin-top: 0.5rem;
+}
+
+.last-backup {
+  margin: 0.25rem 0 1rem;
+  max-width: 46rem;
+}
+
+p.last-backup {
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+p.last-backup.ok {
+  background: var(--ok-bg);
+  border-color: transparent;
+  color: var(--ok);
+}
+
+p.last-backup.warn {
+  background: var(--warn-bg);
+  border-color: transparent;
+  color: var(--warn);
+}
+
+p.last-backup button {
+  margin-left: 0.25rem;
+}
+
+.partial-copy {
+  margin: 0.5rem 0;
+}
