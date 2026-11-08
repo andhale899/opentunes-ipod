@@ -79,6 +79,17 @@ export function isWriting(): boolean {
   return writer !== null;
 }
 
+/**
+ * Why buttons that change the iPod are off while the iPod is being read (a backup, a copy, a read of
+ * the iPod, a check), or null when nothing is. A change would be refused anyway, with a message only
+ * after the click, so the page says it up front. `reading` holds the running jobs' labels, oldest first.
+ */
+export function readBlockText(state: Pick<LockState, 'reading'>): string | null {
+  const job = state.reading[0];
+  if (job === undefined) return null;
+  return `Off while "${job}" is running. Wait for it or stop it from the bar above.`;
+}
+
 /** For tests. */
 export function resetLock(): void {
   writer = null;
@@ -96,6 +107,11 @@ export function useLockState(): LockState {
     };
   }, []);
   return lockState();
+}
+
+/** For a panel: the reason its write buttons are off because a read job is running, redrawn as jobs start and end. Null when they can be used. */
+export function useReadBlock(): string | null {
+  return readBlockText(useLockState());
 }
 
 /**

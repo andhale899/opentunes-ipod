@@ -6,7 +6,8 @@ import { inspectFile, isNotMedia, prepareItem, redecide, type Candidate } from '
 import { ConfirmBox, Notice, useOnce, usePauseState } from './controls';
 import { describeError, isStopped } from './describeError';
 import { newEngine } from './engineLoader';
-import { BackupGate } from './BackupGate';
+import { BackupGate, WriteWait } from './BackupGate';
+import { useWriteReady } from './writeReady';
 import { allowWriting } from './WriteBackPanel';
 import { holdWork, startActivity, type ActivityHandle } from './activity';
 import { FolderGuide } from './FolderGuide';
@@ -88,7 +89,7 @@ export function AddPanel({
   const [allowDuplicates, setAllowDuplicates] = useState(false);
   const [putArt, setPutArt] = useState(true);
 
-  const ready = backup !== null && backup.complete;
+  const { ready, backupOk, wait } = useWriteReady(backup);
   // Converted files are held in memory until they are copied. A reload would lose them, so say so before leaving.
   const holding = stage.phase === 'planned' || stage.phase === 'syncing';
   useEffect(() => {
@@ -387,7 +388,7 @@ export function AddPanel({
         Pick files and see what happens to each one. Files the iPod cannot play are converted in this page, and nothing is uploaded. The iPod is not touched until the last button.
       </p>
       <FolderGuide />
-      <BackupGate ready={ready} onGo={onNeedBackup} />
+      <BackupGate backup={backup} onGo={onNeedBackup} />
 
       <div class="toolbar">
         <label class="field">
@@ -612,7 +613,7 @@ export function AddPanel({
         </Notice>
       ) : null}
 
-      {stage.phase === 'planned' ? <Planned plan={stage.plan} failed={stage.failed} ready={ready} onSync={() => void sync(stage.plan)} onNeedBackup={onNeedBackup} /> : null}
+      {stage.phase === 'planned' ? <Planned plan={stage.plan} failed={stage.failed} ready={ready} backupOk={backupOk} wait={wait} onSync={() => void sync(stage.plan)} onNeedBackup={onNeedBackup} /> : null}
 
       {stage.phase === 'syncing' ? (
         <>
@@ -634,7 +635,7 @@ export function AddPanel({
   );
 }
 
-function Planned({ plan, failed, ready, onSync, onNeedBackup }: { plan: SyncPlan; failed: string[]; ready: boolean; onSync: () => void; onNeedBackup?: () => void }) {
+function Planned({ plan, failed, ready, backupOk, wait, onSync, onNeedBackup }: { plan: SyncPlan; failed: string[]; ready: boolean; backupOk: boolean; wait: string | null; onSync: () => void; onNeedBackup?: () => void }) {
   const fits = plan.space.fits;
   return (
     <>
@@ -680,7 +681,7 @@ function Planned({ plan, failed, ready, onSync, onNeedBackup }: { plan: SyncPlan
         <button type="button" disabled={!ready || !plan.files.length || fits === false} onClick={onSync}>
           Put on the iPod
         </button>
-        {!ready ? (
+        {!backupOk ? (
           <span class="note">
             Off until you make a backup.{' '}
             {onNeedBackup ? (
@@ -689,6 +690,8 @@ function Planned({ plan, failed, ready, onSync, onNeedBackup }: { plan: SyncPlan
               </button>
             ) : null}
           </span>
+        ) : wait ? (
+          <WriteWait wait={wait} />
         ) : !plan.files.length ? (
           <span class="note">
             Off because nothing would be copied.{plan.duplicates.some((duplicate) => duplicate.skipped) ? ' Tick "Add files even if the same song is already on the iPod" above and check again to add them anyway.' : ''}

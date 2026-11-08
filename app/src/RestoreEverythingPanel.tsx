@@ -1,8 +1,9 @@
 import { useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
-import { describeOffload, type BackupReport, type DirectoryEntry, type IpodRoot, type OffloadProgress, type OffloadSource, type OffloadSummary, type RestoreOffloadReport } from '@opentunes/engine';
+import { describeInclude, describeOffload, partialLine, type BackupReport, type DirectoryEntry, type IpodRoot, type OffloadProgress, type OffloadSource, type OffloadSummary, type RestoreOffloadReport } from '@opentunes/engine';
 import { restoreOffload } from './tracked';
 import { BackupGate } from './BackupGate';
+import { useWriteReady } from './writeReady';
 import { ConfirmBox, Notice, useOnce } from './controls';
 import { describeError } from './describeError';
 import { newEngine } from './engineLoader';
@@ -30,7 +31,7 @@ const SHOWN = 100;
 export function RestoreEverythingPanel({ root, backup, onNeedBackup, onChanged }: { root: DirectoryEntry; backup: BackupReport | null; onNeedBackup?: () => void; onChanged?: () => void }) {
   const [state, setState] = useState<State>({ phase: 'idle' });
   const once = useOnce();
-  const ready = backup !== null && backup.complete;
+  const { ready } = useWriteReady(backup);
 
   async function choose() {
     const picker = (window as unknown as { showDirectoryPicker?: Picker }).showDirectoryPicker;
@@ -106,7 +107,7 @@ export function RestoreEverythingPanel({ root, backup, onNeedBackup, onChanged }
         </Notice>
       ) : null}
 
-      {state.phase === 'chosen' ? <Chosen folder={state.folder} summary={state.summary} ready={ready} onNeedBackup={onNeedBackup} onRestore={() => void restore(state.folder)} /> : null}
+      {state.phase === 'chosen' ? <Chosen folder={state.folder} summary={state.summary} backup={backup} ready={ready} onNeedBackup={onNeedBackup} onRestore={() => void restore(state.folder)} /> : null}
 
       {state.phase === 'working' ? (
         <div class="callout info" role="status">
@@ -133,7 +134,7 @@ export function RestoreEverythingPanel({ root, backup, onNeedBackup, onChanged }
   );
 }
 
-function Chosen({ folder, summary, ready, onNeedBackup, onRestore }: { folder: OffloadSource; summary: OffloadSummary; ready: boolean; onNeedBackup?: () => void; onRestore: () => void }) {
+function Chosen({ folder, summary, backup, ready, onNeedBackup, onRestore }: { folder: OffloadSource; summary: OffloadSummary; backup: BackupReport | null; ready: boolean; onNeedBackup?: () => void; onRestore: () => void }) {
   const onIpod = summary.onIpod;
   const [asking, setAsking] = useState(false);
   return (
@@ -142,6 +143,13 @@ function Chosen({ folder, summary, ready, onNeedBackup, onRestore }: { folder: O
         "{folder.name}" holds {summary.mediaFiles} media file{summary.mediaFiles === 1 ? '' : 's'} ({formatBytes(summary.mediaBytes)}) and a library of {summary.tracks} track{summary.tracks === 1 ? '' : 's'} and {summary.playlists} playlist{summary.playlists === 1 ? '' : 's'}, made {summary.createdAt ? new Date(summary.createdAt).toLocaleString() : 'at an unknown time'}.
         {onIpod ? ` ${onIpod.alreadyThere} of the media files ${onIpod.alreadyThere === 1 ? 'is' : 'are'} already on this iPod. ${onIpod.toCopy === 0 ? 'None need copying back.' : `${onIpod.toCopy} (${formatBytes(onIpod.bytesToCopy)}) will be copied back.`}` : ''}
       </p>
+      {summary.partial ? (
+        <div class="callout warn partial-copy" role="note">
+          <p>
+            <strong>This is a partial copy ({describeInclude(summary.partial)}).</strong> {partialLine(summary.partial, summary.tracks)}
+          </p>
+        </div>
+      ) : null}
       {!summary.complete ? (
         <div class="callout no" role="alert">
           <p>This offload copy was not finished (it was stopped, a file failed, or the library files were not saved), so it cannot be used to put an iPod back. Run the offload again into this same folder to finish it.</p>
@@ -154,13 +162,14 @@ function Chosen({ folder, summary, ready, onNeedBackup, onRestore }: { folder: O
           <p>A complete backup of the iPod as it is now is required first, so you can undo this. Make it in the Backup section above.</p>
         </div>
       )}
-      <BackupGate ready={ready} onGo={onNeedBackup} />
+      <BackupGate backup={backup} onGo={onNeedBackup} />
       {asking ? (
         <ConfirmBox
           title="Put everything back on the iPod?"
           confirmLabel="Restore everything to the iPod"
           cancelLabel="Do not restore"
           danger
+          confirmDisabled={!ready}
           onConfirm={() => {
             setAsking(false);
             onRestore();
@@ -171,7 +180,7 @@ function Chosen({ folder, summary, ready, onNeedBackup, onRestore }: { folder: O
             {onIpod && onIpod.toCopy > 0 ? `${onIpod.toCopy} music and video files (${formatBytes(onIpod.bytesToCopy)}) are copied back first, then ` : ''}the iPod's library is replaced by the one saved in "{folder.name}". Anything added since, and any change to playlists, ratings or play counts, is lost from the library.
           </p>
           <p>
-            It can be undone with the backup you just made: restore it from "Restore from a backup" above. Files copied back stay on the iPod. You can pause between files, or stop until the library starts to be put back (the bar at the top has both).
+            {summary.partial ? `${partialLine(summary.partial, summary.tracks)} ` : ''}It can be undone with the backup you just made: restore it from "Restore from a backup" above. Files copied back stay on the iPod. You can pause between files, or stop until the library starts to be put back (the bar at the top has both).
           </p>
         </ConfirmBox>
       ) : (

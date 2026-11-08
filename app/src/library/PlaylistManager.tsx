@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { type BackupReport, type DirectoryEntry, type IpodRoot, type LibraryPlan, type PlaylistChange, type PlaylistInfo } from '@opentunes/engine';
 import { changePlaylists, planPlaylistChanges } from '../tracked';
+import { WriteWait } from '../BackupGate';
 import { Notice, useOnce } from '../controls';
+import { useWriteReady } from '../writeReady';
 import { describeError } from '../describeError';
 import { newEngine } from '../engineLoader';
 import { allowWriting } from '../WriteBackPanel';
@@ -50,7 +52,7 @@ export function PlaylistManager({
   const [renameTo, setRenameTo] = useState('');
   const [target, setTarget] = useState('');
 
-  const ready = backup !== null && backup.complete;
+  const { ready, wait } = useWriteReady(backup);
   const busy = step.phase === 'working';
 
   // The playlists or tracks were read again: a plan made for the old ones must not be applied.
@@ -122,6 +124,7 @@ export function PlaylistManager({
 
   return (
     <div class="playlist-manager">
+      <WriteWait wait={backup !== null && backup.complete ? wait : null} />
       {selected.size ? (
         <div class="add-box">
           <strong>{plural(selected.size, 'track')} selected</strong>

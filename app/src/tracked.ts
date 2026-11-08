@@ -12,7 +12,7 @@
 import * as engine from '@opentunes/engine';
 import { PauseGate } from '@opentunes/engine';
 import { startActivity, type Progress } from './activity';
-import { checkEarlierBackup } from './backupReuse';
+import { checkLastBackup } from './lastBackup';
 import { describeError } from './describeError';
 import { plainFailure } from './friendlyError';
 import { beginWriteNote, endWriteNote, type WriteOutcome } from './journal';
@@ -385,7 +385,7 @@ export const backupIpod = track('Backing up the iPod', false, engine.backupIpod,
 });
 export const offloadIpod = track('Copying files off the iPod', false, engine.offloadIpod, {
   pause: true,
-  doneNote: 'The result is in the Offload tab.',
+  doneNote: 'The result is in the Backup tab.',
   stop: {
     label: 'Stop (you can resume later)',
     stopping: 'Stopping after the pieces being copied. Copy again into the same folder to finish.',
@@ -406,4 +406,5 @@ export const restoreOffloadStop: StopSpec = {
       : null,
 };
 export const restoreOffload = track('Putting everything back on the iPod', true, engine.restoreOffload, { pause: true, stop: restoreOffloadStop });
-export const checkEarlierBackupTracked = track('Checking the earlier backup', false, checkEarlierBackup);
+/** Checking the backup remembered for an iPod against the iPod as it is: reads only, shown in the bar like any job. */
+export const checkLastBackupTracked = track('Checking your last backup', false, checkLastBackup);

@@ -1,5 +1,5 @@
 import { newEngine } from './engineLoader';
-import { beginWrite } from './writeLock';
+import { beginRead, beginWrite } from './writeLock';
 import { ScratchFolder, applyRemoval, buildSignedDemoIpod, loadIpodFolder, mediaPathOf, planRemoval, trackKey, withCoverFormats, type Engine, type IpodRoot } from '@opentunes/engine';
 
 const ITUNES = 'iPod_Control/iTunes';
@@ -59,6 +59,7 @@ export async function buildPracticeIpod(engine: Engine, mount: string): Promise<
  */
 export function exposePracticeForTests(ipod: ScratchFolder): void {
   let releaseLock: (() => void) | null = null;
+  let releaseRead: (() => void) | null = null;
   (window as unknown as { __opentunesPractice?: unknown }).__opentunesPractice = {
     root: ipod,
     /** Takes the write lock, as a running write would, so the test can look at what the page turns off. */
@@ -75,6 +76,16 @@ export function exposePracticeForTests(ipod: ScratchFolder): void {
       } catch (error) {
         return error instanceof Error ? error.message : String(error);
       }
+    },
+    /** Takes a read lock, as a running backup or copy would, so the test can look at what the page turns off while a read job runs. */
+    holdReadLock(label: string): boolean {
+      if (releaseRead) return false;
+      releaseRead = beginRead(label);
+      return true;
+    },
+    releaseReadLock(): void {
+      releaseRead?.();
+      releaseRead = null;
     },
     releaseWriteLock(): void {
       releaseLock?.();

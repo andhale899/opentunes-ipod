@@ -75,6 +75,49 @@ function listMedia(folder) {
   });
 }
 
+/** Ticks boxes of the Backup panel's "What to include" by the start of their label, in the page. */
+const tickKinds = (page, ...labels) =>
+  page.evaluate(`(() => { for (const label of ${JSON.stringify(labels)}) { const row = [...document.querySelectorAll('.include-list label')].find((l) => l.textContent.trim().startsWith(label)); if (!row) return 'no box: ' + label; row.querySelector('input').click(); } return 'ok'; })()`);
+
+/**
+ * Puts a folder held in the page where the folder picker would answer, and keeps what is written so a
+ * scenario can look at it: window.__dest is the folder, window.__files() maps each path to its bytes and
+ * window.__text(path) reads one as text (the UTF-8 byte order mark kept).
+ */
+const FAKE_FOLDER = `(() => {
+  const directory = (name) => ({
+    kind: 'directory', name, children: new Map(),
+    async *entries() { for (const entry of this.children) yield entry; },
+    async getDirectoryHandle(child, options = {}) {
+      const found = this.children.get(child);
+      if (found && found.kind === 'directory') return found;
+      if (found || !options.create) throw Object.assign(new Error(child + ' was not found.'), { name: 'NotFoundError' });
+      const made = directory(child); this.children.set(child, made); return made;
+    },
+    async getFileHandle(child, options = {}) {
+      const found = this.children.get(child);
+      if (found && found.kind === 'file') return found;
+      if (found || !options.create) throw Object.assign(new Error(child + ' was not found.'), { name: 'NotFoundError' });
+      const file = {
+        kind: 'file', name: child, bytes: new Uint8Array(0),
+        async getFile() { return new File([this.bytes], child); },
+        async createWritable() {
+          const chunks = [];
+          return {
+            write: async (data) => { chunks.push(new Uint8Array(data)); },
+            close: async () => { const all = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0)); let at = 0; for (const c of chunks) { all.set(c, at); at += c.length; } file.bytes = all; },
+          };
+        },
+      };
+      this.children.set(child, file); return file;
+    },
+  });
+  window.__dest = directory('smoke-destination');
+  window.showDirectoryPicker = async () => window.__dest;
+  window.__files = () => { const out = {}; const walk = (dir, prefix) => { for (const [n, e] of dir.children) { if (e.kind === 'directory') walk(e, prefix + n + '/'); else out[prefix + n] = e.bytes; } }; walk(window.__dest, ''); return out; };
+  window.__text = (path) => new TextDecoder('utf-8', { ignoreBOM: true }).decode(window.__files()[path]);
+})()`;
+
 const REAL_MEDIA = process.env.SMOKE_REAL_MEDIA ? listMedia(process.env.SMOKE_REAL_MEDIA) : null;
 
 const SCENARIOS = [
@@ -82,14 +125,14 @@ const SCENARIOS = [
     name: 'a demo iPod with one of each kind (library tab)',
     url: `http://localhost:${port}/?demo=1`,
     expected: ['Demo iPod', '5 tracks, 3 playlists', 'Morning Light', 'Episode 12: Engines', 'A Short Story', 'Demo Film', 'Road trip', 'Audiobook', 'Podcast', 'Demo data'],
-    forbidden: ['Signature on', "Back up the iPod's library", 'Add music'],
+    forbidden: ['Signature on', 'What to include', 'Add music'],
     alert: false,
   },
   {
     name: 'a demo iPod, diagnostics tab',
     url: `http://localhost:${port}/?demo=1&tab=diagnostics`,
     expected: ['Device details', 'Files read from the iPod', 'Run the test (nothing is written)', 'Copy iPod report'],
-    forbidden: ['Signature on', "Back up the iPod's library"],
+    forbidden: ['Signature on', 'What to include'],
     alert: false,
   },
   {
@@ -172,7 +215,7 @@ const SCENARIOS = [
       async drive(page) {
         await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('What to include');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.click('Add music');
@@ -294,7 +337,7 @@ const SCENARIOS = [
           };
         })()`);
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('What to include');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.click('Add music');
@@ -404,7 +447,7 @@ const SCENARIOS = [
           };
         })()`);
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('What to include');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.click('Assistant');
@@ -482,7 +525,7 @@ const SCENARIOS = [
         const clickTab = (name) => page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.trim().startsWith(${JSON.stringify(name)})).click()`);
         await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('What to include');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await clickTab('Library');
@@ -600,7 +643,7 @@ const SCENARIOS = [
           };
         })()`);
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('What to include');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
 
@@ -709,7 +752,7 @@ const SCENARIOS = [
         const visibleButton = (text) => page.evaluate(`[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === ${JSON.stringify(text)} && b.offsetParent !== null)`);
         await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('What to include');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         // Files picked in Add music survive a visit to another tab.
@@ -718,7 +761,7 @@ const SCENARIOS = [
         await page.chooseFiles([TONE_COPY]);
         await page.waitFor('1 of 1 can be added');
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('What to include');
         await page.click('Add music');
         await page.waitFor('1 of 1 can be added');
         // The tab list is a proper tab list: one tab stop, panels named by their tabs.
@@ -767,7 +810,7 @@ const SCENARIOS = [
         const leaveAsks = () => page.evaluate(`(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })()`);
         await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('What to include');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.click('Add music');
@@ -904,7 +947,7 @@ const SCENARIOS = [
       async drive(page) {
         await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
-        await page.waitFor('Copy everything off the iPod');
+        await page.waitFor('What to include');
         // A destination folder held in the page: it keeps what is written so the test can look at it.
         await page.evaluate(`(() => {
           const directory = (name) => ({
@@ -938,6 +981,9 @@ const SCENARIOS = [
           window.showDirectoryPicker = async () => window.__offloadDestination;
           window.__listOffload = () => { const out = {}; const walk = (dir, prefix) => { for (const [n, e] of dir.children) { if (e.kind === 'directory') walk(e, prefix + n + '/'); else out[prefix + n] = e.bytes; } }; walk(window.__offloadDestination, ''); return out; };
         })()`);
+        // Every kind ticked is the full copy.
+        await tickKinds(page, 'Music', 'Podcasts', 'Audiobooks', 'Video');
+        await page.waitFor('The library and everything on the iPod: 5 files');
         await page.click('Choose where to copy everything');
         await page.waitFor('and checked each by reading it back', 60_000);
         const found = await page.evaluate(`(() => { try {
@@ -986,10 +1032,10 @@ const SCENARIOS = [
         await page.waitFor('Practice iPod, held in memory');
         // The backup of the current state, which Restore everything needs.
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('What to include');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
-        await page.waitFor('What you get and how to use it');
+        await page.waitFor('What a copy with music and videos gives you');
         await page.waitFor('Restore everything from a full copy');
         await page.evaluate(`(() => {
           const directory = (name) => ({
@@ -1022,6 +1068,7 @@ const SCENARIOS = [
           window.__restoreDestination = directory('restore-destination');
           window.showDirectoryPicker = async () => window.__restoreDestination;
         })()`);
+        await tickKinds(page, 'Music', 'Podcasts', 'Audiobooks', 'Video');
         await page.click('Choose where to copy everything');
         await page.waitFor('and checked each by reading it back', 60_000);
         await page.waitFor('are saved in the database folder');
@@ -1171,7 +1218,7 @@ const SCENARIOS = [
         await page.waitFor('Practice iPod, held in memory');
         await page.waitFor('Last read from the iPod:');
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('What to include');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
@@ -1222,7 +1269,7 @@ const SCENARIOS = [
         };
         await page.waitFor('Practice iPod, held in memory');
         await page.click('Backup');
-        await page.waitFor("Back up the iPod's library");
+        await page.waitFor('What to include');
         await page.click('Choose where to keep the backup');
         await page.waitFor('Every file was read back and matched');
         await page.evaluate(`(() => {
@@ -1297,6 +1344,295 @@ const SCENARIOS = [
     forbidden: [],
     alert: true,
   },
+  {
+    // One panel, nothing ticked: the quick backup of the library only, exactly as before.
+    name: 'one backup panel: a quick backup with nothing ticked (library only)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        await page.waitFor('Practice iPod, held in memory');
+        await page.waitFor('No backup yet');
+        await page.click('Backup');
+        await page.waitFor('What to include');
+        await page.waitFor('Nothing ticked: only the library is saved');
+        const boxes = String(await page.evaluate(`JSON.stringify([...document.querySelectorAll('.include-list label')].map((l) => l.textContent.replace(/\\s+/g, ' ').trim()))`));
+        check(boxes.includes('Music') && boxes.includes('Podcasts') && boxes.includes('Audiobooks') && boxes.includes('Video'), 'The kinds are not all offered: ' + boxes);
+        check(boxes.includes('2 files') && boxes.includes('1 file,'), 'The boxes do not say how many files each kind has: ' + boxes);
+        check(!boxes.includes('Only the tracks I selected'), 'The selection box is offered with nothing selected: ' + boxes);
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        await page.waitFor('Backup made');
+        const text = String(await page.evaluate('document.body.innerText'));
+        check(!text.includes('opentunes-offload.json'), 'A quick backup should not make a full copy.');
+      },
+    },
+    expected: ['Backed up', 'Backup made'],
+    forbidden: ['could not be copied', 'is not complete'],
+    alert: false,
+  },
+  {
+    // Only Podcasts ticked: a partial copy. The library part is complete, the marker, README and library.csv say what is missing,
+    // the copy counts as the backup, and Restore everything says how many tracks the folder holds.
+    name: 'one backup panel: a copy with only Podcasts ticked (partial, counts as the backup, restore says so)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        await page.waitFor('Practice iPod, held in memory');
+        await page.click('Backup');
+        await page.waitFor('What to include');
+        await page.evaluate(FAKE_FOLDER);
+        check((await tickKinds(page, 'Podcasts')) === 'ok', 'The Podcasts box is missing.');
+        await page.waitFor('a partial copy of the media: 1 file');
+        await page.click('Choose where to copy');
+        await page.waitFor('Copied 1 file', 60_000);
+        await page.waitFor('This is a partial copy (only these kinds: podcasts)');
+        await page.waitFor('counts as your backup');
+        await page.waitFor('Backup made');
+        const found = JSON.parse(String(await page.evaluate(`(() => { try {
+          const files = window.__files();
+          const names = Object.keys(files);
+          const folder = names.find((n) => n.endsWith('/library.csv')).split('/')[0];
+          const media = names.filter((n) => /^[^/]+\\/F[0-9][0-9]\\/[^/]+$/.test(n));
+          const marker = JSON.parse(window.__text(folder + '/opentunes-offload.json'));
+          const info = JSON.parse(window.__text(folder + '/database/backup-info.json'));
+          const rows = window.__text(folder + '/library.csv').split(String.fromCharCode(13, 10)).filter(Boolean).slice(1);
+          return JSON.stringify({ media: media.length, partial: marker.partial, complete: marker.complete, tracks: marker.tracks, backupComplete: info.complete, backupFiles: info.files.length,
+            readme: window.__text(folder + '/README.txt').includes('PARTIAL copy of an iPod'), notIncluded: rows.filter((r) => r.endsWith('not included in this copy')).length, copied: rows.filter((r) => r.endsWith(',copied')).length });
+        } catch (error) { return JSON.stringify({ error: String(error) }); } })()`)));
+        check(!found.error, 'Reading the copy failed in the page: ' + found.error);
+        check(found.media === 1, 'Expected 1 media file, found ' + found.media);
+        check(found.complete === true && found.partial && found.partial.selectedOnly === false && JSON.stringify(found.partial.kinds) === '["podcast"]' && found.partial.tracksNotIncluded === 4 && found.partial.tracksInCopy === 1, 'The marker does not say what is partial: ' + JSON.stringify(found));
+        check(found.backupComplete === true && found.backupFiles > 0, 'database/ is not a complete backup: ' + JSON.stringify(found));
+        check(found.readme === true && found.notIncluded === 4 && found.copied === 1, 'The README or library.csv does not say what is left out: ' + JSON.stringify(found));
+        // Restore everything, step 2: it says plainly that the folder holds only some of the tracks.
+        await page.evaluate(`window.showDirectoryPicker = async () => [...window.__dest.children.values()].find((entry) => entry.kind === 'directory')`);
+        await page.click('Choose a full-copy folder');
+        await page.waitFor('This is a partial copy (only these kinds: podcasts)');
+        await page.waitFor('This copy holds the files for 1 of 5 tracks. The other 4 tracks stay as they are on the iPod, or will have no file if the iPod was wiped.');
+      },
+    },
+    expected: ['This copy holds the files for 1 of 5 tracks'],
+    forbidden: ['could not be copied', 'is not complete'],
+    alert: false,
+  },
+  {
+    // Only what is selected in the Library tab: the selection is shared with the Backup tab.
+    name: 'one backup panel: a copy of only the tracks selected in the Library tab',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        await page.waitFor('Practice iPod, held in memory');
+        await page.waitFor('Your library');
+        await page.evaluate(`document.querySelector('input[aria-label="Select Morning Light"]').click()`);
+        await page.evaluate(`document.querySelector('input[aria-label="Select Night Drive"]').click()`);
+        await page.waitFor('2 tracks selected');
+        await page.click('Backup');
+        await page.waitFor('What to include');
+        await page.waitFor('Only the tracks I selected in the Library tab (2 selected)');
+        await page.evaluate(FAKE_FOLDER);
+        await page.evaluate(`document.querySelector('.include-selected input').click()`);
+        await page.waitFor('a partial copy of the media: 2 files');
+        await page.click('Choose where to copy');
+        await page.waitFor('Copied 2 files', 60_000);
+        await page.waitFor('This is a partial copy (only the tracks that were selected)');
+        const found = JSON.parse(String(await page.evaluate(`(() => { try {
+          const names = Object.keys(window.__files());
+          const folder = names.find((n) => n.endsWith('/library.csv')).split('/')[0];
+          const media = names.filter((n) => /^[^/]+\\/F[0-9][0-9]\\/[^/]+$/.test(n));
+          const marker = JSON.parse(window.__text(folder + '/opentunes-offload.json'));
+          const rows = window.__text(folder + '/library.csv').split(String.fromCharCode(13, 10)).filter(Boolean).slice(1);
+          return JSON.stringify({ media: media.length, partial: marker.partial, light: rows.find((r) => r.includes('Morning Light')) || '', film: rows.find((r) => r.includes('Demo Film')) || '' });
+        } catch (error) { return JSON.stringify({ error: String(error) }); } })()`)));
+        check(!found.error, 'Reading the copy failed in the page: ' + found.error);
+        check(found.media === 2, 'Expected 2 media files, found ' + found.media);
+        check(found.partial && found.partial.selectedOnly === true && found.partial.kinds === null && found.partial.tracksInCopy === 2 && found.partial.tracksNotIncluded === 3, 'The marker does not say it is selected tracks only: ' + JSON.stringify(found));
+        check(found.light.endsWith(',copied') && found.film.endsWith('not included in this copy'), 'library.csv does not tell the two apart: ' + found.light + ' | ' + found.film);
+      },
+    },
+    expected: ['Copied 2 files', 'Backup made'],
+    forbidden: ['could not be copied', 'is not complete'],
+    alert: false,
+  },
+  {
+    // Where a change is off for lack of a backup there is a "Back up now" button that makes it right there, and the
+    // buttons come on with no page change. A running read job turns the write buttons off with the reason shown, and
+    // they come back on by themselves.
+    name: 'Back up now where a change is off, and write buttons off with a reason while a read job runs',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        const disabled = async (text) => page.evaluate(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === ${JSON.stringify(text)} && x.offsetParent !== null); return b ? b.disabled : null; })()`);
+        const visible = (text) => page.evaluate(`document.body.innerText.includes(${JSON.stringify(text)})`);
+        await page.waitFor('Practice iPod, held in memory');
+        await page.waitFor('Your library');
+        await page.waitFor('Make a backup first.');
+        await page.waitFor('Back up now');
+        check(await page.evaluate(`[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Backup options' && b.offsetParent !== null)`), 'There is no Backup options link next to Back up now.');
+        await page.evaluate(`document.querySelector('input[aria-label="Select Morning Light"]').click()`);
+        await page.waitFor('1 track selected');
+        check((await disabled('Remove selected')) === true, 'Remove selected is on with no backup.');
+        await page.click('Back up now');
+        await page.waitFor('Backup made');
+        check(!(await visible('Make a backup first.')), 'The notice stayed after the backup.');
+        check((await disabled('Remove selected')) === false, 'Remove selected did not come on after Back up now.');
+        // A read job (a backup or a copy would be one) holds the write buttons off, with the reason.
+        const wording = 'Off while "Backing up the iPod" is running. Wait for it or stop it from the bar above.';
+        check((await page.evaluate(`window.__opentunesPractice.holdReadLock('Backing up the iPod')`)) === true, 'Could not take the read lock.');
+        await page.waitFor(wording);
+        check((await disabled('Remove selected')) === true, 'Remove selected is on while a read job runs.');
+        await page.evaluate(`window.__opentunesPractice.releaseReadLock()`);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        check(!(await visible(wording)), 'The reason stayed after the job ended.');
+        check((await disabled('Remove selected')) === false, 'Remove selected did not come back on by itself.');
+        // Add music: the same line, and Put on the iPod stays off while it runs.
+        await page.click('Add music');
+        await page.waitFor('No files chosen yet');
+        await page.chooseFiles([TONE_COPY]);
+        await page.waitFor('1 of 1 can be added');
+        await page.click('Check and prepare');
+        await page.waitFor('Ready to copy 1 file');
+        check((await disabled('Put on the iPod')) === false, 'Put on the iPod is off with a backup and no job running.');
+        await page.evaluate(`window.__opentunesPractice.holdReadLock('Copying files off the iPod')`);
+        await page.waitFor('Off while "Copying files off the iPod" is running.');
+        check((await disabled('Put on the iPod')) === true, 'Put on the iPod is on while a read job runs.');
+        await page.evaluate(`window.__opentunesPractice.releaseReadLock()`);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        check((await disabled('Put on the iPod')) === false, 'Put on the iPod did not come back on by itself.');
+      },
+    },
+    expected: ['Backup made'],
+    forbidden: ['did not finish'],
+    alert: false,
+  },
+  {
+    // An OPFS folder stands in for the iPod and for the backup folder. The page makes a backup of it, which it remembers by the
+    // iPod folder name. After a reload the backup is found and checked with no click (matches: counted, no new backup asked).
+    // With a change made behind the page's back it offers both choices, and the older one counts only after the confirm.
+    // With Chrome's permission faked as "not yet" it shows one button, "Check my last backup".
+    name: 'the last backup is checked automatically when an iPod is opened (matches, differs with both choices, needs a click)',
+    url: `http://localhost:${port}/?demo=practice`,
+    devtools: {
+      doneSelector: 'body',
+      timeoutMs: 5_000,
+      async drive(page) {
+        const check = (condition, message) => {
+          if (!condition) throw new Error(message);
+        };
+        const run = async (expression) => {
+          const answer = (await page.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result;
+          if (answer?.exceptionDetails) throw new Error('In the page: ' + JSON.stringify(answer.exceptionDetails).slice(0, 500));
+          return answer?.result?.value;
+        };
+        const visible = (text) => page.evaluate(`document.body.innerText.includes(${JSON.stringify(text)})`);
+        const base = `http://localhost:${port}/`;
+        const reopen = async () => {
+          await page.send('Page.navigate', { url: base });
+          await page.waitFor('Reconnect smoke-auto-ipod');
+          await page.click('Reconnect smoke-auto-ipod');
+          await page.waitFor('Last read from the iPod');
+        };
+        await page.waitFor('Practice iPod, held in memory');
+        // The practice iPod's files, copied into a folder in the browser's private storage, and kept as "the iPod folder used last time".
+        await run(`(async () => {
+          const files = window.__opentunesPractice.root.listFiles();
+          const root = await navigator.storage.getDirectory();
+          await root.getDirectoryHandle('smoke-auto-backups', { create: true });
+          const ipod = await root.getDirectoryHandle('smoke-auto-ipod', { create: true });
+          for (const [path, bytes] of files) {
+            let directory = ipod; const parts = path.split('/');
+            for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part, { create: true });
+            const writer = await (await directory.getFileHandle(parts[parts.length - 1], { create: true })).createWritable();
+            await writer.write(bytes); await writer.close();
+          }
+          await new Promise((resolve, reject) => {
+            const open = indexedDB.open('opentunes', 1);
+            open.onerror = () => reject(open.error);
+            open.onsuccess = () => { const tx = open.result.transaction('kv', 'readwrite'); tx.objectStore('kv').put({ name: 'smoke-auto-ipod', handle: ipod, savedAt: Date.now() }, 'ipod-handle'); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); };
+          });
+          return files.size;
+        })()`);
+
+        // 1. A first backup of that "real" iPod folder, into the other folder. The page remembers where it is.
+        await reopen();
+        check(await visible('No backup yet'), 'A new iPod folder should start with no backup.');
+        await page.click('Backup');
+        await page.waitFor('What to include');
+        await page.evaluate(`window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('smoke-auto-backups')`);
+        await page.click('Choose where to keep the backup');
+        await page.waitFor('Every file was read back and matched');
+        const until = Date.now() + 10_000;
+        for (;;) {
+          const kept = await run(`new Promise((resolve) => { const open = indexedDB.open('opentunes', 1); open.onsuccess = () => { const r = open.result.transaction('kv').objectStore('kv').get('backup-record:smoke-auto-ipod'); r.onsuccess = () => resolve(Boolean(r.result)); }; })`);
+          if (kept) break;
+          if (Date.now() > until) throw new Error('The backup folder was not remembered after the backup.');
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+
+        // 2. After a reload the last backup is found and checked with no click: it matches, so it counts and no new backup is asked.
+        await reopen();
+        await page.waitFor('still matches this iPod');
+        await page.click('Backup');
+        await page.waitFor('so you do not need another');
+        check(!(await visible('No backup yet')), 'The chip says there is no backup though the last one matches.');
+        check(await page.evaluate(`[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Make a new backup anyway' && b.offsetParent !== null)`), 'There is no "Make a new backup anyway" button.');
+        check(!(await visible('Make a backup first.')), 'The gate shows though the last backup counts.');
+
+        // 3. The iPod changed behind the page's back: both choices, and the older backup counts only after the confirm.
+        await run(`(async () => { const ipod = await (await navigator.storage.getDirectory()).getDirectoryHandle('smoke-auto-ipod'); const itunes = await (await ipod.getDirectoryHandle('iPod_Control')).getDirectoryHandle('iTunes'); const writer = await (await itunes.getFileHandle('Extra', { create: true })).createWritable(); await writer.write(new TextEncoder().encode('changed by another program')); await writer.close(); return true; })()`);
+        await reopen();
+        await page.click('Backup');
+        await page.waitFor('Your last backup is out of date');
+        await page.waitFor('the library (1 file)');
+        check(await visible('No backup yet'), 'A backup that does not match must not count on its own.');
+        check(await page.evaluate(`[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Make a new backup' && b.offsetParent !== null)`), 'No "Make a new backup" button.');
+        await page.click('Use that old backup anyway');
+        await page.waitFor('Use the older backup anyway?');
+        await page.waitFor("would take the iPod's library back to");
+        await page.waitFor("The app's own changes are still undone automatically if they fail.");
+        check(await visible('No backup yet'), 'The older backup counted before the confirm.');
+        await page.click('Yes, use the older backup');
+        await page.waitFor('Older backup from');
+        await page.waitFor('in use');
+        check(!(await visible('No backup yet')), 'The chip still says no backup after the confirm.');
+        await page.evaluate("document.querySelector('.log-button').click()");
+        await page.waitFor('was chosen to be used anyway');
+
+        // 4. Chrome has not given the folder yet: one button, and a click checks it.
+        await run(`(async () => { const ipod = await (await navigator.storage.getDirectory()).getDirectoryHandle('smoke-auto-ipod'); const itunes = await (await ipod.getDirectoryHandle('iPod_Control')).getDirectoryHandle('iTunes'); await itunes.removeEntry('Extra'); return true; })()`);
+        await page.send('Page.enable');
+        await page.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => { const proto = FileSystemHandle.prototype; proto.queryPermission = async () => 'prompt'; proto.requestPermission = async () => 'granted'; })()` });
+        await reopen();
+        await page.click('Backup');
+        await page.waitFor('Check my last backup');
+        check(!(await visible('still matches this iPod')), 'The backup was counted before the click.');
+        await page.click('Check my last backup');
+        await page.waitFor('still matches this iPod');
+      },
+    },
+    expected: ['still matches this iPod'],
+    forbidden: ['could not be read', 'is damaged'],
+    alert: false,
+  },
   ...(REAL_MEDIA
     ? [
         {
@@ -1308,7 +1644,7 @@ const SCENARIOS = [
             async drive(page) {
               await page.waitFor('Choose another iPod');
               await page.click('Backup');
-              await page.waitFor("Back up the iPod's library");
+              await page.waitFor('What to include');
               await page.click('Choose where to keep the backup');
               await page.waitFor('Every file was read back and matched');
               await page.click('Add music');

@@ -197,6 +197,31 @@ async function sha256Of(bytes: Uint8Array): Promise<string | null> {
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * A full-copy folder (opentunes-offload-...) holds a backup in its `database/` folder. Given the
+ * full-copy folder itself, this returns that subfolder, so restoring accepts either one. A folder
+ * that is a backup already, or is neither, comes back as it is (the checks after it say what is
+ * wrong). `via` names the folder that was looked through, or null when nothing was.
+ */
+export async function resolveBackupFolder(folder: BackupSource): Promise<{ folder: BackupSource; via: string | null }> {
+  if (await readFromBackup(folder, 'backup-info.json')) return { folder, via: null };
+  const marker = await readFromBackup(folder, 'opentunes-offload.json');
+  if (!marker) return { folder, via: null };
+  let name = 'database';
+  try {
+    const parsed = JSON.parse(new TextDecoder().decode(marker)) as { databaseFolder?: unknown };
+    if (typeof parsed.databaseFolder === 'string') name = parsed.databaseFolder;
+  } catch {
+    // an unreadable marker: the usual folder name is tried
+  }
+  if (!name || name.includes('/') || name === '.' || name === '..') return { folder, via: null };
+  try {
+    return { folder: await folder.getDirectoryHandle(name), via: folder.name };
+  } catch {
+    throw new WriteBackError(`"${folder.name}" is a full-copy folder, but it has no ${name} folder with the iPod's library files, so there is nothing to restore from it.`);
+  }
+}
+
 async function readManifest(backup: BackupSource): Promise<Manifest> {
   const bytes = await readFromBackup(backup, 'backup-info.json');
   if (!bytes) throw new WriteBackError(`"${backup.name}" has no backup-info.json, so it is not a backup made by this app.`);
@@ -224,7 +249,7 @@ async function readManifest(backup: BackupSource): Promise<Manifest> {
 
 /** What a backup folder holds, for showing before it is restored. Throws if it is not a usable backup. */
 export async function describeBackup(backup: BackupSource): Promise<BackupSummary> {
-  const manifest = await readManifest(backup);
+  const manifest = await readManifest((await resolveBackupFolder(backup)).folder);
   return { createdAt: manifest.createdAt, files: manifest.files.length, bytes: manifest.files.reduce((sum, file) => sum + file.size, 0) };
 }
 
@@ -245,7 +270,8 @@ async function readVerifiedBackup(backup: BackupSource, manifest: Manifest, sign
  * Checks a backup the way a restore does, without writing anything: the manifest is usable and
  * complete, and every file is there with its size and checksum. Throws what a restore would throw.
  */
-export async function checkBackup(backup: BackupSource): Promise<BackupSummary> {
+export async function checkBackup(source: BackupSource): Promise<BackupSummary> {
+  const backup = (await resolveBackupFolder(source)).folder;
   const manifest = await readManifest(backup);
   await readVerifiedBackup(backup, manifest);
   return { createdAt: manifest.createdAt, files: manifest.files.length, bytes: manifest.files.reduce((sum, file) => sum + file.size, 0) };
@@ -279,10 +305,13 @@ export interface RestoreOptions {
 /**
  * Copies a backup's files back onto the iPod, one by one, and keeps everything else. Every file
  * is checked against its checksum before the first one is written, so a damaged backup changes
- * nothing. Deletes nothing.
+ * nothing. Deletes nothing. Given a full-copy folder, it restores from the `database/` folder in it
+ * (the library and device files only: music is not copied back, that is `restoreOffload`).
  */
-export async function restoreBackup(root: IpodRoot, backup: BackupSource, options: RestoreOptions = {}): Promise<RestoreReport> {
+export async function restoreBackup(root: IpodRoot, given: BackupSource, options: RestoreOptions = {}): Promise<RestoreReport> {
   const mount = options.mount ?? DEFAULT_MOUNT;
+  // A full-copy folder is accepted too: its database/ folder is the backup.
+  const backup = (await resolveBackupFolder(given)).folder;
   const manifest = await readManifest(backup);
 
   options.onProgress?.('Checking the backup...', 'checking');

@@ -6,10 +6,12 @@ import { describeError, isStopped } from './describeError';
 import { ConfirmBox, Notice, useOnce } from './controls';
 import { newEngine } from './engineLoader';
 import { BackupGate } from './BackupGate';
+import { useWriteReady } from './writeReady';
 import { allowWriting } from './WriteBackPanel';
 import { BulkEdit } from './library/BulkEdit';
 import { rowsOf, selectedRows } from './library/organise';
 import { DuplicatesPanel } from './library/DuplicatesPanel';
+import { clearLibrarySelection, pruneLibrarySelection, setLibrarySelection } from './selection';
 import { pruneSelection } from './staleness';
 import { PlaylistManager } from './library/PlaylistManager';
 import { TrackBrowser } from './library/TrackBrowser';
@@ -65,7 +67,7 @@ export function ManagePanel({
   const once = useOnce();
   const stopper = useRef<AbortController | null>(null);
 
-  const ready = backup !== null && backup.complete;
+  const { ready } = useWriteReady(backup);
   const busy = stage.phase === 'working';
   const rows = useMemo(() => rowsOf(tracks), [tracks]);
   const chosen = useMemo(() => selectedRows(rows, selected), [rows, selected]);
@@ -74,10 +76,17 @@ export function ManagePanel({
   // The library was read again. Selected tracks that are gone are dropped, a plan made for the old
   // library is thrown away, and an edit draft for a track that may have changed is cleared.
   useEffect(() => {
+    pruneLibrarySelection(rows.map((row) => row.key));
     setSelected((current) => pruneSelection(current, rows.map((row) => row.key)));
     setStage((current) => (current.phase === 'removal' || current.phase === 'orphans' ? { phase: 'idle' } : current));
     setDraft({});
   }, [rows]);
+
+  // The Backup tab can copy only the tracks selected here, so what is selected is shared with it. A new panel (another iPod) starts with nothing.
+  useEffect(() => {
+    setLibrarySelection(selected);
+  }, [selected]);
+  useEffect(() => clearLibrarySelection, []);
 
   /** Asks Chrome for write access. An iPod that is not there says so in plain words instead of throwing. */
   async function allowed(refusal: string): Promise<boolean> {
@@ -242,7 +251,7 @@ export function ManagePanel({
     <section class="card">
       <h3>Your library</h3>
       <p class="card-lead">Find tracks, select them, then remove them, change their details together or put them in a playlist.</p>
-      <BackupGate ready={ready} onGo={onNeedBackup} />
+      <BackupGate backup={backup} onGo={onNeedBackup} />
       {tracks.length === 0 ? (
         <div class="empty">
           <strong>No music yet</strong>

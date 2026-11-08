@@ -25,7 +25,7 @@ import { IpodFolderError, isClutter, loadIpodFolder, type DirectoryEntry } from 
 import { backupIpod, type WritableDirectory } from './backup.ts';
 import { folderAt, messageOf as errorMessage, type IpodRoot } from './ipod-files.ts';
 import { checkBackup, describeBackup, restoreBackup, type BackupSource, type RestoreReport } from './writeback.ts';
-import { mediaPathOf } from './sync.ts';
+import { mediaPathOf, trackKey } from './sync.ts';
 import type { PauseGate } from './pause.ts';
 
 export class OffloadError extends Error {}
@@ -118,7 +118,7 @@ export function toCsv(rows: (string | number | null | undefined)[][]): string {
 }
 
 /** What happened to a track's file in this run. */
-export type TrackStatus = 'copied' | 'already there' | 'missing on the iPod' | 'failed' | 'not copied' | 'no file in the music folders';
+export type TrackStatus = 'copied' | 'already there' | 'missing on the iPod' | 'failed' | 'not copied' | 'no file in the music folders' | 'not included in this copy';
 
 export const LIBRARY_HEADER = [
   'Path', 'Title', 'Artist', 'Album', 'Album artist', 'Genre', 'Kind', 'Year', 'Track number', 'Disc',
@@ -247,6 +247,62 @@ export interface OffloadProgress {
   failures: number;
 }
 
+/**
+ * Which media files a partial copy takes: the files of tracks of these kinds (such as 'podcast'),
+ * and/or of the tracks with these keys (`trackKey`). When both are given a track must satisfy both.
+ * A field left out means no limit on that. Files that no track of the library lists are never taken
+ * by a partial copy, since there is nothing to say what they are.
+ */
+export interface OffloadInclude {
+  kinds?: string[];
+  trackKeys?: string[];
+}
+
+/** True when the include limits anything at all. */
+export function isPartialInclude(include: OffloadInclude | undefined): include is OffloadInclude {
+  return include !== undefined && (include.kinds !== undefined || include.trackKeys !== undefined);
+}
+
+type IncludeTrack = Pick<TrackInfo, 'kind' | 'ipod_path' | 'title' | 'artist' | 'album' | 'tracklen'>;
+
+/** A test for whether a track's file belongs in a copy made with `include`. Built once, so a long library is not scanned for every track. No include means every track. */
+export function includeMatcher(include: OffloadInclude | undefined): (track: IncludeTrack) => boolean {
+  if (!isPartialInclude(include)) return () => true;
+  const kinds = include.kinds ? new Set(include.kinds) : null;
+  const keys = include.trackKeys ? new Set(include.trackKeys) : null;
+  return (track) => (kinds === null || kinds.has(track.kind)) && (keys === null || keys.has(trackKey(track)));
+}
+
+/** Whether one track's file belongs in a copy made with `include`. */
+export function trackIncluded(include: OffloadInclude | undefined, track: IncludeTrack): boolean {
+  return includeMatcher(include)(track);
+}
+
+/** What a partial copy left out, kept in the marker and report. Null for a full copy. */
+export interface OffloadPartial {
+  /** The kinds that were asked for, or null when the kinds were not limited. */
+  kinds: string[] | null;
+  /** True when only chosen tracks were taken. */
+  selectedOnly: boolean;
+  /** Tracks whose file is in this copy. */
+  tracksInCopy: number;
+  /** Tracks the copy left out on purpose. */
+  tracksNotIncluded: number;
+}
+
+/** The sentence that says what a partial copy holds, for the page and the README. `tracks` is how many the library lists. */
+export function partialLine(partial: OffloadPartial, tracks: number): string {
+  return `This copy holds the files for ${partial.tracksInCopy} of ${tracks} tracks. The other ${Math.max(0, tracks - partial.tracksInCopy)} tracks stay as they are on the iPod, or will have no file if the iPod was wiped.`;
+}
+
+/** What was chosen, in words: "podcasts and video" or "only the tracks that were selected". */
+export function describeInclude(partial: Pick<OffloadPartial, 'kinds' | 'selectedOnly'>): string {
+  const names: Record<string, string> = { music: 'music', podcast: 'podcasts', 'video-podcast': 'video podcasts', audiobook: 'audiobooks', movie: 'movies', 'music-video': 'music videos', 'tv-show': 'TV shows' };
+  const kinds = partial.kinds ? partial.kinds.map((kind) => names[kind] ?? kind).join(', ') : null;
+  if (partial.selectedOnly) return kinds ? `only the tracks that were selected, of these kinds: ${kinds}` : 'only the tracks that were selected';
+  return kinds ? `only these kinds: ${kinds}` : 'everything';
+}
+
 export interface OffloadOptions {
   /** Used for the folder name. Defaults to now. */
   now?: Date;
@@ -254,6 +310,11 @@ export interface OffloadOptions {
   mount?: string;
   /** Resume: copy into this existing folder of the destination, instead of making a new one. Files already there with the same size are skipped. */
   folder?: string;
+  /**
+   * Copy only some of the media files. Without it every file is copied. The library, `database/` and
+   * the spreadsheets are always complete. A run with this set is marked partial in the marker and the README.
+   */
+  include?: OffloadInclude;
   signal?: AbortSignal;
   /** Lets the person pause between files. Files already being copied are finished first. */
   pause?: PauseGate;
@@ -302,16 +363,23 @@ export interface OffloadReport {
   database: { folder: string; files: number; bytes: number; complete: boolean; failures: string[] } | null;
   /** Set when the database files could not be saved. The folder then cannot put the iPod back. */
   databaseError: string | null;
+  /** Set when only some of the media was asked for and some tracks were left out. Null for a full copy. */
+  partial: OffloadPartial | null;
   elapsedMs: number;
   bytesPerSecond: number;
 }
 
 type FileState = 'copied' | 'skipped' | 'failed' | 'stopped' | 'waiting';
 
-const README = (when: string, report: OffloadReport): string => `This folder is a full copy of an iPod, made by OpenTunes on ${when}: every music, podcast, audiobook and video file, and the iPod's library, so a single folder can put everything back.
+const README = (when: string, report: OffloadReport): string => `${report.partial
+  ? `This folder is a PARTIAL copy of an iPod, made by OpenTunes on ${when}: the iPod's complete library, and only some of its media files (${describeInclude(report.partial)}).
 
-State of this copy: ${report.complete ? 'complete' : report.stopped ? 'stopped before the end. Run the copy again into this same folder to finish it' : 'not complete, see the notes in the app'}.
-Media files: ${report.files.copied + report.files.skipped} of ${report.files.total} are here${report.files.failed ? `, ${report.files.failed} failed` : ''}.
+NOT EVERYTHING IS HERE. ${partialLine(report.partial, report.tracks)} ${report.partial.tracksNotIncluded} tracks were left out on purpose. They are listed in library.csv with "not included in this copy" in the File column and no path, because they have no file in this folder.
+`
+  : `This folder is a full copy of an iPod, made by OpenTunes on ${when}: every music, podcast, audiobook and video file, and the iPod's library, so a single folder can put everything back.
+`}
+State of this copy: ${report.complete ? 'complete' : report.stopped ? 'stopped before the end. Run the copy again into this same folder to finish it' : 'not complete, see the notes in the app'}${report.partial && report.complete ? ' (complete for what was asked for, which is not everything)' : ''}.
+Media files: ${report.files.copied + report.files.skipped} of ${report.files.total} ${report.partial ? 'asked for ' : ''}are here${report.files.failed ? `, ${report.files.failed} failed` : ''}.
 Library files (database/): ${report.database?.complete ? `${report.database.files} files, each read back and checked` : `NOT saved completely${report.databaseError ? `: ${report.databaseError}` : report.database?.failures.length ? `: ${report.database.failures.join(' ')}` : ''}. This folder cannot put the iPod back until a run saves them`}.
 
 What is in it
@@ -319,7 +387,7 @@ What is in it
                      Album, Album artist, Genre, Kind, Year, Track number, Disc, Length (seconds), Size (bytes),
                      Bitrate (kbps), Rating (0-100, 20 per star), Play count, Date added (UTC), Playlists
                      (names joined with " | ") and File (what happened to the file: copied, already there,
-                     missing on the iPod, failed or not copied).
+                     missing on the iPod, failed, not copied, or not included in this copy).
   playlists.csv      One row per entry of each playlist: Playlist, Position and Path. The list that holds
                      everything is left out.
   F00, F01 ... F49   The iPod's own music folders, copied byte for byte. An iPod gives every file a short
@@ -385,6 +453,8 @@ export interface OffloadMarker {
   mediaBytes: number;
   tracks: number;
   playlists: number;
+  /** Present when only some of the media was copied: which kinds, whether only chosen tracks, and how many tracks are in or out. */
+  partial?: OffloadPartial | null;
   media: MediaEntry[];
 }
 
@@ -431,7 +501,20 @@ function parseMarker(text: string | null, folderName: string): OffloadMarker {
     mediaBytes: media.reduce((sum, entry) => sum + entry.size, 0),
     tracks: Number(parsed.tracks ?? 0),
     playlists: Number(parsed.playlists ?? 0),
+    partial: parsePartial(parsed.partial),
     media,
+  };
+}
+
+function parsePartial(value: unknown): OffloadPartial | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const raw = value as Partial<OffloadPartial>;
+  const count = (entry: unknown): number => (typeof entry === 'number' && Number.isFinite(entry) && entry >= 0 ? Math.floor(entry) : 0);
+  return {
+    kinds: Array.isArray(raw.kinds) ? raw.kinds.map(String) : null,
+    selectedOnly: raw.selectedOnly === true,
+    tracksInCopy: count(raw.tracksInCopy),
+    tracksNotIncluded: count(raw.tracksNotIncluded),
   };
 }
 
@@ -465,10 +548,36 @@ export async function offloadIpod(source: DirectoryEntry, destination: WritableD
   send({ ...emptyProgress, message: 'Reading the iPod...' });
 
   // A stop before the first file is copied ends the run with an AbortError: nothing was made on the computer yet.
-  const { files, folders } = await listMusic(source, signal);
+  const { files: onIpod, folders } = await listMusic(source, signal);
   send({ ...emptyProgress, message: 'Reading the library...' });
   const library = await readLibrary(source, newEngine, mount);
   signal?.throwIfAborted();
+
+  // A partial copy needs the library to know which file is which track. Without it, nothing is guessed.
+  const include = options.include;
+  const filtering = isPartialInclude(include);
+  if (filtering && library.error) {
+    throw new OffloadError(`Only some of the media was asked for, but the iPod's library could not be read, so there is no way to tell which files those are. Nothing was copied. ${library.error}`);
+  }
+  // Which music file each track is, and which of them this copy takes.
+  const byLowerPath = new Map(onIpod.map((file) => [file.path.toLowerCase(), file]));
+  const musicPathOf = (track: TrackInfo): string | null => {
+    const full = mediaPathOf(track.ipod_path);
+    return full ? full.slice('iPod_Control/Music/'.length) : null;
+  };
+  const fileOf = (track: TrackInfo): MusicFile | null => {
+    const path = musicPathOf(track);
+    return path ? (byLowerPath.get(path.toLowerCase()) ?? null) : null;
+  };
+  const wanted = new Set<string>();
+  if (filtering) {
+    const takes = includeMatcher(include);
+    for (const track of library.tracks) {
+      const file = fileOf(track);
+      if (file && takes(track)) wanted.add(file.path);
+    }
+  }
+  const files = filtering ? onIpod.filter((file) => wanted.has(file.path)) : onIpod;
 
   const folder = options.folder
     ? await destination.getDirectoryHandle(options.folder, { create: true })
@@ -626,20 +735,16 @@ export async function offloadIpod(source: DirectoryEntry, destination: WritableD
   const count = (wanted: FileState[]): number => files.filter((file) => wanted.includes(state.get(file.path) as FileState)).length;
 
   // Which tracks have a file, and which do not.
-  const byLowerPath = new Map(files.map((file) => [file.path.toLowerCase(), file]));
-  const musicPathOf = (track: TrackInfo): string | null => {
-    const full = mediaPathOf(track.ipod_path);
-    return full ? full.slice('iPod_Control/Music/'.length) : null;
+  const pathOf = (track: TrackInfo): string => {
+    const file = fileOf(track);
+    if (file && !state.has(file.path)) return ''; // left out on purpose: no file in this folder to point at
+    return file?.path ?? musicPathOf(track) ?? '';
   };
-  const fileOf = (track: TrackInfo): MusicFile | null => {
-    const path = musicPathOf(track);
-    return path ? (byLowerPath.get(path.toLowerCase()) ?? null) : null;
-  };
-  const pathOf = (track: TrackInfo): string => fileOf(track)?.path ?? musicPathOf(track) ?? '';
   const statusOf = (track: TrackInfo): TrackStatus => {
     if (!musicPathOf(track)) return 'no file in the music folders';
     const file = fileOf(track);
     if (!file) return 'missing on the iPod';
+    if (!state.has(file.path)) return 'not included in this copy';
     const result = state.get(file.path);
     return result === 'copied' ? 'copied' : result === 'skipped' ? 'already there' : result === 'failed' ? 'failed' : 'not copied';
   };
@@ -648,7 +753,13 @@ export async function offloadIpod(source: DirectoryEntry, destination: WritableD
     .filter((track) => track.ipod_path && (statusOf(track) === 'missing on the iPod' || statusOf(track) === 'no file in the music folders'))
     .map((track) => ({ path: track.ipod_path as string, title: track.title, artist: track.artist }));
   const listed = new Set(library.tracks.map((track) => fileOf(track)?.path).filter((path): path is string => Boolean(path)));
-  const unlisted = library.error ? [] : files.filter((file) => !listed.has(file.path)).map((file) => file.path);
+  const unlisted = library.error || filtering ? [] : files.filter((file) => !listed.has(file.path)).map((file) => file.path);
+  const tracksNotIncluded = library.tracks.filter((track) => statusOf(track) === 'not included in this copy').length;
+  const tracksInCopy = library.tracks.filter((track) => statusOf(track) === 'copied' || statusOf(track) === 'already there').length;
+  const partial: OffloadPartial | null =
+    filtering && tracksNotIncluded > 0
+      ? { kinds: include.kinds ? [...include.kinds] : null, selectedOnly: include.trackKeys !== undefined, tracksInCopy, tracksNotIncluded }
+      : null;
 
   const result: OffloadReport = {
     folder: folder.name,
@@ -665,6 +776,7 @@ export async function offloadIpod(source: DirectoryEntry, destination: WritableD
     notesError: null,
     database,
     databaseError,
+    partial,
     elapsedMs: clock() - startedAt,
     bytesPerSecond: bytesCopied > 0 ? bytesCopied / Math.max(0.001, (clock() - startedAt) / 1000) : 0,
   };
@@ -685,7 +797,7 @@ export async function offloadIpod(source: DirectoryEntry, destination: WritableD
       app: 'opentunes', kind: 'ipod-offload', formatVersion: OFFLOAD_FORMAT_VERSION, createdAt: now.toISOString(),
       complete: mediaComplete && database?.complete === true, databaseFolder: OFFLOAD_DATABASE_FOLDER,
       mediaFiles: media.length, mediaBytes: media.reduce((sum, entry) => sum + entry.size, 0),
-      tracks: library.tracks.length, playlists: library.playlists.length, media,
+      tracks: library.tracks.length, playlists: library.playlists.length, partial, media,
     };
     await writeBytes(folder, OFFLOAD_MARKER, new TextEncoder().encode(JSON.stringify(marker, null, 2)));
   } catch (error) {
@@ -710,6 +822,8 @@ export interface OffloadSummary {
   playlists: number;
   databaseFiles: number;
   databaseBytes: number;
+  /** Set when the copy holds only some of the media (which kinds, whether only chosen tracks, how many tracks are in and out). Null for a full copy. */
+  partial: OffloadPartial | null;
   /** Set only when the iPod was passed: media files already on it at the right size, and what is left to copy back. */
   onIpod?: { alreadyThere: number; toCopy: number; bytesToCopy: number };
 }
@@ -751,7 +865,7 @@ export async function describeOffload(offload: OffloadSource, root?: IpodRoot): 
   const database = await describeBackup(await openDatabaseFolder(offload, marker));
   const summary: OffloadSummary = {
     createdAt: marker.createdAt, complete: marker.complete, mediaFiles: marker.mediaFiles, mediaBytes: marker.mediaBytes,
-    tracks: marker.tracks, playlists: marker.playlists, databaseFiles: database.files, databaseBytes: database.bytes,
+    tracks: marker.tracks, playlists: marker.playlists, databaseFiles: database.files, databaseBytes: database.bytes, partial: marker.partial ?? null,
   };
   if (root) {
     const { alreadyThere, toCopy } = await planMissing(root, marker.media);
@@ -788,6 +902,10 @@ export interface RestoreOffloadReport {
   complete: boolean;
   /** What happened, in plain words. */
   summary: string;
+  /** Set when the folder held only some of the media. The summary says what that means. */
+  partial: OffloadPartial | null;
+  /** How many tracks the saved library lists. */
+  tracks: number;
   elapsedMs: number;
   bytesPerSecond: number;
 }
@@ -806,6 +924,7 @@ function sayWhatHappened(report: RestoreOffloadReport): string {
   if (report.database === null) text += " The iPod's library was not changed.";
   else if (report.complete) text += ' The saved library was put back, read back and checked.';
   else text += ' The saved library was put back but did not check out cleanly.';
+  if (report.partial) text += ` ${partialLine(report.partial, report.tracks)}`;
   return text;
 }
 
@@ -951,6 +1070,8 @@ export async function restoreOffload(root: IpodRoot, offload: OffloadSource, opt
     database: null,
     complete: false,
     summary: '',
+    partial: marker.partial ?? null,
+    tracks: marker.tracks,
     elapsedMs: clock() - startedAt,
     bytesPerSecond: speed(),
   };

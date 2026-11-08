@@ -1,17 +1,19 @@
 import { useRef, useState } from 'preact/hooks';
 import { formatBytes } from '@opentunes/core';
-import { describeBackup, isOffloadFolder, type BackupSource, type BackupSummary, type DirectoryEntry, type IpodRoot, type RestoreReport } from '@opentunes/engine';
+import { describeBackup, resolveBackupFolder, type BackupSource, type BackupSummary, type DirectoryEntry, type IpodRoot, type RestoreReport } from '@opentunes/engine';
 import { restoreBackup } from './tracked';
+import { WriteWait } from './BackupGate';
 import { ConfirmBox, Notice, useOnce } from './controls';
 import { describeError, isStopped } from './describeError';
 import { newEngine } from './engineLoader';
 import { allowWriting } from './WriteBackPanel';
+import { useReadBlock } from './writeLock';
 import { logError, logOk } from './log';
 
 type State =
   | { phase: 'idle' }
   | { phase: 'working'; message: string; writing: boolean }
-  | { phase: 'chosen'; folder: BackupSource; summary: BackupSummary }
+  | { phase: 'chosen'; folder: BackupSource; summary: BackupSummary; /** The full-copy folder the person chose, when the backup is in its database folder. */ via: string | null }
   | { phase: 'done'; report: RestoreReport }
   | { phase: 'error'; message: string };
 
@@ -27,6 +29,8 @@ export function RestorePanel({ root, onRestored }: { root: DirectoryEntry; /** C
   const [state, setState] = useState<State>({ phase: 'idle' });
   const abort = useRef<AbortController | null>(null);
   const once = useOnce();
+  /** Why restoring is off while a read job runs, or null. */
+  const wait = useReadBlock();
 
   async function choose() {
     const picker = (window as unknown as { showDirectoryPicker?: Picker }).showDirectoryPicker;
@@ -44,12 +48,9 @@ export function RestorePanel({ root, onRestored }: { root: DirectoryEntry; /** C
       }
       setState({ phase: 'working', message: 'Reading the backup...', writing: false });
       try {
-        const folder = handle as BackupSource;
-        if (await isOffloadFolder(folder)) {
-          setState({ phase: 'error', message: `"${folder.name}" is an offload folder, not a backup folder. An offload folder holds everything (music, video, spreadsheets and the library files), and a backup holds only the database files. To put an offload folder back, use "Restore everything from an offload folder" below.` });
-          return;
-        }
-        setState({ phase: 'chosen', folder, summary: await describeBackup(folder) });
+        // A full-copy folder is accepted too: its database folder is the backup, so that is what is used.
+        const { folder, via } = await resolveBackupFolder(handle as BackupSource);
+        setState({ phase: 'chosen', folder, summary: await describeBackup(folder), via });
       } catch (error) {
         setState({ phase: 'error', message: describeError(error) });
       }
@@ -91,7 +92,7 @@ export function RestorePanel({ root, onRestored }: { root: DirectoryEntry; /** C
     <section class="card">
       <h3>Restore from a backup</h3>
       <p class="card-lead">
-        Choose a backup folder made by this page (the one named opentunes-backup-...). Its files are checked against their checksums, then copied back over the same files on the iPod. Nothing is deleted, and your music is not touched.
+        Choose a backup folder made by this page (the one named opentunes-backup-...). A full-copy folder (opentunes-offload-...) works too: its library folder is used. Files are checked against their checksums, then copied back over the same files on the iPod. Nothing is deleted, and your music is not touched.
       </p>
       <button type="button" onClick={() => void choose()} disabled={working}>
         Choose a backup folder
@@ -123,15 +124,22 @@ export function RestorePanel({ root, onRestored }: { root: DirectoryEntry; /** C
           confirmLabel="Restore these files to the iPod"
           cancelLabel="Do not restore"
           danger
+          confirmDisabled={wait !== null}
           onConfirm={() => void restore(state.folder)}
           onCancel={() => setState({ phase: 'idle' })}
         >
+          {state.via ? (
+            <p>
+              <strong>"{state.via}" is a full-copy folder.</strong> The backup of the library is in its folder "{state.folder.name}", so that is what is put back. This restores the library only: music and video files are not copied back. To copy those back too, use "Restore everything from a full copy" below.
+            </p>
+          ) : null}
           <p>
             "{state.folder.name}" holds {state.summary.files} files ({formatBytes(state.summary.bytes)}), made {state.summary.createdAt ? new Date(state.summary.createdAt).toLocaleString() : 'at an unknown time'}.
           </p>
           <p>
             This puts the iPod's library back to how it was at that time. Songs, playlists, ratings and play counts changed since then go back too. Songs added since then stay on the iPod but are no longer listed. Nothing is deleted and no music is touched.
           </p>
+          <WriteWait wait={wait} />
           <p>
             It cannot be undone by itself. To keep a way back, make a backup of the iPod as it is now first (the button above), and restore that one if you change your mind. Once it starts writing it cannot be stopped, but it only takes a few seconds.
           </p>
