@@ -297,6 +297,8 @@ const SCENARIOS = [
         await page.waitFor('Applied 1 edit and 1 new playlist', 90_000);
         await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Library')).click()`);
         await page.waitFor('Smoke Artist');
+        // The library organiser keeps playlists in its own sub-tab.
+        await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.trim().startsWith('Playlists')).click()`);
         await page.waitFor('Smoke mix');
         await page.evaluate(`[...document.querySelectorAll('button[role=tab]')].find((tab) => tab.textContent.startsWith('Assistant')).click()`);
         // Back on the tab: the conversation, the key and the opt-in are still there (this tab's memory), and the old answer cannot be applied twice.
