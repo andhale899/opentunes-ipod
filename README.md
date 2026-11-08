@@ -1,66 +1,92 @@
-# OpenTunes
+# OpenTunes for iPod
 
-A web app that puts music, video, podcasts and audiobooks on a classic iPod without iTunes and without a server. It is built for any Chromium browser on any OS where the iPod mounts as a drive: macOS, Linux and other Unix, ChromeOS, Android and Windows. Nothing has been tried with a real iPod yet, and Linux may need a udev rule and Windows a WinUSB driver for the USB step. Both are unverified.
+Put music, podcasts, audiobooks and video on a classic iPod from a web page, without iTunes and without a server. It runs entirely in your browser: pick the iPod's folder, back it up, add files, and the page converts what the iPod cannot play and writes the iPod's library the way iTunes would.
 
-Personal project. It is not published or hosted anywhere.
+> **Use it at your own risk.** OpenTunes writes to your iPod's database. A bad write can leave an iPod showing an empty or broken library until it is restored. It makes a backup before it writes, reads every write back, undoes itself if anything is off, and can restore the backup, but none of that is a guarantee. It has been tried on **one** device, an iPod nano 7th generation. Other models are listed from specifications and may not work. There is no warranty. Do not use it on an iPod holding the only copy of anything you care about.
 
-## Status
+Not affiliated with or endorsed by Apple. iPod and iTunes are trademarks of Apple Inc.
 
-The project is mid-rebuild, and **nothing syncs yet**. What exists today:
+## What it does
 
-- An environment check page that tells you whether your browser can reach an iPod, and tries USB and folder access against a real one, including how fast Chrome can write to it. It has run once against a real nano 7th generation, see [docs/HARDWARE-TESTING.md](docs/HARDWARE-TESTING.md).
-- A **read-only iPod reader**: pick an iPod's folder and the engine, running in the browser, opens its database and shows the model, how the database is signed, whether the signatures iTunes left on its database files match what the engine computes, and your library and playlists. It never writes. Demo iPods let you try it without hardware.
-- A **backup** button that copies an iPod's database files (library, device and artwork, no music) to a folder you choose and reads every copy back to check it, and a **rewrite check** that writes the database the way a sync would, only inside the engine's memory, and shows what that would change on the iPod. Both are read only on the iPod. The backup and rewrite check have run on a real nano 7th generation. Below them are a **write-back test**, which writes the rebuilt database (no new songs) to the iPod after a verified backup and puts every file back if anything fails, and a **restore** that checks a backup against its checksums and copies it back. Those two are built and tested against in-memory iPods, not yet run on a real one.
-- A device registry that records, per iPod model, what it can play and how far each fact can be trusted. Only the nano 7th generation has capability data so far.
-- Tested core logic for capability detection and duplicate-song matching.
-- The iPod database engine, rebuilt in Docker from pinned sources, with typed bindings. Its tests create, write and re-read databases for music, movies, music videos, TV shows, podcasts and audiobooks (with chapters), including the signed databases a nano 7th generation needs, with no hardware involved.
+- **Reads** an iPod's library: model, how its database is signed, tracks and playlists.
+- **Backs up** the database files to a folder you choose, with every copy read back and checksummed. Nothing writes until a complete backup exists.
+- **Adds** music, podcasts, audiobooks and video, one file or a whole folder with subfolders. Files the iPod cannot play (FLAC, Ogg, Opus, high-resolution WAV, HEVC, VP9 and others) are converted in the page with ffmpeg compiled to WebAssembly. Folder names such as `Audiobooks` or `TV Shows` set what each file is. There is a short guide in the app for how to arrange your files.
+- **Organises**: filter, sort, group, select, bulk-edit tags, and manage playlists.
+- **Offloads**: copies everything off the iPod to your computer as it sits on the iPod, with a CSV that says which title is which file.
+- **Restores** a backup, after checking its checksums.
+- **AI assistant (optional, off by default)**: with your own Claude or OpenAI-style API key, ask in plain words to tidy tags, group audiobook chapters or build playlists. It only proposes changes. You see a preview and approve, and every change goes through the same backup and read-back as everything else. Turning it on sends your tracks' titles, artists, albums and genres (no audio, no file paths) to the provider you choose. See [docs/AI-ORGANISER.md](docs/AI-ORGANISER.md).
 
-The plan is in [docs/ROADMAP.md](docs/ROADMAP.md). The first real feature, music sync to an iPod nano 7th generation, is Phase 2. The engine is ready for it apart from album artwork.
+Nothing is uploaded unless you turn the AI assistant on, and nothing is downloaded from streaming services: OpenTunes only works with files you already have.
 
-Earlier versions of this project included a downloader. That code and its history are gone from this repository, and nothing here fetches music or video from streaming services: OpenTunes works only with files you already have.
+## How well is it tested?
 
-## Run it
+| What | Status |
+| --- | --- |
+| iPod nano 7th generation (the owner's unit, macOS, Chrome) | Reading, signing, backup, a database rewrite, and a sync of songs, a podcast and videos all worked, as reported by the owner. Not recorded in more detail than that, see [docs/HARDWARE-TESTING.md](docs/HARDWARE-TESTING.md). |
+| Every other iPod model | Not tried. Listed from specifications in [docs/DEVICE-SUPPORT.md](docs/DEVICE-SUPPORT.md). |
+| Audiobooks with chapters, Apple Lossless, album art, photos | Built or planned, not confirmed on a device. Album art and photos are not written yet. |
+| Windows, Linux, Android | Not tried. Chrome or Edge on a computer is what it is built for. |
 
-You need Node 20 or newer and Chrome.
+The code is covered by unit tests, engine tests and headless-Chrome checks that run a whole add, convert, remove and edit flow against an iPod held in memory. Those prove the logic, not that a particular iPod accepts the result.
+
+## Using it safely
+
+1. Plug the iPod in so it appears as a drive on your computer.
+2. Open the page in Chrome or Edge on a computer, choose the iPod's folder.
+3. **Back up** on the Backup tab and keep that folder.
+4. Add one or two songs first. Eject the iPod from your computer, unplug it and check it plays.
+5. Only then add more.
+
+## Run it yourself
+
+You need Node 22 or newer and Chrome.
 
 ```
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173 in Chrome. To try it from a phone on your Wi-Fi, follow [docs/ANDROID-TESTING.md](docs/ANDROID-TESTING.md).
-
-Other commands:
+Open http://localhost:5173. The iPod engine is built from source in Docker (`npm run engine:build`, Docker must be running) and the converter is copied from `node_modules` when the app is built, so a fresh clone needs both steps once before the page can open an iPod.
 
 ```
 npm run check        # typecheck, tests and build
-npm run docs:check   # fails if docs/DEVICE-SUPPORT.md is out of date
-npm run engine:build # builds the iPod engine in Docker (needs Docker running)
+npm run engine:build # builds the iPod engine in Docker
 npm run engine:test  # tests the built engine in Node
-npm run smoke        # builds the app and loads the demo iPods in headless Chrome
+npm run smoke        # builds the app and runs the headless-Chrome checks
+npm run docs:check   # fails if docs/DEVICE-SUPPORT.md is out of date
 ```
+
+To try everything with no iPod, press "Try a practice iPod" on the first screen. It lives in memory and changes are gone when you reload.
 
 ## Layout
 
 | Folder | What it holds |
 | --- | --- |
-| `app/` | The web app (Vite, TypeScript, Preact): the environment check and the iPod reader. |
-| `core/` | Pure logic with tests: device registry, capability detection, song identity. |
-| `engine/` | The iPod database engine (libgpod compiled to WebAssembly): C interface, bindings, Docker build, patches, tests. |
-| `docs/` | Architecture, roadmap, device support, test guides, research. |
+| `app/` | The web app (Vite, TypeScript, Preact). |
+| `core/` | Pure logic with tests: device registry, capability detection, the media probe and the plan for copy or convert. |
+| `engine/` | The iPod database engine (libgpod compiled to WebAssembly): C interface, bindings, the Docker build, patches, and the sync, backup, restore and offload code. |
+| `docs/` | Architecture, roadmap, device support, test guides. |
 
-## Docs
+More: [Architecture](docs/ARCHITECTURE.md), [Roadmap](docs/ROADMAP.md), [The engine](docs/ENGINE-BUILD.md), [Hardware tests](docs/HARDWARE-TESTING.md).
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Roadmap](docs/ROADMAP.md)
-- [Device support](docs/DEVICE-SUPPORT.md) (generated)
-- [Testing on Android](docs/ANDROID-TESTING.md)
-- [Hardware test checklist](docs/HARDWARE-TESTING.md)
-- [The engine](docs/ENGINE-BUILD.md)
-- [Third-party notices](THIRD_PARTY.md)
+## Credits
+
+OpenTunes started from the idea behind [TunesReloaded](https://github.com/rish1p/tunesreloaded), which showed that an iPod can be managed from a web page with libgpod compiled to WebAssembly and the File System Access API. No TunesReloaded code is in this repository.
+
+It stands on [libgpod](https://github.com/gtkpod/libgpod), [dstaley/hashab](https://github.com/dstaley/hashab), [SQLite](https://www.sqlite.org), [libplist](https://github.com/libimobiledevice/libplist), [glib](https://gitlab.gnome.org/GNOME/glib), [libxml2](https://gitlab.gnome.org/GNOME/libxml2), [libffi](https://github.com/libffi/libffi), [zlib](https://zlib.net), [pcre2](https://github.com/PCRE2Project/pcre2), [emscripten](https://emscripten.org), [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) and [FFmpeg](https://ffmpeg.org), [Preact](https://preactjs.com) and [Vite](https://vite.dev). Every component, its licence and where it is used are in [THIRD_PARTY.md](THIRD_PARTY.md), and the app's "About, credits and risk" page shows the same list. Thank you to everyone who made them.
+
+## Licence
+
+OpenTunes is free software under the **GNU General Public License, version 3 or later** (see [LICENSE](LICENSE)). The converter bundles a GPL build of FFmpeg, which is why. The engine is built from pinned sources by [engine/Dockerfile](engine/Dockerfile), with this repository's patches, so anyone can rebuild it.
+
+## Problems
+
+Open an issue and fill in the template: it asks for the iPod model, your browser, whether you made a backup, and the copied report. **Never paste your iPod's serial number or FireWire ID.** This is a hobby project and support is best effort.
+
+If a sync goes wrong: do not use the iPod as it is. Restore the backup from the Backup tab, then check it again.
 
 ## Troubleshooting
 
-**`node` fails with `Library not loaded ... libllhttp`.** Homebrew upgraded a library that this Node build links against. Running `brew reinstall node` fixes it.
+**`node` fails with `Library not loaded ... libllhttp`.** Homebrew upgraded a library that this Node build links against. `brew reinstall node` fixes it.
 
-**Chrome says USB or folder access is unavailable.** Open the environment check page. It names the missing feature and what to do about it. The usual cause on a phone is opening the page over plain `http://` on a local address, which Chrome does not treat as secure.
+**Chrome says USB or folder access is unavailable.** Open "Browser and USB checks" (landing page, or Diagnostics once an iPod is open). It names the missing feature and what to do about it.
