@@ -34,6 +34,8 @@ export interface ModelRequest {
   system: string;
   messages: ChatMessage[];
   tools: readonly ToolDefinition[];
+  /** What to add to the system text when the endpoint will not take tools. Defaults to the assistant's JSON instructions. */
+  jsonSuffix?: string;
 }
 
 export interface ModelReply {
@@ -137,9 +139,23 @@ function detailOf(text: string, key: string): string {
   return clean.length > 300 ? `${clean.slice(0, 299)}…` : clean;
 }
 
+export const NOT_A_CHAT_MODEL = 'That model cannot be used for chat here (it is for another kind of request). Pick a different model from the list.';
+
+/** The service says the model exists but is for another endpoint (completions, responses, audio ...). */
+const WRONG_ENDPOINT_STRONG = /not a chat model|did you mean to use v1\/completions|only (supported|available|works?) (in|with|on) (the )?(v1\/)?(responses|completions)\b|only supports? (the )?(v1\/)?(responses|completions)\b|not supported in the v1\/chat\/completions/i;
+/** A vaguer wording, trusted only when the message is not about tools (which has its own fallback). */
+const WRONG_ENDPOINT_WEAK = /not supported (in|by|for|with) (this|the) (endpoint|api)/i;
+const ABOUT_TOOLS = /\btools?\b|tool_choice|function/i;
+
+/** True when a 400 or 404 body says the model is not one this chat endpoint can use. */
+export function isWrongEndpointForModel(detail: string): boolean {
+  return WRONG_ENDPOINT_STRONG.test(detail) || (WRONG_ENDPOINT_WEAK.test(detail) && !ABOUT_TOOLS.test(detail));
+}
+
 function httpError(status: number, bodyText: string, host: string, key: string): ModelError {
   const detail = detailOf(bodyText, key);
   const more = detail ? ` It said: ${detail}` : '';
+  if ((status === 404 || status === 400) && isWrongEndpointForModel(detail)) return new ModelError('bad-request', NOT_A_CHAT_MODEL, { status });
   if (status === 401) return new ModelError('auth', `${host} did not accept the key (401). Check that it is the right key for this service and has not been revoked.${more}`, { status });
   if (status === 403) return new ModelError('auth', `${host} refused this key or model (403). The key may not be allowed to use that model.${more}`, { status });
   if (status === 404) return new ModelError('not-found', `${host} says that address or model does not exist (404). Check the model name, and for another endpoint the base address.${more}`, { status });
@@ -198,6 +214,7 @@ export function parseJsonReply(text: string): ToolCall[] {
   const calls: ToolCall[] = TOOL_NAMES.filter((name) => name in value).map((name) => ({ name, input: value[name] }));
   if (calls.length) return calls;
   // A model that leaves out the wrapper keys.
+  if (Array.isArray(value.verdicts)) calls.push({ name: 'review_duplicates', input: { verdicts: value.verdicts } });
   if (Array.isArray(value.edits)) calls.push({ name: 'propose_edits', input: { edits: value.edits } });
   if (Array.isArray(value.playlists)) calls.push({ name: 'propose_playlists', input: { playlists: value.playlists } });
   if (typeof value.text === 'string') calls.push({ name: 'answer', input: { text: value.text } });
@@ -263,7 +280,7 @@ async function once(config: ProviderConfig, request: ModelRequest, withTools: bo
   const key = cleanKey(config.apiKey);
   const model = config.model.trim();
   const { url, host } = endpointOf(config);
-  const system = withTools ? request.system : request.system + JSON_MODE_SUFFIX;
+  const system = withTools ? request.system : request.system + (request.jsonSuffix ?? JSON_MODE_SUFFIX);
 
   if (config.provider === 'anthropic') {
     const body: Record<string, unknown> = { model, max_tokens: ANTHROPIC_MAX_TOKENS, system, messages: request.messages };
@@ -310,8 +327,21 @@ export interface ModelChoice {
   label: string;
 }
 
-/** Ids on api.openai.com that are not chat models, which would only confuse the list. */
-const NOT_CHAT = /(embedding|whisper|tts|dall-e|moderation|image|realtime|audio|transcribe|search-preview|computer-use|davinci|babbage|instruct|sora)/i;
+/**
+ * Ids on api.openai.com that are not usable with /chat/completions, so they would only confuse
+ * the list: completion-only (instruct, davinci, babbage), Responses-only (codex, deep-research,
+ * the "-pro" models), and models for audio, images, speech, search, moderation or computer use.
+ * Conservative on purpose: an id that is only probably not a chat model is hidden, and can still be
+ * typed in by hand.
+ */
+const NOT_CHAT =
+  /(embed|whisper|tts|speech|dall-e|moderation|image|realtime|audio|transcribe|diarize|translate|search|computer-use|davinci|babbage|instruct|sora|codex|deep-research|gpt-oss|(^|[-_.])pro($|[-_.])|(^|[-_.])live($|[-_.]))/i;
+
+/** ChatGPT-style chat models: gpt-*, o-series (o1, o3 ...) and chatgpt-*. */
+const CHAT_FAMILY = /^(gpt|o\d|chatgpt)/i;
+
+/** Which ids from api.openai.com's list are offered for chat. */
+export const isOpenAiChatModel = (id: string): boolean => CHAT_FAMILY.test(id) && !NOT_CHAT.test(id);
 
 /**
  * Asks the service which models this key can use, so the person picks one instead of typing a
@@ -368,7 +398,7 @@ export async function listModels(config: Pick<ProviderConfig, 'provider' | 'apiK
     choices.push({ id: row.id, label });
   }
   const official = host === 'api.openai.com';
-  const kept = official ? choices.filter((choice) => /^(gpt|o\d|chatgpt)/i.test(choice.id) && !NOT_CHAT.test(choice.id)) : choices;
+  const kept = official ? choices.filter((choice) => isOpenAiChatModel(choice.id)) : choices;
   if (!kept.length) throw new ModelError('bad-reply', `${host} did not list any models this app can use. Type the model name yourself.`);
   // Anthropic lists the newest first. For the others, a descending name sort puts newer versions first more often than not.
   return config.provider === 'anthropic' ? kept : kept.sort((a, b) => b.id.localeCompare(a.id, undefined, { numeric: true }));

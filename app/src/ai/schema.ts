@@ -56,8 +56,8 @@ export interface ToolDefinition {
   schema: Record<string, unknown>;
 }
 
-export type ToolName = 'propose_edits' | 'propose_playlists' | 'answer';
-export const TOOL_NAMES: readonly ToolName[] = ['propose_edits', 'propose_playlists', 'answer'];
+export type ToolName = 'propose_edits' | 'propose_playlists' | 'answer' | 'review_duplicates';
+export const TOOL_NAMES: readonly ToolName[] = ['propose_edits', 'propose_playlists', 'answer', 'review_duplicates'];
 
 const FIELDS_SCHEMA = {
   type: 'object',
@@ -409,5 +409,116 @@ export function validateProposals(calls: ToolCall[], context: ValidationContext)
     }
   }
   result.answer = answers.length ? answers.join('\n\n') : null;
+  return result;
+}
+
+// ---------------------------------------------------------------- reviewing duplicate candidates
+
+export const VERDICTS = ['duplicate', 'different-versions', 'unsure'] as const;
+export type VerdictName = (typeof VERDICTS)[number];
+
+/**
+ * The one tool of the "Find duplicates" review. It is kept apart from TOOLS, which is what the
+ * Assistant tab offers, so that tab can never be asked for a verdict and this one can never be asked
+ * to edit anything. A verdict only changes tick boxes: nothing is removed by it.
+ */
+export const REVIEW_TOOL: ToolDefinition = {
+  name: 'review_duplicates',
+  description:
+    'Give a verdict on each group of tracks: "duplicate" when they are the same recording (the extra copies could be removed), "different-versions" when they are different recordings (live, remix, acoustic, demo, edit, another take or a cover) and all should stay, "unsure" when the details do not settle it. Use the group ids and track ids from the list. When unsure, say unsure. The person reviews everything before anything is removed.',
+  schema: {
+    type: 'object',
+    properties: {
+      verdicts: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            group: { type: 'integer', description: 'The group id from the list.' },
+            verdict: { type: 'string', enum: [...VERDICTS] },
+            keep: { type: 'integer', description: 'Only with "duplicate": the id of the one track of that group to keep.' },
+            reason: { type: 'string', description: 'One short sentence for the person.' },
+          },
+          required: ['group', 'verdict', 'reason'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['verdicts'],
+    additionalProperties: false,
+  },
+};
+
+export const REVIEW_TOOLS: readonly ToolDefinition[] = [REVIEW_TOOL];
+
+export interface ReviewVerdict {
+  group: number;
+  verdict: VerdictName;
+  /** A track id from that group. */
+  keep?: number;
+  reason: string;
+}
+
+export interface ReviewContext {
+  /** The groups that were sent, with the ids of their tracks. An id not in here is unknown. */
+  groups: Map<number, Set<number>>;
+}
+
+export interface ReviewResult {
+  verdicts: ReviewVerdict[];
+  dropped: Dropped[];
+}
+
+const VERDICT_KEYS = new Set(['group', 'verdict', 'keep', 'reason']);
+
+/** Checks a duplicate review. Never throws: anything not allowed goes in `dropped`, and the groups it names stay as they were. */
+export function validateReview(calls: ToolCall[], context: ReviewContext): ReviewResult {
+  const result: ReviewResult = { verdicts: [], dropped: [] };
+  const seen = new Set<number>();
+  for (const call of calls) {
+    if (call.name !== 'review_duplicates') {
+      result.dropped.push({ what: call.name === 'answer' ? 'a text answer' : `a request for "${shorten(String(call.name), 30)}"`, why: 'only verdicts on the groups are used here' });
+      continue;
+    }
+    const list = isObject(call.input) ? call.input.verdicts : undefined;
+    if (!Array.isArray(list)) {
+      result.dropped.push({ what: 'a list of verdicts', why: 'it was not a list' });
+      continue;
+    }
+    for (const raw of list) {
+      if (!isObject(raw)) {
+        result.dropped.push({ what: 'a verdict', why: 'it was not an object' });
+        continue;
+      }
+      const group = asInteger(raw.group);
+      const members = group === null ? undefined : context.groups.get(group);
+      if (group === null || !members) {
+        result.dropped.push({ what: `a verdict on group ${describeValue(raw.group)}`, why: 'that group was not in the list that was sent' });
+        continue;
+      }
+      if (seen.has(group)) {
+        result.dropped.push({ what: `a second verdict on group ${group}`, why: 'each group gets one verdict' });
+        continue;
+      }
+      if (typeof raw.verdict !== 'string' || !(VERDICTS as readonly string[]).includes(raw.verdict)) {
+        result.dropped.push({ what: `the verdict ${describeValue(raw.verdict)} on group ${group}`, why: `it must be one of ${VERDICTS.join(', ')}` });
+        continue;
+      }
+      const verdict = raw.verdict as VerdictName;
+      for (const field of Object.keys(raw)) {
+        if (!VERDICT_KEYS.has(field)) result.dropped.push({ what: `"${shorten(field, 30)}" on group ${group}`, why: 'that is not part of a verdict' });
+      }
+      let keep: number | undefined;
+      if (raw.keep !== undefined) {
+        const id = asInteger(raw.keep);
+        if (verdict !== 'duplicate') result.dropped.push({ what: `a track to keep on group ${group}`, why: `the verdict was ${verdict}, so nothing is kept over anything else` });
+        else if (id === null || !members.has(id)) result.dropped.push({ what: `the track to keep ${describeValue(raw.keep)} on group ${group}`, why: 'that track is not in that group' });
+        else keep = id;
+      }
+      seen.add(group);
+      const reason = typeof raw.reason === 'string' && cleanText(raw.reason) ? shorten(cleanText(raw.reason), LIMITS.reasonChars) : '(no reason given)';
+      result.verdicts.push({ group, verdict, keep, reason });
+    }
+  }
   return result;
 }

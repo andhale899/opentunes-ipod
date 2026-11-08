@@ -71,6 +71,8 @@ Writing the database last means an interrupted sync leaves the iPod with its old
 
 **AI assistant (`app/src/ai/`, `app/src/AssistantPanel.tsx`).** The one place the page talks to another server, and only after an explicit opt-in. A pure digest (`digest.ts`) turns the library into short numbered lines with no paths; `providers.ts` posts it with `fetch` to Anthropic or an OpenAI-style endpoint with forced tool use; `schema.ts` defines the three tools and validates every answer, dropping what is not allowed. The model proposes only. The ticked proposals become `TrackEdit[]` and `PlaylistChange[]` (`apply.ts`) and go through the same planning, backup gate, read-back and rollback as the Library tab. What is sent and stored is in [AI-ORGANISER.md](AI-ORGANISER.md).
 
+**Find duplicates (`app/src/library/duplicates.ts`, `DuplicatesPanel.tsx`, `app/src/ai/review.ts`).** Pure code groups the same song by the identity helpers in `core` with a length tolerance, keeps live and remix versions apart, recommends one copy to keep by a documented score, and builds the playlist steps that stop a playlist losing a song when its copy goes. Removal reuses `planRemoval` and `applyRemoval` behind the backup gate. An optional AI review sends only the candidate groups and can only change tick boxes.
+
 ## What exists
 
 - `core/`: capability detection, song identity, device registry, with tests.
