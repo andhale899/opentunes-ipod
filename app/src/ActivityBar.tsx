@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { dismissFinished, useActivity } from './activity';
+import { dismissFinished, estimateRemaining, formatRemaining, useActivity } from './activity';
 
 const seconds = (since: number, now: number): string => {
   const total = Math.max(0, Math.floor((now - since) / 1000));
@@ -37,6 +37,23 @@ export function ActivityBar() {
               <span class="activity-time"> · {seconds(main.startedAt, now)}</span>
             </strong>
             {main.message ? <span class="activity-step">{main.message}</span> : null}
+            {main.fraction !== null ? (
+              <>
+                <progress class="activity-progress" max={1} value={main.fraction} aria-label="Progress" />
+                <span class="activity-step activity-left">
+                  {Math.round(main.fraction * 100)}% ·{' '}
+                  {(() => {
+                    const left = estimateRemaining(main, now);
+                    return left === null ? 'working out the time left...' : formatRemaining(left);
+                  })()}
+                </span>
+              </>
+            ) : (
+              <>
+                <span class="activity-indeterminate" aria-hidden="true" />
+                {now - main.startedAt > 10_000 ? <span class="activity-step">This step cannot say how long it will take.</span> : null}
+              </>
+            )}
             {writing ? (
               <span class="activity-warn">Do not unplug or eject the iPod, and do not close this tab, until this says it is done.</span>
             ) : null}

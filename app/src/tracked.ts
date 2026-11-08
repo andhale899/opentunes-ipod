@@ -4,7 +4,7 @@
  * names are the engine's own, so a panel only changes where it imports them from.
  */
 import * as engine from '@opentunes/engine';
-import { startActivity } from './activity';
+import { startActivity, type Progress } from './activity';
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype;
@@ -13,6 +13,41 @@ const messageOf = (progress: unknown): string => {
   if (typeof progress === 'string') return progress;
   if (typeof progress === 'object' && progress !== null && typeof (progress as { message?: unknown }).message === 'string') return (progress as { message: string }).message;
   return '';
+};
+
+const numberOf = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+/** Where the sync is, weighted by how long each phase usually takes, so the bar moves forward the whole way. */
+const SYNC_PHASES: Record<string, number> = { checking: 0.02, database: 0.9, verifying: 0.95, deleting: 0.98, done: 1 };
+
+/** Reads how far along an engine report says things are, from the shapes the engine uses. Exported for tests. */
+export function progressOf(progress: unknown): Progress | undefined {
+  if (typeof progress !== 'object' || progress === null) return undefined;
+  const report = progress as Record<string, unknown>;
+  const bytesDone = numberOf(report.bytesDone);
+  const bytesTotal = numberOf(report.bytesTotal);
+  const speed = numberOf(report.bytesPerSecond);
+  const phase = typeof report.phase === 'string' ? report.phase : '';
+  if (bytesDone === null || bytesTotal === null) return undefined;
+  if (phase === 'rolling-back') return undefined; // undoing has no way to say how long it will take
+
+  // An offload reports files as well as bytes: copied so far over everything to copy.
+  const filesDone = numberOf(report.filesDone);
+  const filesTotal = numberOf(report.filesTotal);
+  if (filesTotal !== null) {
+    const fraction = bytesTotal > 0 ? bytesDone / bytesTotal : filesTotal > 0 ? (filesDone ?? 0) / filesTotal : undefined;
+    if (fraction === undefined) return undefined;
+    const left = speed !== null && speed > 0 && bytesTotal > bytesDone ? (bytesTotal - bytesDone) / speed : undefined;
+    return { fraction, etaSeconds: left };
+  }
+
+  // A sync: copying is most of the time, then the database is written and read back.
+  if (phase === 'copying') {
+    const fraction = bytesTotal > 0 ? 0.04 + 0.86 * (bytesDone / bytesTotal) : 0.9;
+    const left = speed !== null && speed > 0 && bytesTotal > bytesDone ? (bytesTotal - bytesDone) / speed + 15 : undefined;
+    return { fraction, etaSeconds: left };
+  }
+  return phase in SYNC_PHASES ? { fraction: SYNC_PHASES[phase] } : undefined;
 };
 
 export function track<A extends unknown[], R>(label: string, writes: boolean, run: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
@@ -26,7 +61,7 @@ export function track<A extends unknown[], R>(label: string, writes: boolean, ru
       patched[patched.length - 1] = {
         ...last,
         onProgress: (progress: unknown) => {
-          handle.update(messageOf(progress));
+          handle.update(messageOf(progress), progressOf(progress));
           original(progress);
         },
       };

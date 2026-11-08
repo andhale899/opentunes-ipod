@@ -1916,3 +1916,63 @@ button.plist[aria-pressed='true'] {
   flex: 1 1 14rem;
   min-width: 0;
 }
+
+/* ---- time left ---- */
+
+.activity-progress {
+  width: 100%;
+  max-width: 28rem;
+  height: 0.5rem;
+  margin: 0.25rem 0 0;
+  background: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.activity-progress::-webkit-progress-bar {
+  background: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.activity-progress::-webkit-progress-value {
+  background: currentColor;
+}
+
+.activity-progress::-moz-progress-bar {
+  background: currentColor;
+}
+
+.activity-left {
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-indeterminate {
+  position: relative;
+  display: block;
+  width: 100%;
+  max-width: 28rem;
+  height: 0.5rem;
+  margin: 0.25rem 0 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.activity-indeterminate::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 -40%;
+  width: 40%;
+  border-radius: inherit;
+  background: currentColor;
+  animation: slide 1.4s ease-in-out infinite;
+}
+
+@keyframes slide {
+  to {
+    left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-indeterminate::after {
+    animation-duration: 4s;
+  }
+}
