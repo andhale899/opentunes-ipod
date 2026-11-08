@@ -102,7 +102,7 @@ const nano7g: DeviceModel = {
   },
   deviceDeclared: {
     source: 'engine/data/7_nano_SysInfoExtended.plist',
-    note: 'Dumped from a real nano 7G by the author of the upstream TunesReloaded project, not from your unit. Compare it with the SysInfoExtended on your own iPod in Phase 2.',
+    note: 'The description file of a real nano 7G with its FireWire ID, serial number and MLBN scrubbed. The owner\'s own unit gives the identical file once those three values are replaced (checked 2026-11-07).',
     volumeFormat: 'FAT32',
     maxTracks: 65534,
     maxFileSizeGB: 4,

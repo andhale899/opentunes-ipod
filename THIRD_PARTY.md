@@ -29,7 +29,7 @@ Linking LGPL libraries statically means that anyone given the compiled engine mu
 
 | Component | Where | Licence | Notes |
 | --- | --- | --- | --- |
-| SysInfoExtended templates | `engine/data/` | Unknown | Dumped from a real nano and kept as a fallback. The device's serial numbers were removed. They come from the same upstream repository. |
+| SysInfoExtended template | `engine/data/7_nano_SysInfoExtended.plist` | None stated. It is the data a nano 7th generation reports about itself. | Checked on 2026-11-07: the owner's own nano gives this exact file, byte for byte, once three ID values (FireWire ID, serial number and MLBN) are replaced by placeholders. A nano 5th generation template that came from TunesReloaded's repository was removed, because it could not be checked against a unit we own. |
 | hashAB test vectors | `engine/test/hashab-vectors.json` | The Unlicense | From `dstaley/hashab` at the pinned commit. |
 
 ## Loaded by the converter

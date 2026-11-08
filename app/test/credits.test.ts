@@ -31,7 +31,7 @@ describe('reading the credits out of the repository files', () => {
     expect(licenceOf('@ffmpeg/ffmpeg')).toBe('MIT (package.json)');
     expect(licenceOf('Preact')).toBe('MIT (package.json)');
     expect(licenceOf('Vite')).toBe('MIT (package.json)');
-    expect(licenceOf('SysInfoExtended')).toBe('Unknown');
+    expect(licenceOf('SysInfoExtended')).toBe('None stated. It is the data a nano 7th generation reports about itself.');
     // Every row of every table has a licence cell that is not empty.
     for (const { row } of rows) expect(row.Licence, row.Component).toBeTruthy();
   });
